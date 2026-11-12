@@ -9,6 +9,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from lifeos import __version__
+from lifeos.connectors.github.client import GitHubClient, GitHubError
+from lifeos.connectors.github.sync import GitHubConnector, SyncError
 from lifeos.core import auth
 from lifeos.core.config import Settings, get_settings
 from lifeos.core.vault import RevisionConflict, Vault, VaultPathError
@@ -17,6 +19,8 @@ from lifeos.modules.knowledge.router import build_router as knowledge_router
 from lifeos.modules.knowledge.service import KnowledgeService
 from lifeos.modules.notes.router import build_router as notes_router
 from lifeos.modules.notes.store import NotesStore
+from lifeos.modules.tickets.router import build_router as tickets_router
+from lifeos.modules.tickets.service import TicketService
 from lifeos.modules.workspaces.router import build_router as workspaces_router
 from lifeos.modules.workspaces.service import FeedbackError, WorkspaceService
 
@@ -46,6 +50,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def _feedback(_: Request, exc: FeedbackError) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=exc.status)
 
+    @app.exception_handler(SyncError)
+    async def _sync(_: Request, exc: SyncError) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=exc.status)
+
+    @app.exception_handler(GitHubError)
+    async def _github(_: Request, exc: GitHubError) -> JSONResponse:
+        return JSONResponse({"detail": f"GitHub: {exc}"}, status_code=502)
+
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok", "version": __version__}
@@ -56,6 +68,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(knowledge_router(knowledge, KnowledgeIndex(knowledge.root)))
     app.include_router(notes_router(NotesStore(vault)))
     app.include_router(workspaces_router(WorkspaceService(vault)))
+
+    token = settings.github_token
+    github = GitHubConnector(
+        vault,
+        (lambda: GitHubClient(token)) if token else None,
+        settings.github_repo_list,
+        settings.github_project,
+    )
+    app.include_router(tickets_router(TicketService(github)))
 
     if settings.static_dir:
         _mount_spa(app, settings.static_dir)

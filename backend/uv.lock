@@ -379,6 +379,7 @@ source = { editable = "." }
 dependencies = [
     { name = "argon2-cffi" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "itsdangerous" },
     { name = "pydantic-settings" },
     { name = "pyyaml" },
@@ -396,6 +397,7 @@ dev = [
 requires-dist = [
     { name = "argon2-cffi", specifier = ">=23.1" },
     { name = "fastapi", specifier = ">=0.162" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "itsdangerous", specifier = ">=2.2" },
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "pyyaml", specifier = ">=6.0" },

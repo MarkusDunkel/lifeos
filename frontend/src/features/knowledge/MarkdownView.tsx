@@ -64,9 +64,11 @@ type Props = {
   files: string[];
   /** Annotate elements with their source lines (used for feedback targeting). */
   sourceLines?: boolean;
+  /** Smaller type for side panels. */
+  compact?: boolean;
 };
 
-export function MarkdownView({ content, path, files, sourceLines = false }: Props) {
+export function MarkdownView({ content, path, files, sourceLines = false, compact = false }: Props) {
   const { frontmatter, body } = useMemo(() => splitFrontmatter(content), [content]);
   const rehypePlugins = useMemo(
     () => (sourceLines ? [rehypeSourceLines(bodyLineOffset(content, body))] : []),
@@ -83,7 +85,7 @@ export function MarkdownView({ content, path, files, sourceLines = false }: Prop
   };
 
   return (
-    <article className="prose prose-slate max-w-none dark:prose-invert prose-headings:scroll-mt-4 prose-a:text-sky-600 dark:prose-a:text-sky-400 prose-img:rounded-lg">
+    <article className={`prose prose-slate ${compact ? "prose-sm" : ""} max-w-none dark:prose-invert prose-headings:scroll-mt-4 prose-a:text-sky-600 dark:prose-a:text-sky-400 prose-img:rounded-lg`}>
       {frontmatter && (
         <pre className="not-prose mb-6 overflow-x-auto rounded-lg bg-slate-100 p-3 text-xs text-slate-600 dark:bg-slate-900 dark:text-slate-400">
           {frontmatter}

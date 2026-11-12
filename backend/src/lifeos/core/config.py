@@ -31,6 +31,19 @@ class Settings(BaseSettings):
     static_dir: Path | None = Field(
         default=None, description="Directory with the built frontend; served as SPA if set."
     )
+    github_token: str | None = Field(
+        default=None, description="GitHub token (scopes: repo, project) for the tickets sync."
+    )
+    github_repos: str = Field(
+        default="", description="Comma-separated repositories to mirror, e.g. `me/board,me/app`."
+    )
+    github_project: str | None = Field(
+        default=None, description="Projects v2 board as `owner/number`, e.g. `me/3`."
+    )
+
+    @property
+    def github_repo_list(self) -> list[str]:
+        return [r.strip() for r in self.github_repos.split(",") if r.strip()]
 
 
 @lru_cache
