@@ -121,6 +121,7 @@ def api(vault_root: Path, gh: FakeGitHub, monkeypatch: pytest.MonkeyPatch) -> Te
         github_token="test-token",
         github_repos=REPO,
         github_project="me/1",
+        github_project_view=2,
     )
     c = TestClient(create_app(settings))
     assert c.post("/api/auth/login", json={"password": PASSWORD}).status_code == 200
@@ -158,6 +159,7 @@ def test_sync_writes_files_inbox_and_meta(api: TestClient, vault_root: Path) -> 
     data = api.get("/api/tickets").json()
     assert data["meta"]["fields"]["Status"]["options"] == ["Todo", "Done"]
     assert data["meta"]["labels"][REPO] == ["bug", "docs"]
+    assert data["meta"]["project_url"] == "https://example.invalid/views/2"
     assert [t["changes"] for t in data["tickets"]] == [[], []]
     assert sync(api)["unchanged"] == 2
 

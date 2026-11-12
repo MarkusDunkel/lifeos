@@ -10,6 +10,7 @@ const meta = (fields: Meta["fields"]): Meta => ({
   labels: {},
   assignees: {},
   synced_at: null,
+  project_url: null,
 });
 
 const status = { Status: { type: "SINGLE_SELECT" as const, options: ["Todo", "Done"] } };

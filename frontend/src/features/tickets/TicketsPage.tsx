@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleDot, ExternalLink, GitPullRequestArrow, LayoutGrid, List, Plus, RefreshCw, Search, TriangleAlert } from "lucide-react";
+import { CircleDot, ExternalLink, GitPullRequestArrow, Map as MapIcon, LayoutGrid, List, Plus, RefreshCw, Search, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, qs } from "../../lib/api";
 import { formatTime } from "../workspaces/review";
@@ -103,6 +103,17 @@ export function TicketsPage({ search, onChange }: Props) {
                 className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-3 pl-8 text-sm focus:border-sky-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900"
               />
             </div>
+            {meta.project_url && (
+              <a
+                href={meta.project_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`${btn} ring-1 ring-slate-200 hover:bg-slate-100 dark:ring-slate-700 dark:hover:bg-slate-800`}
+                title="Open the project board on GitHub"
+              >
+                <MapIcon className="size-4" /> Roadmap
+              </a>
+            )}
             <button onClick={sync} disabled={syncing || !meta.configured} className={`${btn} ring-1 ring-slate-200 hover:bg-slate-100 dark:ring-slate-700 dark:hover:bg-slate-800`} title="Fetch from GitHub and merge">
               <RefreshCw className={`size-4 ${syncing ? "animate-spin" : ""}`} /> Sync
             </button>

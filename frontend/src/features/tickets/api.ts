@@ -11,6 +11,8 @@ export type Meta = {
   labels: Record<string, string[]>;
   assignees: Record<string, string[]>;
   synced_at: string | null;
+  /** The project board on GitHub (shown as "Roadmap"). */
+  project_url: string | null;
 };
 
 export type TicketSummary = {

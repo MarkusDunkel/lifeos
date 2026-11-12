@@ -85,7 +85,9 @@ class GitHubConnector:
         repos: list[str],
         project: str | None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        project_view: int | None = None,
     ):
+        self.project_view = project_view
         self.vault = vault
         self._api_factory = api_factory
         self.repos = repos
@@ -130,7 +132,14 @@ class GitHubConnector:
             "labels": data.get("labels", {}),
             "assignees": data.get("assignees", {}),
             "synced_at": data.get("synced_at"),
+            "project_url": self._project_url(data.get("project_url")),
         }
+
+    def _project_url(self, url: str | None) -> str | None:
+        """Link to the board on GitHub (a specific view if configured)."""
+        if not url:
+            return None
+        return f"{url}/views/{self.project_view}" if self.project_view else url
 
     # -- files -------------------------------------------------------------------
 
@@ -206,6 +215,7 @@ class GitHubConnector:
             "fields": {n: {"type": f.type, "options": list(f.options)} for n, f in fields.items()},
             "labels": {},
             "assignees": {},
+            "project_url": project.url if project else None,
         }
         for repo in self.repos:
             try:

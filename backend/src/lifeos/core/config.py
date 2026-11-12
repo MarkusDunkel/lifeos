@@ -41,6 +41,9 @@ class Settings(BaseSettings):
         default=None, description="Projects v2 board as `owner/number`, e.g. `me/3`."
     )
 
+    github_project_view: int | None = Field(
+        default=None, description="View number for the Roadmap link, e.g. `3` (…/views/3)."
+    )
     state_dir: Path | None = Field(
         default=None,
         description="Directory outside the vault for connector tokens (e.g. `deploy/state`).",
