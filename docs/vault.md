@@ -27,6 +27,33 @@ source ──ingest──▶ inbox/ ──normalise/merge──▶ ready/ ◀─
                                    apply ────────▶ source, result in outbox/
 ```
 
+## Notes
+
+`ready/notes/*.jsonl` holds one note per line:
+
+```json
+{"cells": {"body": "…", "created": "2026-01-02T10:00:00.000Z", "lastChanged": "…", "type": "Task"}, "id": "<uuid>", "order": 3}
+```
+
+- `cells` is an open set of fields; the app keeps fields it does not know.
+- `created` and `lastChanged` are maintained by the app (ISO 8601, UTC).
+- New notes go to `notes-<year>.jsonl`. Saving rewrites only the changed line (keys
+  sorted, UTF-8 unescaped), so diffs stay minimal. Lines that are not notes are kept.
+- The revision of a note is a hash of its line: concurrent edits of different notes
+  never conflict; a stale edit of the same note gets HTTP 409.
+- The grid infers column types from the data (long text, category, date, timestamp).
+  An optional `ready/notes/schema.json` sets labels, options, order and hidden fields:
+
+```json
+{"fields": [
+  {"key": "type", "label": "Type", "kind": "select", "options": ["Task", "Info"]},
+  {"key": "source", "hidden": true}
+]}
+```
+
+`kind` is one of `text`, `select`, `string`, `date`, `datetime`. Select fields still
+accept new values.
+
 ## Workspace lifecycle
 
 1. **Create** — an agent writes exactly one Markdown file into `ready/workspaces/`.

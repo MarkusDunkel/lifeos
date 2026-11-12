@@ -36,7 +36,8 @@ Browser / PWA ──HTTPS── web (FastAPI + static React build) ──┐
 | `core/auth.py` | Single-user login, argon2 password hash, signed HttpOnly session cookie |
 | `core/vault_init.py` | Idempotent vault skeleton incl. git and push block |
 | `modules/knowledge` | Tree, read/write, FTS5 search, wikilink backlinks |
-| `modules/notes`, `workspaces`, `tickets`, `agents` | Upcoming review gates |
+| `modules/notes` | JSON Lines store with per-note revisions, column schema (inferred or `schema.json`) |
+| `modules/workspaces`, `tickets`, `agents` | Upcoming review gates |
 | `connectors/` | Ingest/digest adapters (GitHub first) |
 
 ## Editing safety

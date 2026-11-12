@@ -15,6 +15,8 @@ from lifeos.core.vault import RevisionConflict, Vault, VaultPathError
 from lifeos.modules.knowledge.index import KnowledgeIndex
 from lifeos.modules.knowledge.router import build_router as knowledge_router
 from lifeos.modules.knowledge.service import KnowledgeService
+from lifeos.modules.notes.router import build_router as notes_router
+from lifeos.modules.notes.store import NotesStore
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -46,6 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     knowledge = KnowledgeService(vault)
     app.include_router(knowledge_router(knowledge, KnowledgeIndex(knowledge.root)))
+    app.include_router(notes_router(NotesStore(vault)))
 
     if settings.static_dir:
         _mount_spa(app, settings.static_dir)
