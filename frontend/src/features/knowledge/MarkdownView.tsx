@@ -32,6 +32,14 @@ function remarkWikilinks() {
   };
 }
 
+const safeDecode = (s: string) => {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+};
+
 const urlTransform = (url: string) => (url.startsWith(WIKI) ? url : defaultUrlTransform(url));
 
 type HastNode = {
@@ -86,7 +94,8 @@ export function MarkdownView({
 
   const resolve = (href: string): { internal: string | null; missing?: boolean } => {
     if (href.startsWith(WIKI)) {
-      const target = resolveWikilink(href.slice(WIKI.length), files, path);
+      // mdast-util-to-hast percent-encodes link URLs (spaces → %20); undo that first.
+      const target = resolveWikilink(safeDecode(href.slice(WIKI.length)), files, path);
       return target ? { internal: target } : { internal: null, missing: true };
     }
     if (isExternal(href) || href.startsWith("#")) return { internal: null };

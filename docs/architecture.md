@@ -17,6 +17,7 @@ Highly sensitive material belongs in notes or the knowledge hub, not in issues.
 
 PowerPoint files live in the user's OneDrive (so they open in PowerPoint for the web);
 the vault only mirrors their text. LifeOS reads OneDrive and never writes to it.
+Moodle course materials follow the same rule: Moodle keeps the files, the vault their text.
 
 ## Runtime
 
@@ -45,6 +46,9 @@ Browser / PWA ──HTTPS── web (FastAPI + static React build) ──┐
 | `modules/agents` | Upcoming review gate |
 | `connectors/github` | GraphQL client, ingest → 3-way merge, write-back plans and apply |
 | `connectors/onedrive` | Microsoft device-code sign-in, read-only Graph client, `.pptx` text extraction, one-way mirror into the knowledge hub |
+| `connectors/moodle` | Moodle web service client (read-only), token sign-in, incremental mirror of course materials and overviews |
+| `core/extract` | Text extraction to Markdown: PDF (pypdf), PowerPoint, Word, HTML, plain text |
+| `modules/moodle` | Status, connect, course selection and sync endpoints |
 | `modules/presentations` | Status, connect/disconnect and sync endpoints for the mirror |
 
 ## Editing safety

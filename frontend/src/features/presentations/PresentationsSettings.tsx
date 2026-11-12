@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Presentation, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type DeviceCode, disconnect, pollConnect, presentationsStatusQuery, startConnect, syncPresentations } from "./api";
-import { summarize } from "./presentation";
+import { summarize } from "../mirrors/mirror";
 
 const btn =
   "inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800";

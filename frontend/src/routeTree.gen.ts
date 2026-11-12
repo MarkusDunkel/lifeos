@@ -14,6 +14,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAgentsRouteImport } from './routes/_app/agents'
 import { Route as AppKnowledgeRouteImport } from './routes/_app/knowledge'
+import { Route as AppMoodleRouteImport } from './routes/_app/moodle'
 import { Route as AppNotesRouteImport } from './routes/_app/notes'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppTicketsRouteImport } from './routes/_app/tickets'
@@ -45,6 +46,11 @@ const AppAgentsRoute = AppAgentsRouteImport.update({
 const AppKnowledgeRoute = AppKnowledgeRouteImport.update({
   id: '/knowledge',
   path: '/knowledge',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMoodleRoute = AppMoodleRouteImport.update({
+  id: '/moodle',
+  path: '/moodle',
   getParentRoute: () => AppRoute,
 } as any)
 const AppNotesRoute = AppNotesRouteImport.update({
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/agents': typeof AppAgentsRoute
   '/knowledge': typeof AppKnowledgeRouteWithChildren
+  '/moodle': typeof AppMoodleRoute
   '/notes': typeof AppNotesRoute
   '/settings': typeof AppSettingsRoute
   '/tickets': typeof AppTicketsRoute
@@ -105,6 +112,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/agents': typeof AppAgentsRoute
+  '/moodle': typeof AppMoodleRoute
   '/notes': typeof AppNotesRoute
   '/settings': typeof AppSettingsRoute
   '/tickets': typeof AppTicketsRoute
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_app/agents': typeof AppAgentsRoute
   '/_app/knowledge': typeof AppKnowledgeRouteWithChildren
+  '/_app/moodle': typeof AppMoodleRoute
   '/_app/notes': typeof AppNotesRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/tickets': typeof AppTicketsRoute
@@ -137,6 +146,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/agents'
     | '/knowledge'
+    | '/moodle'
     | '/notes'
     | '/settings'
     | '/tickets'
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
   to:
     | '/login'
     | '/agents'
+    | '/moodle'
     | '/notes'
     | '/settings'
     | '/tickets'
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/_app/agents'
     | '/_app/knowledge'
+    | '/_app/moodle'
     | '/_app/notes'
     | '/_app/settings'
     | '/_app/tickets'
@@ -214,6 +226,13 @@ declare module '@tanstack/react-router' {
       path: '/knowledge'
       fullPath: '/knowledge'
       preLoaderRoute: typeof AppKnowledgeRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/moodle': {
+      id: '/_app/moodle'
+      path: '/moodle'
+      fullPath: '/moodle'
+      preLoaderRoute: typeof AppMoodleRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/notes': {
@@ -306,6 +325,7 @@ const AppWorkspacesRouteWithChildren = AppWorkspacesRoute._addFileChildren(
 interface AppRouteChildren {
   AppAgentsRoute: typeof AppAgentsRoute
   AppKnowledgeRoute: typeof AppKnowledgeRouteWithChildren
+  AppMoodleRoute: typeof AppMoodleRoute
   AppNotesRoute: typeof AppNotesRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppTicketsRoute: typeof AppTicketsRoute
@@ -316,6 +336,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppAgentsRoute: AppAgentsRoute,
   AppKnowledgeRoute: AppKnowledgeRouteWithChildren,
+  AppMoodleRoute: AppMoodleRoute,
   AppNotesRoute: AppNotesRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppTicketsRoute: AppTicketsRoute,

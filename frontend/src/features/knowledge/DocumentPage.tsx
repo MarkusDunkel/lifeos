@@ -4,8 +4,8 @@ import { ArrowLeft, Check, Eye, Link2, Pencil, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError } from "../../lib/api";
 import { backlinksQuery, deleteDoc, docQuery, saveDoc, treeQuery } from "./api";
-import { PresentationBar } from "../presentations/PresentationBar";
-import { presentationOf } from "../presentations/presentation";
+import { MirrorBar } from "../mirrors/MirrorBar";
+import { mirrorOf } from "../mirrors/mirror";
 import { assetUrl, flattenFiles, isImage, isMarkdown, splitFrontmatter } from "./links";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { MarkdownView } from "./MarkdownView";
@@ -59,9 +59,9 @@ function MarkdownPage({ path, startInEdit }: { path: string; startInEdit: boolea
   const tree = useQuery(treeQuery);
   const backlinks = useQuery(backlinksQuery(path));
   const files = useMemo(() => (tree.data ? flattenFiles(tree.data) : []), [tree.data]);
-  // Mirrors of OneDrive presentations are read-only and get their own header card.
+  // Mirrors (OneDrive presentations, Moodle) are read-only and get their own header card.
   const parts = useMemo(() => splitFrontmatter(doc.data?.content ?? ""), [doc.data?.content]);
-  const presentation = useMemo(() => presentationOf(parts.frontmatter), [parts.frontmatter]);
+  const mirror = useMemo(() => mirrorOf(parts.frontmatter), [parts.frontmatter]);
 
   const [editing, setEditing] = useState(startInEdit);
   const [draft, setDraft] = useState<string | null>(null);
@@ -148,7 +148,7 @@ function MarkdownPage({ path, startInEdit }: { path: string; startInEdit: boolea
           </>
         ) : (
           <>
-            {!presentation && (
+            {!mirror && (
               <button onClick={() => setEditing(true)} className={`${btn} hover:bg-slate-100 dark:hover:bg-slate-800`}>
                 <Pencil className="size-4" /> Edit
               </button>
@@ -186,8 +186,8 @@ function MarkdownPage({ path, startInEdit }: { path: string; startInEdit: boolea
           </div>
         ) : (
           <div className="mx-auto max-w-3xl px-4 py-6 sm:px-8">
-            {presentation && <PresentationBar meta={presentation} body={parts.body} />}
-            <MarkdownView content={content} path={path} files={files} hideFrontmatter={presentation !== null} />
+            {mirror && <MirrorBar meta={mirror} body={parts.body} />}
+            <MarkdownView content={content} path={path} files={files} hideFrontmatter={mirror !== null} />
             {backlinks.data && backlinks.data.length > 0 && (
               <section className="mt-12 border-t border-slate-200 pt-4 dark:border-slate-800">
                 <h2 className="mb-2 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">

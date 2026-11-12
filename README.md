@@ -31,6 +31,8 @@ I work together with AI agents — study notes, a knowledge hub, short-lived AI 
 | Agents: Claude Agent SDK runner, schedules, issue-triggered jobs | planned |
 | Tickets: GitHub Issues + Projects v2 mirror with 3-way merge and reviewed write-back | ✅ |
 | Presentations: text mirror of OneDrive PowerPoints, one click opens PowerPoint for the web | ✅ |
+| Moodle: course materials (PDF, slides, documents, pages) as searchable text mirrors | ✅ |
+| Moodle deadlines as GitHub issues (reviewed via plans) | planned |
 
 ## Architecture
 
@@ -91,6 +93,7 @@ Development happens in review gates; each gate is usable on its own.
 5. **R5** GitHub Issues & Projects sync
 6. **R6** 24/7 operation: schedules, backups, deployment guide
 7. **R7** Presentations: OneDrive PowerPoint mirror
+8. **R8** Moodle: course materials (R8a) and deadlines as issues (R8b)
 
 ## License
 

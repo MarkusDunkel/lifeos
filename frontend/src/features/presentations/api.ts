@@ -1,15 +1,8 @@
+import type { MirrorReport } from "../mirrors/mirror";
 import { queryOptions } from "@tanstack/react-query";
 import { api } from "../../lib/api";
 
-export type SyncReport = {
-  created: string[];
-  updated: string[];
-  renamed: string[];
-  deleted: string[];
-  unchanged: number;
-  errors: string[];
-  synced_at: string;
-};
+export type SyncReport = MirrorReport;
 
 export type PresentationsStatus = {
   configured: boolean;

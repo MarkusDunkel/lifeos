@@ -56,6 +56,14 @@ class Settings(BaseSettings):
         description="Folder in the knowledge hub that receives the presentation mirrors.",
     )
 
+    moodle_url: str | None = Field(
+        default=None, description="Moodle site, e.g. `https://moodle.example.edu`."
+    )
+    moodle_dir: str = Field(
+        default="Moodle",
+        description="Folder in the knowledge hub that receives the course mirrors.",
+    )
+
     @property
     def github_repo_list(self) -> list[str]:
         return [r.strip() for r in self.github_repos.split(",") if r.strip()]

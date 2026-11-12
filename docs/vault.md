@@ -6,7 +6,8 @@ vault/
 ├── ready/                 the workbench ("AI ready") — the only place humans and agents edit
 │   ├── notes/             notes as JSON Lines
 │   ├── knowledge/         knowledge hub, an Obsidian-compatible Markdown vault
-│   │   └── Presentations/ text mirrors of OneDrive PowerPoints (read-only)
+│   │   ├── Presentations/ text mirrors of OneDrive PowerPoints (read-only)
+│   │   └── Moodle/        text mirrors of Moodle course materials (read-only)
 │   ├── tickets/           GitHub issue mirror: <owner>/<repo>/<number>-<slug>.md
 │   └── workspaces/        short-lived AI reports (flat)
 │       ├── aenderungsprotokoll/   change log per processed report
@@ -108,6 +109,33 @@ OneDrive/<LIFEOS_ONEDRIVE_FOLDER>/**/*.pptx ──sync──▶ ready/knowledge/
    The Microsoft refresh token is stored there — outside the vault, never in git.
 4. In the app: Settings → Presentations → "Connect Microsoft account", enter the code
    shown at microsoft.com/devicelogin, then "Sync presentations".
+
+## Moodle
+
+```
+Moodle ──sync──▶ ready/knowledge/<LIFEOS_MOODLE_DIR>/<Course>/<Course>.md          overview per course
+               ▶ ready/knowledge/<LIFEOS_MOODLE_DIR>/<Course>/<NN Section>/<File>.md  text mirror per file
+               ▶ .lifeos/moodle/state.json   what was taken over: per file timemodified + size
+```
+
+- Moodle is the source of truth; files stay there. The vault gets the text of PDFs, `.pptx`,
+  `.docx`, Moodle pages (HTML) and text files, each with frontmatter `type: moodle-file`,
+  `course`, `section`, `url` (the activity in Moodle), `file`, `moodle_id`, `modified`,
+  `pages` and `mirror: true`. Other files (videos, archives, …) and files over 50 MB are only
+  linked from the course overview. A PDF without text (a scan) gets a note saying so.
+- The course overview (`type: moodle-course`) lists every section with its description,
+  links to the mirrored files (`[[wikilinks]]`) and to all other activities in Moodle.
+- A sync only downloads files whose `timemodified` or size changed. Moved or renamed files
+  move their note; removed ones keep it with `status: deleted`. Notes that are not the mirror
+  of that file are never overwritten. Only the selected courses are synced (by default the
+  current ones; see the Moodle page).
+- LifeOS only reads from Moodle. Sign-in: username and password are sent once to
+  `login/token.php` (service `moodle_mobile_app`); only the resulting token is stored, in
+  `LIFEOS_STATE_DIR/moodle-token.json` outside the vault. If the site blocks this, paste a
+  token from Moodle → Preferences → Security keys instead.
+
+Setup: set `LIFEOS_MOODLE_URL` (e.g. `https://moodle.example.edu`) and optionally
+`LIFEOS_MOODLE_DIR` in `deploy/.env`, restart, then connect on the Moodle page.
 
 ## Workspace lifecycle
 

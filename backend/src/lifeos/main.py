@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from lifeos import __version__
 from lifeos.connectors.github.client import GitHubClient, GitHubError
 from lifeos.connectors.github.sync import GitHubConnector, SyncError
+from lifeos.connectors.moodle.client import MoodleClient, MoodleError
+from lifeos.connectors.moodle.sync import MoodleAccess, MoodleSync
 from lifeos.connectors.onedrive.auth import MicrosoftAuth, OneDriveError
 from lifeos.connectors.onedrive.client import GraphClient
 from lifeos.connectors.onedrive.sync import PresentationsSync
@@ -20,6 +22,7 @@ from lifeos.core.vault import RevisionConflict, Vault, VaultPathError
 from lifeos.modules.knowledge.index import KnowledgeIndex
 from lifeos.modules.knowledge.router import build_router as knowledge_router
 from lifeos.modules.knowledge.service import KnowledgeService
+from lifeos.modules.moodle.router import build_router as moodle_router
 from lifeos.modules.notes.router import build_router as notes_router
 from lifeos.modules.notes.store import NotesStore
 from lifeos.modules.presentations.router import build_router as presentations_router
@@ -66,6 +69,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def _onedrive(_: Request, exc: OneDriveError) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=exc.status)
 
+    @app.exception_handler(MoodleError)
+    async def _moodle(_: Request, exc: MoodleError) -> JSONResponse:
+        return JSONResponse({"detail": f"Moodle: {exc}"}, status_code=exc.status)
+
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok", "version": __version__}
@@ -86,6 +93,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(tickets_router(TicketService(github)))
     app.include_router(_presentations(settings, vault))
+    app.include_router(_moodle_router(settings, vault))
 
     if settings.static_dir:
         _mount_spa(app, settings.static_dir)
@@ -108,6 +116,21 @@ def _presentations(settings: Settings, vault: Vault):
     factory = (lambda: GraphClient(auth.access_token)) if auth and not missing else None
     sync = PresentationsSync(vault, factory, settings.onedrive_folder, settings.presentations_dir)
     return presentations_router(sync, auth, missing)
+
+
+def _moodle_router(settings: Settings, vault: Vault):
+    missing = [
+        name
+        for name, value in (
+            ("LIFEOS_MOODLE_URL", settings.moodle_url),
+            ("LIFEOS_STATE_DIR", settings.state_dir),
+        )
+        if not value
+    ]
+    access = None
+    if settings.moodle_url and settings.state_dir:
+        access = MoodleAccess(settings.moodle_url, settings.state_dir, MoodleClient)
+    return moodle_router(MoodleSync(vault, access, settings.moodle_dir), missing)
 
 
 def _mount_spa(app: FastAPI, static_dir: Path) -> None:
