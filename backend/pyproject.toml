@@ -12,6 +12,7 @@ dependencies = [
     "itsdangerous>=2.2",
     "pyyaml>=6.0",
     "httpx>=0.28",
+    "python-pptx>=1.0",
 ]
 
 [project.scripts]

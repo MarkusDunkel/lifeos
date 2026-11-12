@@ -11,6 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from lifeos import __version__
 from lifeos.connectors.github.client import GitHubClient, GitHubError
 from lifeos.connectors.github.sync import GitHubConnector, SyncError
+from lifeos.connectors.onedrive.auth import MicrosoftAuth, OneDriveError
+from lifeos.connectors.onedrive.client import GraphClient
+from lifeos.connectors.onedrive.sync import PresentationsSync
 from lifeos.core import auth
 from lifeos.core.config import Settings, get_settings
 from lifeos.core.vault import RevisionConflict, Vault, VaultPathError
@@ -19,6 +22,7 @@ from lifeos.modules.knowledge.router import build_router as knowledge_router
 from lifeos.modules.knowledge.service import KnowledgeService
 from lifeos.modules.notes.router import build_router as notes_router
 from lifeos.modules.notes.store import NotesStore
+from lifeos.modules.presentations.router import build_router as presentations_router
 from lifeos.modules.tickets.router import build_router as tickets_router
 from lifeos.modules.tickets.service import TicketService
 from lifeos.modules.workspaces.router import build_router as workspaces_router
@@ -58,6 +62,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def _github(_: Request, exc: GitHubError) -> JSONResponse:
         return JSONResponse({"detail": f"GitHub: {exc}"}, status_code=502)
 
+    @app.exception_handler(OneDriveError)
+    async def _onedrive(_: Request, exc: OneDriveError) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=exc.status)
+
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok", "version": __version__}
@@ -77,10 +85,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.github_project,
     )
     app.include_router(tickets_router(TicketService(github)))
+    app.include_router(_presentations(settings, vault))
 
     if settings.static_dir:
         _mount_spa(app, settings.static_dir)
     return app
+
+
+def _presentations(settings: Settings, vault: Vault):
+    missing = [
+        name
+        for name, value in (
+            ("LIFEOS_MS_CLIENT_ID", settings.ms_client_id),
+            ("LIFEOS_STATE_DIR", settings.state_dir),
+            ("LIFEOS_ONEDRIVE_FOLDER", settings.onedrive_folder),
+        )
+        if not value
+    ]
+    auth = None
+    if settings.ms_client_id and settings.state_dir:
+        auth = MicrosoftAuth(settings.ms_client_id, settings.state_dir)
+    factory = (lambda: GraphClient(auth.access_token)) if auth and not missing else None
+    sync = PresentationsSync(vault, factory, settings.onedrive_folder, settings.presentations_dir)
+    return presentations_router(sync, auth, missing)
 
 
 def _mount_spa(app: FastAPI, static_dir: Path) -> None:

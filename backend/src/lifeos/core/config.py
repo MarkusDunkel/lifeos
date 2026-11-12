@@ -41,6 +41,21 @@ class Settings(BaseSettings):
         default=None, description="Projects v2 board as `owner/number`, e.g. `me/3`."
     )
 
+    state_dir: Path | None = Field(
+        default=None,
+        description="Directory outside the vault for connector tokens (e.g. `deploy/state`).",
+    )
+    ms_client_id: str | None = Field(
+        default=None, description="Microsoft Entra app (personal accounts) for OneDrive."
+    )
+    onedrive_folder: str | None = Field(
+        default=None, description="OneDrive folder whose presentations are mirrored."
+    )
+    presentations_dir: str = Field(
+        default="Presentations",
+        description="Folder in the knowledge hub that receives the presentation mirrors.",
+    )
+
     @property
     def github_repo_list(self) -> list[str]:
         return [r.strip() for r in self.github_repos.split(",") if r.strip()]

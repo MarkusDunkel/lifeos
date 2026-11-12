@@ -1,7 +1,7 @@
 # Default layout (see docs/architecture.md):
 #   lifeos/app     this repository
 #   lifeos/vault   private data (git, never pushed)
-#   lifeos/deploy  .env with secrets
+#   lifeos/deploy  .env with secrets, state/ with connector tokens
 # Override paths with LIFEOS_VAULT / LIFEOS_ENV_FILE if your layout differs.
 services:
   web:
@@ -10,8 +10,12 @@ services:
       dockerfile: docker/Dockerfile
     image: lifeos:local
     env_file: ${LIFEOS_ENV_FILE:-../deploy/.env}
+    environment:
+      LIFEOS_STATE_DIR: /state
     volumes:
       - ${LIFEOS_VAULT:-../vault}:/vault
+      # Connector tokens, kept out of the vault (create the folder before the first start).
+      - ${LIFEOS_STATE:-../deploy/state}:/state
     ports:
       - "${LIFEOS_BIND:-127.0.0.1}:${LIFEOS_PORT:-8000}:8000"
     user: "${LIFEOS_UID:-1000}:${LIFEOS_GID:-1000}"

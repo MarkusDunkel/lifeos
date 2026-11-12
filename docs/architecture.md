@@ -6,7 +6,7 @@
 |---|---|---|---|
 | `app/` | Code only, generic agent templates, docs | git, public GitHub | yes (public) |
 | `vault/` | All personal content | git, **no remote**; a pre-push hook rejects every push | only as encrypted backup |
-| `deploy/` | `.env` (session secret, password hash, API keys), compose overrides | none | no |
+| `deploy/` | `.env` (session secret, password hash, API keys), `state/` (connector tokens), compose overrides | none | no |
 
 The app never contains personal data, paths or tokens — everything specific comes from
 `deploy/.env`. CI runs gitleaks to catch accidental secrets.
@@ -14,6 +14,9 @@ The app never contains personal data, paths or tokens — everything specific co
 GitHub Issues are a deliberate exception: ticket content lives in a *private* GitHub
 repository so the board can be used from anywhere and agents can be assigned work.
 Highly sensitive material belongs in notes or the knowledge hub, not in issues.
+
+PowerPoint files live in the user's OneDrive (so they open in PowerPoint for the web);
+the vault only mirrors their text. LifeOS reads OneDrive and never writes to it.
 
 ## Runtime
 
@@ -41,6 +44,8 @@ Browser / PWA ──HTTPS── web (FastAPI + static React build) ──┐
 | `modules/tickets` | Ticket board/list and editor over `ready/tickets`, conflict resolution |
 | `modules/agents` | Upcoming review gate |
 | `connectors/github` | GraphQL client, ingest → 3-way merge, write-back plans and apply |
+| `connectors/onedrive` | Microsoft device-code sign-in, read-only Graph client, `.pptx` text extraction, one-way mirror into the knowledge hub |
+| `modules/presentations` | Status, connect/disconnect and sync endpoints for the mirror |
 
 ## Editing safety
 

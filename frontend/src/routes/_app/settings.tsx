@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
+import { PresentationsSettings } from "../../features/presentations/PresentationsSettings";
 import { api } from "../../lib/api";
 import { logout, sessionQuery } from "../../lib/session";
 
@@ -39,6 +40,7 @@ function SettingsPage() {
           <LogOut className="size-4" /> Sign out
         </button>
       )}
+      <PresentationsSettings />
     </div>
   );
 }

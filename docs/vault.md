@@ -6,6 +6,7 @@ vault/
 ├── ready/                 the workbench ("AI ready") — the only place humans and agents edit
 │   ├── notes/             notes as JSON Lines
 │   ├── knowledge/         knowledge hub, an Obsidian-compatible Markdown vault
+│   │   └── Presentations/ text mirrors of OneDrive PowerPoints (read-only)
 │   ├── tickets/           GitHub issue mirror: <owner>/<repo>/<number>-<slug>.md
 │   └── workspaces/        short-lived AI reports (flat)
 │       ├── aenderungsprotokoll/   change log per processed report
@@ -74,6 +75,39 @@ ready/tickets ──plan──▶ outbox/github/<ts>_plan.md   reviewed by the u
 - A plan lists every local change with a diff and ends with a machine-readable block.
   Applying it skips an operation if the file or the issue changed after the plan.
 - Comments on issues are not mirrored yet.
+
+## Presentations (OneDrive)
+
+```
+OneDrive/<LIFEOS_ONEDRIVE_FOLDER>/**/*.pptx ──sync──▶ ready/knowledge/<LIFEOS_PRESENTATIONS_DIR>/**/<name>.md
+                                                     .lifeos/onedrive/presentations.json   drive item id → note, content tag
+```
+
+- OneDrive is the source of truth for the presentations; the vault holds only their text,
+  so the vault's git history stays small and diffs show which slide changed. LifeOS only
+  reads from OneDrive (`Files.Read`).
+- Each mirror note has the frontmatter `type: presentation`, `url` (opens the file in
+  PowerPoint for the web), `onedrive_path`, `drive_item_id`, `modified`, `slides` and
+  `mirror: true`, followed by one `## Slide n · Title` section per slide with its text,
+  tables and speaker notes. Images and layout are not mirrored.
+- Mirror notes are read-only: the next change of the presentation overwrites them. Write
+  your own thoughts in a separate note that links to the mirror.
+- Files are tracked by their drive item id: a renamed or moved presentation moves its
+  note. A presentation that disappears keeps its note with `status: deleted`. A note at the
+  target path that is not the mirror of that file is never overwritten (reported instead).
+
+### Setup
+
+1. Register an app at <https://entra.microsoft.com> → App registrations → New registration:
+   supported account types "Personal Microsoft accounts only". Under Authentication
+   enable "Allow public client flows". Under API permissions add Microsoft Graph
+   (delegated) `Files.Read` and `offline_access`. No client secret is needed.
+2. In `deploy/.env` set `LIFEOS_MS_CLIENT_ID` (the application id) and
+   `LIFEOS_ONEDRIVE_FOLDER` (e.g. `Presentations`); optionally `LIFEOS_PRESENTATIONS_DIR`.
+3. Create `deploy/state/` (Docker mounts it as `/state`; `LIFEOS_STATE_DIR` points there).
+   The Microsoft refresh token is stored there — outside the vault, never in git.
+4. In the app: Settings → Presentations → "Connect Microsoft account", enter the code
+   shown at microsoft.com/devicelogin, then "Sync presentations".
 
 ## Workspace lifecycle
 
