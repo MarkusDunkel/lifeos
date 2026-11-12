@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from lifeos.main import create_app
 BASE = "https://moodle.example.invalid"
 PASSWORD = "pw-for-tests"
 NOW = 1_800_000_000
+DUE = 1_791_064_740  # 2026-10-03 21:59 UTC = 23:59 in Vienna
 KB = "ready/knowledge/Moodle"
 
 
@@ -157,6 +159,14 @@ class FakeMoodle:
                         "name": "Homework 1",
                         "modname": "assign",
                         "url": f"{BASE}/mod/assign/view.php?id=6",
+                        "dates": [
+                            {
+                                "label": "Opened:",
+                                "timestamp": DUE - 7 * 86400,
+                                "dataid": "allowsubmissionsfromdate",
+                            },
+                            {"label": "Due:", "timestamp": DUE, "dataid": "duedate"},
+                        ],
                     },
                 ],
             },
@@ -188,6 +198,35 @@ class FakeMoodle:
         assert courseid == 10
         return self.sections
 
+    submitted: set[int] = set()
+
+    def assignments(self, courseids: list[int]) -> list[dict[str, Any]]:
+        assert courseids == [10]
+        return [
+            {
+                "id": 60,
+                "cmid": 6,
+                "course": 10,
+                "name": "Homework 1",
+                "duedate": DUE,
+                "cutoffdate": DUE + 86400,
+                "allowsubmissionsfromdate": DUE - 7 * 86400,
+                "intro": "<p>Write <b>two pages</b>.</p>",
+            },
+            {"id": 61, "cmid": 9, "course": 10, "name": "Optional essay", "duedate": 0},
+        ]
+
+    def quizzes(self, courseids: list[int]) -> list[dict[str, Any]]:
+        return [
+            {"id": 70, "coursemodule": 8, "course": 10, "name": "Quiz 1", "timeclose": DUE + 3600}
+        ]
+
+    def assignment_submitted(self, assignid: int) -> bool | None:
+        return assignid in self.submitted
+
+    def quiz_finished(self, quizid: int) -> bool | None:
+        return quizid in self.submitted
+
     def download(self, fileurl: str) -> bytes:
         name = fileurl.rsplit("/", 1)[-1]
         self.downloads.append(name)
@@ -214,7 +253,7 @@ def access(tmp_path: Path, moodle: FakeMoodle) -> MoodleAccess:
 
 @pytest.fixture
 def mirror(vault: Vault, access: MoodleAccess) -> MoodleSync:
-    return MoodleSync(vault, access, "Moodle", clock=lambda: NOW)
+    return MoodleSync(vault, access, "Moodle", clock=lambda: NOW, timezone="Europe/Vienna")
 
 
 def read(vault: Vault, rel: str) -> str:
@@ -487,3 +526,38 @@ def test_api_without_configuration(client: TestClient) -> None:
     assert not status["configured"] and "LIFEOS_MOODLE_URL" in status["missing"]
     r = client.post("/api/moodle/connect", json={"token": "x"})
     assert r.status_code == 400 and "LIFEOS_MOODLE_URL" in r.json()["detail"]
+
+
+# -- dates and task facts -------------------------------------------------------------
+
+
+def test_overview_shows_activity_dates_and_deadlines(
+    vault: Vault, moodle: FakeMoodle, mirror
+) -> None:
+    report = mirror.sync()
+    assert report.tasks == 3
+    overview = read(vault, f"{COURSE}/{COURSE}.md")
+    assert "· assign · **Due: 03.10.2026 23:59** (opens 26.09.2026 23:59)" in overview
+    deadlines = overview.split("## Deadlines", 1)[1].split("\n## ", 1)[0]
+    assert "- **03.10.2026 23:59** · [Homework 1]" in deadlines
+    assert "- **04.10.2026 00:59** · [Quiz 1]" in deadlines
+    assert "Optional essay" not in deadlines  # no due date
+
+
+def test_task_facts_for_the_ai(vault: Vault, moodle: FakeMoodle, mirror) -> None:
+    moodle.submitted = {70}
+    mirror.sync()
+    data = json.loads((vault.root / "inbox/moodle/tasks.json").read_text(encoding="utf-8"))
+    assert data["timezone"] == "Europe/Vienna"
+    by_key = {t["key"]: t for t in data["tasks"]}
+    hw = by_key["moodle:assign:60"]
+    assert hw["due"] == "2026-10-03T23:59+02:00" and hw["cutoff"] == "2026-10-04T23:59+02:00"
+    assert hw["submitted"] is False and hw["url"] == f"{BASE}/mod/assign/view.php?id=6"
+    assert hw["description"] == "Write **two pages**." and hw["shortname"] == "CA"
+    assert by_key["moodle:quiz:70"]["submitted"] is True
+    assert by_key["moodle:assign:61"]["due"] is None
+    assert [t["key"] for t in data["tasks"]][-1] == "moodle:assign:61"  # undated last
+    # Unchanged facts do not rewrite the file.
+    before = (vault.root / "inbox/moodle/tasks.json").stat().st_mtime_ns
+    mirror.sync()
+    assert (vault.root / "inbox/moodle/tasks.json").stat().st_mtime_ns == before

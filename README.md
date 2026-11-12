@@ -32,7 +32,7 @@ I work together with AI agents — study notes, a knowledge hub, short-lived AI 
 | Tickets: GitHub Issues + Projects v2 mirror with 3-way merge and reviewed write-back | ✅ |
 | Presentations: text mirror of OneDrive PowerPoints, one click opens PowerPoint for the web | ✅ |
 | Moodle: course materials (PDF, slides, documents, pages) as searchable text mirrors | ✅ |
-| Moodle deadlines as GitHub issues (reviewed via plans) | planned |
+| University tasks: AI drafts tickets from Moodle (dates, slides, pages), reviewed via plans | ✅ |
 
 ## Architecture
 

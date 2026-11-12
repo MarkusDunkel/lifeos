@@ -130,7 +130,8 @@ def _moodle_router(settings: Settings, vault: Vault):
     access = None
     if settings.moodle_url and settings.state_dir:
         access = MoodleAccess(settings.moodle_url, settings.state_dir, MoodleClient)
-    return moodle_router(MoodleSync(vault, access, settings.moodle_dir), missing)
+    sync = MoodleSync(vault, access, settings.moodle_dir, timezone=settings.timezone)
+    return moodle_router(sync, missing)
 
 
 def _mount_spa(app: FastAPI, static_dir: Path) -> None:

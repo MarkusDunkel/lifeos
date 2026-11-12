@@ -2,7 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 import { api } from "../../lib/api";
 import type { MirrorReport } from "../mirrors/mirror";
 
-export type MoodleReport = MirrorReport & { skipped: string[]; courses: number };
+export type MoodleReport = MirrorReport & { skipped: string[]; courses: number; tasks?: number };
 
 export type MoodleStatus = {
   configured: boolean;

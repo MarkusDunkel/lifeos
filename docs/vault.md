@@ -134,8 +134,39 @@ Moodle ──sync──▶ ready/knowledge/<LIFEOS_MOODLE_DIR>/<Course>/<Course>
   `LIFEOS_STATE_DIR/moodle-token.json` outside the vault. If the site blocks this, paste a
   token from Moodle → Preferences → Security keys instead.
 
+- Activity dates from Moodle (opens, due, cut-off, closes) are shown next to each activity in
+  the course overview, plus a "Deadlines" section. Assignments and quizzes of the synced
+  courses (due date, submission status, description, link) are written to
+  `inbox/moodle/tasks.json` as facts for the task run below. Dates use `LIFEOS_TIMEZONE`.
+
 Setup: set `LIFEOS_MOODLE_URL` (e.g. `https://moodle.example.edu`) and optionally
 `LIFEOS_MOODLE_DIR` in `deploy/.env`, restart, then connect on the Moodle page.
+
+## University tasks (AI drafts, reviewed by you)
+
+```
+/uni-tasks (Claude Code, run in the vault folder)
+  lifeos tasks input  → changed mirror notes since the last run, Moodle task facts,
+                        existing tickets with their task markers, hints
+  AI                  → ticket drafts ready/tickets/<owner>/<board>/new-*.md (label university)
+                        + report ready/workspaces/uni-tasks-<date>.md
+  lifeos tasks check  → validates the drafts;  lifeos tasks done → run log
+you: Tickets → Changes → create plan → Apply
+```
+
+- The command is installed by `lifeos init-vault` as `.claude/commands/uni-tasks.md` (only if
+  missing — afterwards it is the vault's own copy and can be refined). `.claude/settings.json`
+  allows exactly the three helper commands and writes to `ready/tickets` and
+  `ready/workspaces`; git commits, pushes and `gh` are denied.
+- Every drafted ticket carries one marker `<!-- lifeos:task <source> -->` in its text:
+  `moodle:assign:<id>`, `moodle:quiz:<id>` or `note:<moodle_id>:<short id>`. It survives on
+  GitHub, so a task is recognised after its issue was created and never drafted twice.
+- The run log `.lifeos/agents/uni-tasks.json` stores the revision of every processed mirror
+  note and the facts seen, so the next run only reads what changed. Hints: a due date that
+  changed in Moodle (`due_changed`) and a submission in Moodle (`submitted`, suggested once).
+  A due date you changed by hand is kept.
+- The helpers run inside the container: `docker compose -f ../app/compose.yml exec -T web
+  lifeos tasks input|check|done`. `lifeos moodle-sync` runs the Moodle sync from the shell.
 
 ## Workspace lifecycle
 

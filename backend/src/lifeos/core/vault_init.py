@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
+from importlib.resources import files
 from pathlib import Path
 
 DIRECTORIES = [
@@ -67,10 +69,37 @@ GITATTRIBUTES = """* text=auto eol=lf
 *.docx binary
 """
 
+# Claude Code in the vault: the /uni-tasks command may only run the task helpers and
+# write ticket drafts and reports. Everything else still asks for permission.
+TASKS_CMD = "docker compose -f ../app/compose.yml exec -T web lifeos tasks"
+CLAUDE_SETTINGS = json.dumps(
+    {
+        "permissions": {
+            "allow": [
+                f"Bash({TASKS_CMD} input)",
+                f"Bash({TASKS_CMD} check)",
+                f"Bash({TASKS_CMD} done)",
+                "Edit(ready/tickets/**)",
+                "Write(ready/tickets/**)",
+                "Write(ready/workspaces/**)",
+            ],
+            "deny": ["Bash(git push:*)", "Bash(git commit:*)", "Bash(gh:*)"],
+        }
+    },
+    indent=2,
+)
+
+
+def _template(name: str) -> str:
+    return files("lifeos.templates").joinpath(name).read_text(encoding="utf-8")
+
+
 FILES = {
     ".gitignore": GITIGNORE,
     ".gitattributes": GITATTRIBUTES,
     "CLAUDE.md": CLAUDE_MD,
+    ".claude/settings.json": CLAUDE_SETTINGS + "\n",
+    ".claude/commands/uni-tasks.md": lambda: _template("commands/uni-tasks.md"),
 }
 
 
@@ -88,7 +117,9 @@ def init_vault(root: Path) -> list[str]:
     for rel, content in FILES.items():
         f = root / rel
         if not f.exists():
-            f.write_text(content, encoding="utf-8", newline="\n")
+            f.parent.mkdir(parents=True, exist_ok=True)
+            text = content() if callable(content) else content
+            f.write_text(text, encoding="utf-8", newline="\n")
             log.append(f"created {rel}")
 
     if not (root / ".git").exists():

@@ -33,7 +33,19 @@ def main(argv: list[str] | None = None) -> int:
     imp.add_argument("--vault", type=Path, required=True)
     imp.add_argument("--dry-run", action="store_true")
 
+    tasks = sub.add_parser("tasks", help="helpers for the AI task run (/uni-tasks)")
+    tasks.add_argument("action", choices=["input", "check", "done"])
+    tasks.add_argument("--vault", type=Path, default=None, help="default: LIFEOS_VAULT_ROOT")
+    tasks.add_argument("--repo", default=None, help="board repository (owner/name)")
+    tasks.add_argument("--label", default="university")
+
+    sub.add_parser("moodle-sync", help="sync Moodle now (same as the button in the app)")
+
     args = parser.parse_args(argv)
+    if args.cmd == "tasks":
+        return _tasks(args)
+    if args.cmd == "moodle-sync":
+        return _moodle_sync()
     if args.cmd == "import":
         from lifeos.core.importer import import_tree
 
@@ -67,6 +79,71 @@ def main(argv: list[str] | None = None) -> int:
         for line in init_vault(args.path):
             print(line)
     return 0
+
+
+def _print(data) -> None:
+    import json
+
+    text = json.dumps(data, indent=2, ensure_ascii=False)
+    sys.stdout.buffer.write(text.encode("utf-8") + b"\n")
+
+
+def _tasks(args) -> int:
+    import os
+
+    from lifeos.core.vault import Vault
+    from lifeos.modules.tasks.service import TasksError, UniTasks
+
+    root = args.vault or os.environ.get("LIFEOS_VAULT_ROOT")
+    if not root:
+        print("set --vault or LIFEOS_VAULT_ROOT", file=sys.stderr)
+        return 2
+    try:
+        tool = UniTasks(Vault.open(Path(root)), args.repo, args.label)
+        if args.action == "input":
+            _print(tool.input())
+        elif args.action == "check":
+            result = tool.check()
+            _print(result)
+            return 0 if result["ok"] else 1
+        else:
+            _print(tool.done())
+    except TasksError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    return 0
+
+
+def _moodle_sync() -> int:
+    from dataclasses import asdict
+
+    from lifeos.connectors.moodle.client import MoodleClient, MoodleError
+    from lifeos.connectors.moodle.sync import MoodleAccess, MoodleSync
+    from lifeos.core.config import get_settings
+    from lifeos.core.vault import Vault
+
+    settings = get_settings()
+    if not settings.moodle_url or not settings.state_dir:
+        print("Moodle is not set up (LIFEOS_MOODLE_URL, LIFEOS_STATE_DIR)", file=sys.stderr)
+        return 2
+    access = MoodleAccess(settings.moodle_url, settings.state_dir, MoodleClient)
+    sync = MoodleSync(
+        Vault.open(settings.vault_root), access, settings.moodle_dir, timezone=settings.timezone
+    )
+    try:
+        report = asdict(sync.sync())
+    except MoodleError as exc:
+        print(f"Moodle: {exc}", file=sys.stderr)
+        return 1
+    _print(
+        {k: v for k, v in report.items() if k not in ("created", "updated", "unchanged")}
+        | {
+            "created": len(report["created"]),
+            "updated": len(report["updated"]),
+            "unchanged": report["unchanged"],
+        }
+    )
+    return 0 if not report["errors"] else 1
 
 
 if __name__ == "__main__":

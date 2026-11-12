@@ -64,6 +64,10 @@ class Settings(BaseSettings):
         description="Folder in the knowledge hub that receives the course mirrors.",
     )
 
+    timezone: str = Field(
+        default="UTC", description="Time zone for due dates, e.g. `Europe/Vienna`."
+    )
+
     @property
     def github_repo_list(self) -> list[str]:
         return [r.strip() for r in self.github_repos.split(",") if r.strip()]

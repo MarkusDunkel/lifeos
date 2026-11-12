@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from lifeos.connectors.moodle.client import (
     MoodleApi,
@@ -29,9 +30,19 @@ from lifeos.connectors.moodle.client import (
 )
 from lifeos.core.extract import ExtractError, html_to_markdown, supported, to_markdown
 from lifeos.core.extract.text import dump_front, front_matter, link, mark_deleted
-from lifeos.core.vault import KNOWLEDGE, STATE, Vault, VaultPathError, write_atomic
+from lifeos.core.vault import INBOX, KNOWLEDGE, STATE, Vault, VaultPathError, write_atomic
 
 STATE_FILE = f"{STATE}/moodle/state.json"
+TASKS_FILE = f"{INBOX}/moodle/tasks.json"
+# Activity dates from core_course_get_contents (dates[].dataid) and their names in the overview.
+DATE_LABELS = {
+    "allowsubmissionsfromdate": "opens",
+    "timeopen": "opens",
+    "duedate": "Due",
+    "timeclose": "Closes",
+    "cutoffdate": "cut-off",
+}
+DEADLINE_DATES = ("duedate", "timeclose")
 TOKEN_FILE = "moodle-token.json"
 MAX_BYTES = 50 * 1024 * 1024
 FILE_MODULES = {"resource", "folder"}
@@ -131,6 +142,7 @@ class SyncReport:
     skipped: list[str] = field(default_factory=list)  # not mirrored (type, size); new ones only
     errors: list[str] = field(default_factory=list)
     courses: int = 0
+    tasks: int = 0  # assignments and quizzes in the task facts
     synced_at: str = ""
 
 
@@ -156,7 +168,9 @@ class MoodleSync:
         access: MoodleAccess | None,
         target_dir: str,
         clock: Callable[[], float] = time.time,
+        timezone: str = "UTC",
     ):
+        self.tz = ZoneInfo(timezone)
         self.vault = vault
         self.access = access
         self.target_dir = target_dir.strip().strip("/")
@@ -258,10 +272,12 @@ class MoodleSync:
             for c in api.courses(userid)
             if (c["id"] in selected if selected is not None else self._in_progress(c))
         ]
+        facts = self._facts(api, courses, base_url, report)
         used_dirs: set[str] = set()
         for course in sorted(courses, key=lambda c: c["id"]):
             try:
-                self._course(api, course, base_url, state, report, used_dirs)
+                deadlines = [f for f in facts if f["course_id"] == course["id"]]
+                self._course(api, course, base_url, state, report, used_dirs, deadlines)
                 report.courses += 1
             except (MoodleError, VaultPathError) as exc:
                 name = course.get("fullname") or course["id"]
@@ -279,6 +295,7 @@ class MoodleSync:
         state: dict[str, Any],
         report: SyncReport,
         used_dirs: set[str],
+        deadlines: list[dict[str, Any]],
     ) -> None:
         cid = str(course["id"])
         name = course.get("fullname") or course.get("shortname") or cid
@@ -290,7 +307,7 @@ class MoodleSync:
         sections = api.contents(course["id"])
 
         items: list[Item] = []
-        lines: list[str] = []  # overview body
+        lines: list[str] = self._deadline_lines(deadlines)  # overview body
         used: set[str] = set()
         for index, section in enumerate(sections):
             title = (section.get("name") or "").strip() or f"Section {index}"
@@ -353,7 +370,8 @@ class MoodleSync:
         elif modname == "page":
             files = [c for c in files if c.get("filename") == "index.html"][:1]
         elif modname != "folder":
-            return [f"- [{_label(title)}]({link(url)}) · {modname}" if url else f"- {title}"]
+            line = f"- [{_label(title)}]({link(url)}) · {modname}" if url else f"- {title}"
+            return [line + self._dates(module)]
 
         lines = []
         for content in files:
@@ -523,6 +541,110 @@ class MoodleSync:
         if not target.is_file() or target.read_text(encoding="utf-8") != content:
             write_atomic(target, content)
         course_state["overview"] = rel
+
+    # -- dates and task facts ------------------------------------------------------
+
+    def _when(self, ts: int) -> str:
+        return datetime.fromtimestamp(ts, self.tz).strftime("%d.%m.%Y %H:%M")
+
+    def _iso(self, ts: int | None) -> str | None:
+        if not ts:
+            return None
+        return datetime.fromtimestamp(ts, self.tz).isoformat(timespec="minutes")
+
+    def _dates(self, module: dict[str, Any]) -> str:
+        """`` · **Due: 03.10.2026 23:59** (cut-off …, opens …)`` from the activity dates."""
+        main, extra = [], []
+        for d in module.get("dates") or []:
+            ts, dataid = d.get("timestamp"), d.get("dataid", "")
+            if not ts:
+                continue
+            label = DATE_LABELS.get(dataid) or str(d.get("label", "")).rstrip(": ") or dataid
+            if dataid in DEADLINE_DATES:
+                main.append(f"**{label}: {self._when(ts)}**")
+            else:
+                extra.append(f"{label} {self._when(ts)}")
+        text = " · ".join(main)
+        if extra:
+            text += f" ({', '.join(extra)})" if text else ", ".join(extra)
+        return f" · {text}" if text else ""
+
+    def _facts(
+        self, api: MoodleApi, courses: list[dict[str, Any]], base_url: str, report: SyncReport
+    ) -> list[dict[str, Any]]:
+        """Assignments and quizzes of the synced courses → ``inbox/moodle/tasks.json``."""
+        if not courses:
+            return []
+        names = {c["id"]: c for c in courses}
+        ids = sorted(names)
+        try:
+            assignments = api.assignments(ids)
+        except MoodleError as exc:
+            report.errors.append(f"assignments: {exc}")
+            assignments = []
+        try:
+            quizzes = api.quizzes(ids)
+        except MoodleError as exc:
+            report.errors.append(f"quizzes: {exc}")
+            quizzes = []
+
+        def fact(kind, item, due, opens, cutoff, done) -> dict[str, Any]:
+            course = names.get(item["course"], {})
+            try:
+                submitted = done(item["id"])
+            except MoodleError:
+                submitted = None
+            cmid = item.get("cmid") or item.get("coursemodule")
+            return {
+                "key": f"moodle:{kind}:{item['id']}",
+                "kind": kind,
+                "course": course.get("fullname") or course.get("shortname") or "",
+                "course_id": item["course"],
+                "shortname": course.get("shortname") or "",
+                "title": (item.get("name") or "").strip(),
+                "due": self._iso(due),
+                "opens": self._iso(opens),
+                "cutoff": self._iso(cutoff),
+                "submitted": submitted,
+                "url": f"{base_url}/mod/{kind}/view.php?id={cmid}",
+                "description": html_to_markdown(item.get("intro") or "").strip()[:4000],
+            }
+
+        facts = [
+            fact(
+                "assign",
+                a,
+                a.get("duedate"),
+                a.get("allowsubmissionsfromdate"),
+                a.get("cutoffdate"),
+                api.assignment_submitted,
+            )
+            for a in assignments
+        ]
+        facts += [
+            fact("quiz", q, q.get("timeclose"), q.get("timeopen"), None, api.quiz_finished)
+            for q in quizzes
+        ]
+        facts.sort(key=lambda f: (f["due"] is None, f["due"] or "", f["key"]))
+        path = self.vault.resolve(TASKS_FILE)
+        previous = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        if previous.get("tasks") != facts:  # unchanged facts keep the file (and git) quiet
+            payload = {"timezone": str(self.tz), "generated_at": now_iso(), "tasks": facts}
+            write_atomic(path, json.dumps(payload, indent=2, ensure_ascii=False))
+        report.tasks = len(facts)
+        return facts
+
+    def _deadline_lines(self, facts: list[dict[str, Any]]) -> list[str]:
+        dated = [f for f in facts if f["due"]]
+        if not dated:
+            return []
+        lines = ["", "## Deadlines", ""]
+        for f in dated:
+            due = datetime.fromisoformat(f["due"]).strftime("%d.%m.%Y %H:%M")
+            done = " · submitted ✓" if f["submitted"] else ""
+            title = _label(f["title"])
+            lines.append(f"- **{due}** · [{title}]({link(f['url'])}) · {f['kind']}{done}")
+        return lines
 
     # -- status ------------------------------------------------------------------
 

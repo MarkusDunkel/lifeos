@@ -48,6 +48,8 @@ Browser / PWA ──HTTPS── web (FastAPI + static React build) ──┐
 | `connectors/onedrive` | Microsoft device-code sign-in, read-only Graph client, `.pptx` text extraction, one-way mirror into the knowledge hub |
 | `connectors/moodle` | Moodle web service client (read-only), token sign-in, incremental mirror of course materials and overviews |
 | `core/extract` | Text extraction to Markdown: PDF (pypdf), PowerPoint, Word, HTML, plain text |
+| `modules/tasks` | Deterministic helpers for the AI task run: changed input, draft checks, run log (`lifeos tasks …`) |
+| `templates/` | Agent commands installed into the vault by `init-vault` (e.g. `/uni-tasks`) |
 | `modules/moodle` | Status, connect, course selection and sync endpoints |
 | `modules/presentations` | Status, connect/disconnect and sync endpoints for the mirror |
 

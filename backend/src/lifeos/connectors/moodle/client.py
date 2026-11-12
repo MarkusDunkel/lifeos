@@ -23,6 +23,10 @@ class MoodleApi(Protocol):
     def courses(self, userid: int) -> list[dict[str, Any]]: ...
     def contents(self, courseid: int) -> list[dict[str, Any]]: ...
     def download(self, fileurl: str) -> bytes: ...
+    def assignments(self, courseids: list[int]) -> list[dict[str, Any]]: ...
+    def quizzes(self, courseids: list[int]) -> list[dict[str, Any]]: ...
+    def assignment_submitted(self, assignid: int) -> bool | None: ...
+    def quiz_finished(self, quizid: int) -> bool | None: ...
 
 
 def _flatten(params: dict[str, Any], prefix: str = "") -> dict[str, str]:
@@ -102,6 +106,29 @@ class MoodleClient:
 
     def contents(self, courseid: int) -> list[dict[str, Any]]:
         return self.call("core_course_get_contents", courseid=courseid)
+
+    def assignments(self, courseids: list[int]) -> list[dict[str, Any]]:
+        data = self.call("mod_assign_get_assignments", courseids=courseids)
+        return [
+            a | {"course": c["id"]}
+            for c in data.get("courses", [])
+            for a in c.get("assignments", [])
+        ]
+
+    def quizzes(self, courseids: list[int]) -> list[dict[str, Any]]:
+        return self.call("mod_quiz_get_quizzes_by_courses", courseids=courseids).get("quizzes", [])
+
+    def assignment_submitted(self, assignid: int) -> bool | None:
+        data = self.call("mod_assign_get_submission_status", assignid=assignid)
+        attempt = data.get("lastattempt") or {}
+        submission = attempt.get("submission") or attempt.get("teamsubmission")
+        if not submission:
+            return None
+        return submission.get("status") == "submitted"
+
+    def quiz_finished(self, quizid: int) -> bool | None:
+        data = self.call("mod_quiz_get_user_attempts", quizid=quizid, status="finished")
+        return bool(data.get("attempts"))
 
     def download(self, fileurl: str) -> bytes:
         # The token must never be sent to another host.

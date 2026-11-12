@@ -16,6 +16,7 @@ dependencies = [
     "pypdf>=5",
     "python-docx>=1.1",
     "markdownify>=0.14",
+    "tzdata>=2024.1",
 ]
 
 [project.scripts]

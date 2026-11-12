@@ -195,6 +195,7 @@ function ReportView({ report }: { report: MoodleReport }) {
       <h2 className="font-semibold">Last sync</h2>
       <p className="text-slate-600 dark:text-slate-300">
         {new Date(report.synced_at).toLocaleString()} · {report.courses} courses · {summarize(report)}
+        {report.tasks ? ` · ${report.tasks} assignments and quizzes` : ""}
       </p>
       {groups
         .filter(([, items]) => items.length > 0)
