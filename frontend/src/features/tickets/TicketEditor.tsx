@@ -137,8 +137,14 @@ export function TicketEditor({ path, meta, onClose }: { path: string; meta: Meta
           {d.repo} <span className="font-medium text-slate-900 dark:text-slate-100">{ticketLabel(d)}</span>
         </span>
         {d.url && (
-          <a href={d.url} target="_blank" rel="noreferrer" className={`${btn} px-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800`} title="Open on GitHub">
-            <ExternalLink className="size-4" />
+          <a
+            href={d.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${btn} border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800`}
+            title="Open this issue on GitHub"
+          >
+            <ExternalLink className="size-4" /> GitHub
           </a>
         )}
         <button onClick={() => void save()} disabled={!dirty || busy} className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}>

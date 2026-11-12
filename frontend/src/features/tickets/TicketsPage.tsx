@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleDot, GitPullRequestArrow, LayoutGrid, List, Plus, RefreshCw, Search, TriangleAlert } from "lucide-react";
+import { CircleDot, ExternalLink, GitPullRequestArrow, LayoutGrid, List, Plus, RefreshCw, Search, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, qs } from "../../lib/api";
 import { formatTime } from "../workspaces/review";
@@ -207,13 +207,39 @@ function SyncNotice({ report, onClose }: { report: SyncReport | { error: string 
   );
 }
 
+/** Opens the issue on GitHub without opening the ticket in LifeOS. */
+function GitHubLink({ url }: { url: string | null }) {
+  if (!url) return null;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="inline-flex rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-sky-600 dark:hover:bg-slate-800"
+      title="Open on GitHub"
+      aria-label="Open on GitHub"
+    >
+      <ExternalLink className="size-3.5" />
+    </a>
+  );
+}
+
 function Card({ t, showRepo, selected, onOpen }: { t: TicketSummary; showRepo: boolean; selected: boolean; onOpen: () => void }) {
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       draggable
       onDragStart={(e) => e.dataTransfer.setData("text/plain", t.path)}
       onClick={onOpen}
-      className={`block w-full rounded-lg border bg-white p-2.5 text-left text-sm shadow-sm hover:border-sky-400 dark:bg-slate-900 ${
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className={`block w-full cursor-pointer rounded-lg border bg-white p-2.5 text-left text-sm shadow-sm hover:border-sky-400 dark:bg-slate-900 ${
         selected ? "border-sky-500" : "border-slate-200 dark:border-slate-700"
       }`}
     >
@@ -223,6 +249,7 @@ function Card({ t, showRepo, selected, onOpen }: { t: TicketSummary; showRepo: b
         <span className="flex-1" />
         {t.conflicts.length > 0 && <TriangleAlert className="size-3.5 text-amber-600" aria-label="Conflict" />}
         {isPending(t) && <CircleDot className="size-3.5 text-sky-600" aria-label="Local changes" />}
+        <GitHubLink url={t.url} />
       </div>
       <p className="font-medium">{t.title}</p>
       {t.labels.length > 0 && (
@@ -234,7 +261,7 @@ function Card({ t, showRepo, selected, onOpen }: { t: TicketSummary; showRepo: b
           ))}
         </div>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -309,6 +336,7 @@ function TicketList(props: { tickets: TicketSummary[]; field: string | null; sho
             <td className="px-3 py-2 text-right">
               {t.conflicts.length > 0 && <TriangleAlert className="inline size-4 text-amber-600" />}
               {isPending(t) && <CircleDot className="inline size-4 text-sky-600" />}
+              <GitHubLink url={t.url} />
             </td>
           </tr>
         ))}
