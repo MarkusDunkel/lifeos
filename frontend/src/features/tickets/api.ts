@@ -49,6 +49,7 @@ export type SyncReport = {
   updated: number;
   unchanged: number;
   conflicts: string[];
+  pending: string[];
   errors: string[];
   synced_at: string;
 };
@@ -82,6 +83,9 @@ export const saveTicket = (path: string, fields: EditableFields, revision: strin
 export const createTicket = (repo: string, title: string) => post<TicketDoc>("/api/tickets/new", { repo, title });
 
 export const deleteTicket = (path: string, revision: string) => post("/api/tickets/delete", { path, revision });
+
+/** Discard local changes: the file gets the GitHub state seen at the last sync. */
+export const revertTicket = (path: string, revision: string) => post<TicketDoc>("/api/tickets/revert", { path, revision });
 
 export const resolveConflict = (path: string, field: string, choice: "local" | "remote", revision: string) =>
   post<TicketDoc>("/api/tickets/resolve", { path, field, choice, revision });

@@ -55,6 +55,10 @@ def build_router(service: TicketService) -> APIRouter:
         service.delete(body.path, body.revision)
         return {"deleted": body.path}
 
+    @router.post("/revert")
+    def revert(body: PathRevision) -> dict:
+        return service.revert(body.path, body.revision)
+
     @router.post("/resolve")
     def resolve(body: ResolveRequest) -> dict:
         return service.resolve(body.path, body.field, body.choice, body.revision)

@@ -327,3 +327,41 @@ def test_model_roundtrip_and_merge_without_base() -> None:
     merged, conflict = merge_text("a\nb\nc", "A\nb\nc", "a\nb\nC")
     assert (merged, conflict) == ("A\nb\nC", False)
     assert json.loads(json.dumps(t.to_dict()))["labels"] == ["a", "b"]
+
+
+def test_skipped_change_stays_pending_and_can_be_reverted(api: TestClient, gh: FakeGitHub) -> None:
+    sync(api)
+    rel = "me/board/1-first.md"
+    edit(api, rel, project={"Status": "Done"})
+    first = api.post("/api/tickets/plans").json()["id"]
+    api.post(f"/api/tickets/plans/{first}/apply")
+    assert (
+        gh.issues_by_number[1]["projectItems"]["nodes"][0]["fieldValues"]["nodes"][0]["name"]
+        == "Done"
+    )
+
+    edit(api, rel, project={"Status": "Todo"})  # moved back locally …
+    second = api.post("/api/tickets/plans").json()["id"]
+    edit(api, rel, title="First, edited again")  # … and changed again before applying
+    result = api.post(f"/api/tickets/plans/{second}/apply").json()["result"]
+    assert "| skipped |" in result and "still pending" in result
+
+    report = sync(api)
+    assert report["pending"] == [rel] and report["conflicts"] == []
+    doc = api.get("/api/tickets/file", params={"path": rel}).json()
+    assert doc["project"] == {"Status": "Todo"}  # kept: a local change, not lost
+
+    reverted = api.post("/api/tickets/revert", json={"path": rel, "revision": doc["revision"]})
+    assert reverted.status_code == 200
+    body = reverted.json()
+    assert body["project"] == {"Status": "Done"} and body["title"] == "First"
+    assert body["changes"] == [] and body["conflicts"] == []
+    assert sync(api)["pending"] == []
+
+
+def test_revert_needs_a_synced_ticket(api: TestClient) -> None:
+    sync(api)
+    new = api.post("/api/tickets/new", json={"repo": REPO, "title": "Draft"}).json()
+    r = api.post("/api/tickets/revert", json={"path": new["path"], "revision": new["revision"]})
+    assert r.status_code == 400
+    assert sync(api)["pending"] == [new["path"]]

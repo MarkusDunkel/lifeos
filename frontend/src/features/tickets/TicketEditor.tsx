@@ -8,6 +8,7 @@ import {
   type EditableFields,
   type Meta,
   resolveConflict,
+  revertTicket,
   saveTicket,
   type TicketDoc,
   ticketQuery,
@@ -103,6 +104,18 @@ export function TicketEditor({ path, meta, onClose }: { path: string; meta: Meta
     }
   };
 
+  const revert = async () => {
+    if (!doc.data) return;
+    if (!window.confirm("Discard all local changes to this ticket and use the GitHub version?")) return;
+    setError(null);
+    setDraft(null);
+    try {
+      await refresh(await revertTicket(path, doc.data.revision));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const remove = async () => {
     if (!doc.data || !window.confirm("Delete this unsent ticket?")) return;
     await deleteTicket(path, doc.data.revision);
@@ -160,6 +173,12 @@ export function TicketEditor({ path, meta, onClose }: { path: string; meta: Meta
         <div className="space-y-2 border-b border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-800 dark:bg-amber-950">
           <p className="flex items-center gap-1.5 font-medium">
             <TriangleAlert className="size-4" /> Changed here and on GitHub. Decide per field:
+            <span className="flex-1" />
+            {!dirty && (
+              <button onClick={revert} className="text-xs font-normal underline hover:no-underline">
+                Revert everything to GitHub
+              </button>
+            )}
           </p>
           {d.conflicts.map((field) => (
             <Conflict key={field} field={field} doc={d} onResolve={resolve} />
@@ -167,9 +186,16 @@ export function TicketEditor({ path, meta, onClose }: { path: string; meta: Meta
         </div>
       )}
       {d.changes.length > 0 && d.conflicts.length === 0 && (
-        <p className="border-b border-slate-200 bg-sky-50 px-4 py-1.5 text-xs text-sky-800 dark:border-slate-800 dark:bg-sky-950 dark:text-sky-200">
-          Not on GitHub yet: {d.changes.map(changeName).join(", ")}. Write back via “Changes”.
-        </p>
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-sky-50 px-4 py-1.5 text-xs text-sky-800 dark:border-slate-800 dark:bg-sky-950 dark:text-sky-200">
+          <span className="flex-1">
+            Not on GitHub yet: {d.changes.map(changeName).join(", ")}. Write back via “Changes”.
+          </span>
+          {d.number !== null && !dirty && (
+            <button onClick={revert} className="underline hover:no-underline">
+              Revert to GitHub
+            </button>
+          )}
+        </div>
       )}
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">

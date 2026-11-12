@@ -182,12 +182,16 @@ export function TicketsPage({ search, onChange }: Props) {
 }
 
 function SyncNotice({ report, onClose }: { report: SyncReport | { error: string }; onClose: () => void }) {
-  const failed = "error" in report || report.errors.length > 0 || report.conflicts.length > 0;
+  const failed =
+    "error" in report || report.errors.length > 0 || report.conflicts.length > 0 || report.pending.length > 0;
   const text =
     "error" in report
       ? report.error
       : [
           `${report.created} new, ${report.updated} updated, ${report.unchanged} unchanged.`,
+          report.pending.length
+            ? `${report.pending.length} local change(s) kept — not on GitHub yet (see “Changes”, or revert them).`
+            : "",
           report.conflicts.length ? `Conflicts: ${report.conflicts.join(", ")}.` : "",
           report.errors.join(" "),
         ]

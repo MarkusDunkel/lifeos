@@ -2,7 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileCheck2, Send, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { MarkdownView } from "../knowledge/MarkdownView";
-import { applyPlan, createPlan, discardPlan, planQuery, type TicketsData } from "./api";
+import { api, qs } from "../../lib/api";
+import { applyPlan, createPlan, discardPlan, planQuery, revertTicket, type TicketDoc, type TicketsData } from "./api";
 import { changeName, isPending, ticketLabel } from "./board";
 
 const btn =
@@ -70,6 +71,21 @@ export function ChangesPanel({
                     <span className="text-slate-400">{ticketLabel(t)}</span> {t.title}
                   </button>
                   <span className="ml-2 text-xs text-slate-400">{t.changes.map(changeName).join(", ")}</span>
+                  {t.number !== null && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        run(async () => {
+                          if (!window.confirm(`Discard the local changes to #${t.number} and use the GitHub version?`)) return;
+                          const fresh = await api<TicketDoc>(`/api/tickets/file?${qs({ path: t.path })}`);
+                          await revertTicket(t.path, fresh.revision);
+                        })
+                      }
+                      className="ml-2 text-xs text-slate-400 underline hover:text-red-600"
+                    >
+                      revert
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

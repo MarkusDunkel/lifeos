@@ -64,6 +64,7 @@ class SyncReport:
     updated: int = 0
     unchanged: int = 0
     conflicts: list[str] = field(default_factory=list)
+    pending: list[str] = field(default_factory=list)  # local changes kept for write-back
     errors: list[str] = field(default_factory=list)
     synced_at: str = ""
 
@@ -223,6 +224,9 @@ class GitHubConnector:
             for issue in raw:
                 remote = to_ticket(repo, issue, project)
                 self._merge_one(remote, report)
+        report.pending += [
+            rel for rel, path, repo in self.files() if rel.split("/")[-1].startswith("new-")
+        ]
         write_atomic(self._state_file("meta.json"), json.dumps(meta, indent=1, ensure_ascii=False))
         return report
 
@@ -243,8 +247,11 @@ class GitHubConnector:
                 report.updated += 1
             else:
                 report.unchanged += 1
+            rel = path.relative_to(self.vault.root / TICKETS).as_posix()
             if result.conflicts:
-                report.conflicts.append(path.relative_to(self.vault.root / TICKETS).as_posix())
+                report.conflicts.append(rel)
+            elif result.changed_locally:
+                report.pending.append(rel)
         self._save_base(remote)
 
     # -- plan --------------------------------------------------------------------
@@ -406,7 +413,10 @@ class GitHubConnector:
     def _apply_op(self, api: GitHubApi, project: Project | None, op: dict[str, Any]) -> str:
         path, repo = self.ticket_path(op["path"])
         if not path.is_file() or sha(path.read_text(encoding="utf-8")) != op["file_sha"]:
-            raise SyncError("the file changed after the plan was created; create a new plan")
+            raise SyncError(
+                "the file changed after the plan was created; "
+                "the local changes are still pending, create a new plan"
+            )
         repo_meta = api.repo(repo)
 
         if op["kind"] == "create":
@@ -434,7 +444,10 @@ class GitHubConnector:
 
         issue = api.issue(repo, op["number"])
         if issue["updatedAt"] != op["base_updated"]:
-            raise SyncError("the issue changed on GitHub after the plan was created; sync first")
+            raise SyncError(
+                "the issue changed on GitHub after the plan was created; "
+                "sync, then create a new plan (the local changes are still pending)"
+            )
         changes = {k: v[1] for k, v in op["changes"].items()}
         issue_changes = {k: v for k, v in changes.items() if not k.startswith("project.")}
         if issue_changes:

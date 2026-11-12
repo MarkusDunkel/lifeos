@@ -100,6 +100,18 @@ class TicketService:
             raise SyncError("the ticket changed in the meantime; reload it")
         path.unlink()
 
+    def revert(self, rel: str, revision: str) -> dict[str, Any]:
+        """Discard local changes and conflicts: the file gets the GitHub state seen last."""
+        path, _ = self.gh.ticket_path(rel)
+        t = self.gh.read(rel)
+        if t.number is None:
+            raise SyncError("this ticket is not on GitHub yet; delete it instead", 400)
+        base = self.gh.base(t.repo, t.number)
+        if base is None:
+            raise SyncError("no GitHub version is known for this ticket; run a sync", 400)
+        write_checked(path, dump(base), revision)
+        return self.read(rel)
+
     def resolve(
         self, rel: str, field: str, choice: Literal["local", "remote"], revision: str
     ) -> dict[str, Any]:
