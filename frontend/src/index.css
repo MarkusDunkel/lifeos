@@ -27,3 +27,30 @@ body {
 .cm-editor.cm-focused {
   outline: none;
 }
+
+/* Feedback markers on report blocks (IDs shown in the left gutter). */
+article [data-fb] {
+  position: relative;
+}
+article [data-fb]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -0.6rem;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--color-amber-400);
+}
+article [data-fb]::before {
+  content: attr(data-fb);
+  position: absolute;
+  top: 0.2rem;
+  left: -3.25rem;
+  width: 2.25rem;
+  text-align: right;
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--color-amber-600);
+}

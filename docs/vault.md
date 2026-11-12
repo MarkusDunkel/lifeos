@@ -66,6 +66,24 @@ accept new values.
 
 Workspace files are never edited after creation, and `.md4h/` is never modified by agents.
 
+### Feedback rounds in the app
+
+The app writes rounds in the `md4h-feedback/v2` format of the
+[Markdown for Humans](https://github.com/concretios/markdown-for-humans/blob/main/docs/FEEDBACK.md)
+editor extension:
+
+- A round starts as `state: draft` with the SHA-256 of the report. If the report changes,
+  the draft becomes stale and can only be discarded.
+- Comments target either whole blocks (the exact source lines are embedded, fidelity
+  "Frozen source") or selected text (the rendered text, fidelity "Exact rendered text").
+  IDs (`F1`, `F2`, …) are never reused; `next_id` keeps the high-water mark.
+- **Finish & copy** seals the round (`state: sealed`, `sealed_at`) and copies the
+  standard agent prompt. Sealed rounds are never changed or deleted by the app.
+- Compatibility: agents process app rounds exactly like extension rounds. The
+  extension's `md4h-target-v2` anchors depend on its internal editor model and are not
+  written, so the extension cannot reopen an app round with highlights. Rounds started
+  in the extension are shown read-only in the app.
+
 ## Conventions
 
 - UTF-8, LF line endings (`.gitattributes` enforces it).

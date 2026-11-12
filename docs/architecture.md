@@ -37,7 +37,8 @@ Browser / PWA ──HTTPS── web (FastAPI + static React build) ──┐
 | `core/vault_init.py` | Idempotent vault skeleton incl. git and push block |
 | `modules/knowledge` | Tree, read/write, FTS5 search, wikilink backlinks |
 | `modules/notes` | JSON Lines store with per-note revisions, column schema (inferred or `schema.json`) |
-| `modules/workspaces`, `tickets`, `agents` | Upcoming review gates |
+| `modules/workspaces` | Read-only reports, archive, change logs; md4h feedback rounds (draft → sealed) |
+| `modules/tickets`, `agents` | Upcoming review gates |
 | `connectors/` | Ingest/digest adapters (GitHub first) |
 
 ## Editing safety

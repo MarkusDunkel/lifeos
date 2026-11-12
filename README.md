@@ -27,7 +27,7 @@ I work together with AI agents — study notes, a knowledge hub, short-lived AI 
 | Login, routing, mobile layout (installable PWA) | ✅ |
 | Knowledge hub: tree, Markdown view/edit, `[[wikilinks]]`, backlinks, full-text search | ✅ |
 | Notes: tasks & info in a filterable, sortable grid (JSON Lines) | ✅ |
-| Workspaces: AI reports with in-app feedback rounds (md4h-compatible) | planned |
+| Workspaces: AI reports with in-app feedback rounds (md4h-compatible) | ✅ |
 | Agents: Claude Agent SDK runner, schedules, issue-triggered jobs | planned |
 | Tickets: GitHub Issues + Projects v2 mirror with 3-way merge and reviewed write-back | planned |
 

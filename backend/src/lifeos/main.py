@@ -17,6 +17,8 @@ from lifeos.modules.knowledge.router import build_router as knowledge_router
 from lifeos.modules.knowledge.service import KnowledgeService
 from lifeos.modules.notes.router import build_router as notes_router
 from lifeos.modules.notes.store import NotesStore
+from lifeos.modules.workspaces.router import build_router as workspaces_router
+from lifeos.modules.workspaces.service import FeedbackError, WorkspaceService
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -40,6 +42,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {"detail": "file changed on disk", "currentRevision": exc.current}, status_code=409
         )
 
+    @app.exception_handler(FeedbackError)
+    async def _feedback(_: Request, exc: FeedbackError) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=exc.status)
+
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok", "version": __version__}
@@ -49,6 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     knowledge = KnowledgeService(vault)
     app.include_router(knowledge_router(knowledge, KnowledgeIndex(knowledge.root)))
     app.include_router(notes_router(NotesStore(vault)))
+    app.include_router(workspaces_router(WorkspaceService(vault)))
 
     if settings.static_dir:
         _mount_spa(app, settings.static_dir)

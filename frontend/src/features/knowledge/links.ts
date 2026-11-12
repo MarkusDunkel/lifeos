@@ -58,3 +58,8 @@ export function splitFrontmatter(content: string): { frontmatter: string | null;
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(content);
   return m ? { frontmatter: m[1], body: content.slice(m[0].length) } : { frontmatter: null, body: content };
 }
+
+/** Number of lines before the body (the frontmatter block). */
+export function bodyLineOffset(content: string, body: string): number {
+  return content.slice(0, content.length - body.length).split("\n").length - 1;
+}

@@ -6,6 +6,7 @@ import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   assetUrl,
+  bodyLineOffset,
   isExternal,
   resolveRelative,
   resolveWikilink,
@@ -33,8 +34,44 @@ function remarkWikilinks() {
 
 const urlTransform = (url: string) => (url.startsWith(WIKI) ? url : defaultUrlTransform(url));
 
-export function MarkdownView({ content, path, files }: { content: string; path: string; files: string[] }) {
+type HastNode = {
+  type: string;
+  properties?: Record<string, unknown>;
+  position?: { start: { line: number }; end: { line: number } };
+  children?: HastNode[];
+};
+
+/** Adds ``data-ls``/``data-le`` (one-based source lines of the whole file) to every element. */
+function rehypeSourceLines(offset: number) {
+  return () => (tree: HastNode) => {
+    const visit = (node: HastNode) => {
+      if (node.type === "element" && node.position) {
+        node.properties = {
+          ...node.properties,
+          dataLs: node.position.start.line + offset,
+          dataLe: node.position.end.line + offset,
+        };
+      }
+      node.children?.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+
+type Props = {
+  content: string;
+  path: string;
+  files: string[];
+  /** Annotate elements with their source lines (used for feedback targeting). */
+  sourceLines?: boolean;
+};
+
+export function MarkdownView({ content, path, files, sourceLines = false }: Props) {
   const { frontmatter, body } = useMemo(() => splitFrontmatter(content), [content]);
+  const rehypePlugins = useMemo(
+    () => (sourceLines ? [rehypeSourceLines(bodyLineOffset(content, body))] : []),
+    [sourceLines, content, body],
+  );
 
   const resolve = (href: string): { internal: string | null; missing?: boolean } => {
     if (href.startsWith(WIKI)) {
@@ -54,6 +91,7 @@ export function MarkdownView({ content, path, files }: { content: string; path: 
       )}
       <Markdown
         remarkPlugins={[remarkGfm, remarkWikilinks]}
+        rehypePlugins={rehypePlugins}
         urlTransform={urlTransform}
         components={{
           a: ({ href = "", children }) => {

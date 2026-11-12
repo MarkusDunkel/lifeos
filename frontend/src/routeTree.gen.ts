@@ -20,6 +20,8 @@ import { Route as AppTicketsRouteImport } from './routes/_app/tickets'
 import { Route as AppWorkspacesRouteImport } from './routes/_app/workspaces'
 import { Route as AppKnowledgeIndexRouteImport } from './routes/_app/knowledge/index'
 import { Route as AppKnowledgeSplatRouteImport } from './routes/_app/knowledge/$'
+import { Route as AppWorkspacesIndexRouteImport } from './routes/_app/workspaces/index'
+import { Route as AppWorkspacesSplatRouteImport } from './routes/_app/workspaces/$'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -75,6 +77,16 @@ const AppKnowledgeSplatRoute = AppKnowledgeSplatRouteImport.update({
   path: '/$',
   getParentRoute: () => AppKnowledgeRoute,
 } as any)
+const AppWorkspacesIndexRoute = AppWorkspacesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppWorkspacesRoute,
+} as any)
+const AppWorkspacesSplatRoute = AppWorkspacesSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => AppWorkspacesRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -84,9 +96,11 @@ export interface FileRoutesByFullPath {
   '/notes': typeof AppNotesRoute
   '/settings': typeof AppSettingsRoute
   '/tickets': typeof AppTicketsRoute
-  '/workspaces': typeof AppWorkspacesRoute
+  '/workspaces': typeof AppWorkspacesRouteWithChildren
   '/knowledge/$': typeof AppKnowledgeSplatRoute
+  '/workspaces/$': typeof AppWorkspacesSplatRoute
   '/knowledge/': typeof AppKnowledgeIndexRoute
+  '/workspaces/': typeof AppWorkspacesIndexRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -94,10 +108,11 @@ export interface FileRoutesByTo {
   '/notes': typeof AppNotesRoute
   '/settings': typeof AppSettingsRoute
   '/tickets': typeof AppTicketsRoute
-  '/workspaces': typeof AppWorkspacesRoute
   '/': typeof AppIndexRoute
   '/knowledge/$': typeof AppKnowledgeSplatRoute
+  '/workspaces/$': typeof AppWorkspacesSplatRoute
   '/knowledge': typeof AppKnowledgeIndexRoute
+  '/workspaces': typeof AppWorkspacesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -108,10 +123,12 @@ export interface FileRoutesById {
   '/_app/notes': typeof AppNotesRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/tickets': typeof AppTicketsRoute
-  '/_app/workspaces': typeof AppWorkspacesRoute
+  '/_app/workspaces': typeof AppWorkspacesRouteWithChildren
   '/_app/': typeof AppIndexRoute
   '/_app/knowledge/$': typeof AppKnowledgeSplatRoute
+  '/_app/workspaces/$': typeof AppWorkspacesSplatRoute
   '/_app/knowledge/': typeof AppKnowledgeIndexRoute
+  '/_app/workspaces/': typeof AppWorkspacesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -125,7 +142,9 @@ export interface FileRouteTypes {
     | '/tickets'
     | '/workspaces'
     | '/knowledge/$'
+    | '/workspaces/$'
     | '/knowledge/'
+    | '/workspaces/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -133,10 +152,11 @@ export interface FileRouteTypes {
     | '/notes'
     | '/settings'
     | '/tickets'
-    | '/workspaces'
     | '/'
     | '/knowledge/$'
+    | '/workspaces/$'
     | '/knowledge'
+    | '/workspaces'
   id:
     | '__root__'
     | '/_app'
@@ -149,7 +169,9 @@ export interface FileRouteTypes {
     | '/_app/workspaces'
     | '/_app/'
     | '/_app/knowledge/$'
+    | '/_app/workspaces/$'
     | '/_app/knowledge/'
+    | '/_app/workspaces/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -236,6 +258,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppKnowledgeSplatRouteImport
       parentRoute: typeof AppKnowledgeRoute
     }
+    '/_app/workspaces/': {
+      id: '/_app/workspaces/'
+      path: '/'
+      fullPath: '/workspaces/'
+      preLoaderRoute: typeof AppWorkspacesIndexRouteImport
+      parentRoute: typeof AppWorkspacesRoute
+    }
+    '/_app/workspaces/$': {
+      id: '/_app/workspaces/$'
+      path: '/$'
+      fullPath: '/workspaces/$'
+      preLoaderRoute: typeof AppWorkspacesSplatRouteImport
+      parentRoute: typeof AppWorkspacesRoute
+    }
   }
 }
 
@@ -253,13 +289,27 @@ const AppKnowledgeRouteWithChildren = AppKnowledgeRoute._addFileChildren(
   AppKnowledgeRouteChildren,
 )
 
+interface AppWorkspacesRouteChildren {
+  AppWorkspacesSplatRoute: typeof AppWorkspacesSplatRoute
+  AppWorkspacesIndexRoute: typeof AppWorkspacesIndexRoute
+}
+
+const AppWorkspacesRouteChildren: AppWorkspacesRouteChildren = {
+  AppWorkspacesSplatRoute: AppWorkspacesSplatRoute,
+  AppWorkspacesIndexRoute: AppWorkspacesIndexRoute,
+}
+
+const AppWorkspacesRouteWithChildren = AppWorkspacesRoute._addFileChildren(
+  AppWorkspacesRouteChildren,
+)
+
 interface AppRouteChildren {
   AppAgentsRoute: typeof AppAgentsRoute
   AppKnowledgeRoute: typeof AppKnowledgeRouteWithChildren
   AppNotesRoute: typeof AppNotesRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppTicketsRoute: typeof AppTicketsRoute
-  AppWorkspacesRoute: typeof AppWorkspacesRoute
+  AppWorkspacesRoute: typeof AppWorkspacesRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -269,7 +319,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppNotesRoute: AppNotesRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppTicketsRoute: AppTicketsRoute,
-  AppWorkspacesRoute: AppWorkspacesRoute,
+  AppWorkspacesRoute: AppWorkspacesRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
 }
 
