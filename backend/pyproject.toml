@@ -1,0 +1,42 @@
+[project]
+name = "lifeos"
+version = "0.1.0"
+description = "Personal operating system: notes, knowledge hub, workspaces, GitHub tickets and AI agents over a local Markdown vault."
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.162",
+    "uvicorn[standard]>=0.32",
+    "pydantic-settings>=2.6",
+    "argon2-cffi>=23.1",
+    "itsdangerous>=2.2",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+lifeos = "lifeos.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.28",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lifeos"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning:fastapi.testclient"]

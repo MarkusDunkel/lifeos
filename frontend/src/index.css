@@ -1,0 +1,29 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-accent: #0ea5e9;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-white text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+}
+
+.prose mark {
+  @apply rounded bg-amber-200 px-0.5 dark:bg-amber-500/40 dark:text-inherit;
+}
+
+.cm-editor {
+  height: 100%;
+  font-size: 0.95rem;
+}
+.cm-editor.cm-focused {
+  outline: none;
+}

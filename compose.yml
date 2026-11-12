@@ -1,0 +1,18 @@
+# Default layout (see docs/architecture.md):
+#   lifeos/app     this repository
+#   lifeos/vault   private data (git, never pushed)
+#   lifeos/deploy  .env with secrets
+# Override paths with LIFEOS_VAULT / LIFEOS_ENV_FILE if your layout differs.
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: lifeos:local
+    env_file: ${LIFEOS_ENV_FILE:-../deploy/.env}
+    volumes:
+      - ${LIFEOS_VAULT:-../vault}:/vault
+    ports:
+      - "${LIFEOS_BIND:-127.0.0.1}:${LIFEOS_PORT:-8000}:8000"
+    user: "${LIFEOS_UID:-1000}:${LIFEOS_GID:-1000}"
+    restart: unless-stopped
