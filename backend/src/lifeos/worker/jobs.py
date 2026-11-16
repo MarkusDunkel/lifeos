@@ -13,6 +13,7 @@ from lifeos.core.git_sync import GitError, GitSync, file_list
 from lifeos.core.vault import KNOWLEDGE, Vault
 from lifeos.modules.study.bank import STUDY_DIR
 from lifeos.modules.study.progress import PROGRESS_FILE
+from lifeos.modules.study.service import plural
 from lifeos.worker.scheduler import Daily, Every, Job, JobResult, parse_time
 
 
@@ -31,7 +32,7 @@ def commit_study_leftovers(git: GitSync) -> list[str]:
         if not added:
             continue
         subject = log_file.parent.name
-        message = f"study: {subject} – {added} answers (session not ended)\n"
+        message = f"study: {subject} – {plural(added, 'answer')} (session not ended)\n"
         committed += git.commit_paths([rel], message)
     return committed
 
