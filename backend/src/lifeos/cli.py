@@ -50,6 +50,9 @@ def main(argv: list[str] | None = None) -> int:
         from lifeos.worker.runner import run_worker
 
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+        # httpx logs every request URL at INFO, and Moodle download URLs carry the token.
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
         run_worker()
         return 0
     if args.cmd == "git-sync":
