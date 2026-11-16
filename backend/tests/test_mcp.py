@@ -86,7 +86,7 @@ def test_tools_run_a_session(tmp_path: Path) -> None:
             assert summary["answered"] == 1
 
     anyio.run(scenario)
-    assert committed and committed[0].startswith("study: Sample – 1 answers, 1 correct")
+    assert committed and committed[0].startswith("study: Sample – 1 answer, 1 correct")
 
 
 def test_http_mount_only_under_secret_path(tmp_path: Path) -> None:

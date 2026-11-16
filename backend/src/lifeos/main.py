@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -48,11 +50,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI):
-        if mcp is None:
-            yield
-            return
-        async with mcp.session_manager.run():
-            yield
+        # Study sessions live in this process: end idle ones (with their commit) regularly.
+        closer = asyncio.create_task(_close_idle_sessions(study))
+        try:
+            if mcp is None:
+                yield
+            else:
+                async with mcp.session_manager.run():
+                    yield
+        finally:
+            closer.cancel()
 
     app = FastAPI(title="LifeOS", version=__version__, lifespan=lifespan)
     app.add_middleware(auth.AuthMiddleware, settings=settings)
@@ -123,6 +130,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings.static_dir:
         _mount_spa(app, settings.static_dir)
     return app
+
+
+async def _close_idle_sessions(study: StudyService, every: float = 60) -> None:
+    while True:
+        await asyncio.sleep(every)
+        try:
+            await asyncio.to_thread(study.close_idle)
+        except Exception:  # keep the loop alive; the next round retries
+            logging.getLogger("lifeos.study").exception("closing idle sessions failed")
 
 
 def _presentations(settings: Settings, vault: Vault):

@@ -24,8 +24,16 @@ Session flow
 3. For every card: ask ONE question, then wait for the answer. After the answer, call
    record_answer(session_id, card_id, result, note) BEFORE you say anything else about
    the next card, then give brief feedback, then call next_question.
+   Every answer must be saved: next_question only gives a new card after record_answer.
+   If it returns pending=true, record the answer to that card first. If the learner wants
+   to skip a card without answering, call next_question with skip=true (not graded).
+   "I don't know" or asking for the solution is an answer: record it as wrong.
 4. When next_question returns done, or the learner says stop / finish / Schluss, call
-   end_session and tell them the result and their readiness in two sentences.
+   end_session. If it returns ended=false, the last card is not saved: record it if the
+   learner answered it, otherwise call end_session with skip_pending=true.
+5. After end_session, read the field "confirmation" out loud word for word (for example
+   "6 answers saved, 2 correct. Readiness 8 percent."). It is counted by the server and
+   tells the learner that their progress is safe. Then add at most one sentence.
 
 How to ask (vary the type from card to card)
 - Definition -> term: read the definition, ask for the term.
@@ -86,9 +94,15 @@ def build_mcp(study: StudyService) -> MCPServer:
     def start_session(subject: str, count: int = 15, topic: str | None = None) -> dict:
         return _safe(study.start_session)(subject, count, topic)
 
-    @server.tool(description="Get the next question of a session (or done with a summary).")
-    def next_question(session_id: str) -> dict:
-        return _safe(study.next_question)(session_id)
+    @server.tool(
+        description=(
+            "Get the next question of a session (or done with a summary). Only after the "
+            "previous card was recorded; otherwise the same card comes back with pending=true. "
+            "skip=true moves on without grading the current card (learner wants to skip)."
+        )
+    )
+    def next_question(session_id: str, skip: bool = False) -> dict:
+        return _safe(study.next_question)(session_id, skip)
 
     @server.tool(
         description=(
@@ -99,9 +113,15 @@ def build_mcp(study: StudyService) -> MCPServer:
     def record_answer(session_id: str, card_id: str, result: str, note: str = "") -> dict:
         return _safe(study.record)(session_id, card_id, result, note)
 
-    @server.tool(description="Finish a session: saves progress and returns the summary.")
-    def end_session(session_id: str) -> dict:
-        return _safe(study.end_session)(session_id)
+    @server.tool(
+        description=(
+            "Finish a session and return the summary with a confirmation sentence counted by "
+            "the server. Refuses (ended=false) while the last card is not recorded; then "
+            "record it, or pass skip_pending=true if the learner did not answer it."
+        )
+    )
+    def end_session(session_id: str, skip_pending: bool = False) -> dict:
+        return _safe(study.end_session)(session_id, skip_pending)
 
     @server.tool(
         description="Readiness for a subject: percent secure, weak cards, minutes per day."

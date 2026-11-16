@@ -322,3 +322,108 @@ def test_worker_commits_unfinished_sessions_as_study(vault_root: Path) -> None:
     )
     assert "other.md" in git(vault_root, "status", "--porcelain")
     assert commit_study_leftovers(GitSync(vault_root)) == []
+
+
+# -- saving guarantees ------------------------------------------------------------
+
+
+def test_no_new_card_before_the_answer_is_saved(vault_root: Path) -> None:
+    study = service(vault_root, Clock(datetime(2026, 11, 16, 12, tzinfo=UTC)))
+    started = study.start_session("Sample", count=3)
+    sid, first = started["session_id"], started["question"]["card"]["id"]
+
+    again = study.next_question(sid)
+
+    assert again["card"]["id"] == first
+    assert again["pending"] is True
+    assert "record_answer" in again["message"]
+    study.record(sid, first, "correct")
+    following = study.next_question(sid)
+    assert following["card"]["id"] != first
+    assert "pending" not in following
+
+
+def test_skip_moves_on_without_grading(vault_root: Path) -> None:
+    study = service(vault_root, Clock(datetime(2026, 11, 16, 12, tzinfo=UTC)))
+    started = study.start_session("Sample", count=3)
+    sid, first = started["session_id"], started["question"]["card"]["id"]
+
+    skipped = study.next_question(sid, skip=True)
+
+    assert skipped["card"]["id"] != first
+    assert "pending" not in skipped
+    log = vault_root / "ready/knowledge/Studium/Sample/lernstand.jsonl"
+    assert not log.exists()
+    study.record(sid, skipped["card"]["id"], "correct")
+    summary = study.end_session(sid)
+    assert summary["skipped"] == 1
+    assert summary["answered"] == 1
+
+
+def test_end_session_refuses_while_the_last_card_is_unsaved(vault_root: Path) -> None:
+    committed: list = []
+    study = service(vault_root, Clock(datetime(2026, 11, 16, 12, tzinfo=UTC)), committed)
+    started = study.start_session("Sample", count=3)
+    sid, first = started["session_id"], started["question"]["card"]["id"]
+    study.record(sid, first, "correct")
+    last = study.next_question(sid)["card"]["id"]
+
+    refused = study.end_session(sid)
+
+    assert refused["ended"] is False
+    assert refused["pending_card"]["id"] == last
+    assert committed == []
+    study.record(sid, last, "wrong")
+    summary = study.end_session(sid)
+    assert summary["ended"] is True
+    assert summary["confirmation"].startswith("2 answers saved, 1 correct.")
+    assert len(log_lines(vault_root)) == 2
+    assert len(committed) == 1
+
+
+def test_end_session_can_drop_an_unanswered_last_card(vault_root: Path) -> None:
+    committed: list = []
+    study = service(vault_root, Clock(datetime(2026, 11, 16, 12, tzinfo=UTC)), committed)
+    started = study.start_session("Sample", count=3)
+    sid = started["session_id"]
+    study.record(sid, started["question"]["card"]["id"], "correct")
+    study.next_question(sid)
+
+    summary = study.end_session(sid, skip_pending=True)
+
+    assert summary["ended"] is True
+    assert summary["confirmation"].startswith("1 answer saved, 1 correct.")
+    ((_, message),) = committed
+    assert message.startswith("study: Sample – 1 answer, 1 correct")
+
+
+def test_idle_sessions_are_ended_and_committed(vault_root: Path) -> None:
+    clock = Clock(datetime(2026, 11, 16, 12, tzinfo=UTC))
+    committed: list = []
+    study = service(vault_root, clock, committed)
+    started = study.start_session("Sample", count=5)
+    sid = started["session_id"]
+    study.record(sid, started["question"]["card"]["id"], "partial")
+    empty = study.start_session("Sample", count=5)["session_id"]  # nothing answered
+
+    clock.now += timedelta(minutes=29)
+    assert study.close_idle() == []
+    clock.now += timedelta(minutes=1)
+    assert sorted(study.close_idle()) == sorted([sid, empty])
+
+    ((paths, message),) = committed  # only the session with answers is committed
+    assert message.startswith("study: Sample – 1 answer, 0 correct")
+    assert "ended automatically after 30 minutes" in message
+    with pytest.raises(StudyError):
+        study.next_question(sid)
+
+
+def test_activity_keeps_a_session_open(vault_root: Path) -> None:
+    clock = Clock(datetime(2026, 11, 16, 12, tzinfo=UTC))
+    study = service(vault_root, clock)
+    started = study.start_session("Sample", count=5)
+    sid = started["session_id"]
+    clock.now += timedelta(minutes=25)
+    study.record(sid, started["question"]["card"]["id"], "correct")
+    clock.now += timedelta(minutes=25)
+    assert study.close_idle() == []
