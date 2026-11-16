@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -18,8 +19,10 @@ from lifeos.connectors.onedrive.client import GraphClient
 from lifeos.connectors.onedrive.sync import PresentationsSync
 from lifeos.core import auth
 from lifeos.core.config import Settings, get_settings
-from lifeos.core.git_sync import git_sync_for
+from lifeos.core.git_sync import background_committer, git_sync_for
 from lifeos.core.vault import RevisionConflict, Vault, VaultPathError
+from lifeos.mcp_server.http import mount_mcp
+from lifeos.mcp_server.server import build_mcp
 from lifeos.modules.knowledge.index import KnowledgeIndex
 from lifeos.modules.knowledge.router import build_router as knowledge_router
 from lifeos.modules.knowledge.service import KnowledgeService
@@ -27,6 +30,8 @@ from lifeos.modules.moodle.router import build_router as moodle_router
 from lifeos.modules.notes.router import build_router as notes_router
 from lifeos.modules.notes.store import NotesStore
 from lifeos.modules.presentations.router import build_router as presentations_router
+from lifeos.modules.study.router import build_router as study_router
+from lifeos.modules.study.service import StudyService
 from lifeos.modules.tickets.router import build_router as tickets_router
 from lifeos.modules.tickets.service import TicketService
 from lifeos.modules.vault_sync.router import build_router as vault_sync_router
@@ -37,8 +42,19 @@ from lifeos.modules.workspaces.service import FeedbackError, WorkspaceService
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     vault = Vault.open(settings.vault_root)
+    git = git_sync_for(settings)
+    study = StudyService(vault, settings.timezone, committer=background_committer(git))
+    mcp = build_mcp(study) if settings.mcp_path_token else None
 
-    app = FastAPI(title="LifeOS", version=__version__)
+    @contextlib.asynccontextmanager
+    async def lifespan(_: FastAPI):
+        if mcp is None:
+            yield
+            return
+        async with mcp.session_manager.run():
+            yield
+
+    app = FastAPI(title="LifeOS", version=__version__, lifespan=lifespan)
     app.add_middleware(auth.AuthMiddleware, settings=settings)
 
     @app.exception_handler(VaultPathError)
@@ -98,9 +114,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(_presentations(settings, vault))
     app.include_router(_moodle_router(settings, vault))
     jobs_file = settings.state_dir / "jobs.json" if settings.state_dir else None
-    app.include_router(
-        vault_sync_router(git_sync_for(settings), settings.git_sync_interval, jobs_file)
-    )
+    app.include_router(vault_sync_router(git, settings.git_sync_interval, jobs_file))
+    app.include_router(study_router(study))
+
+    if mcp is not None and settings.mcp_path_token:
+        mount_mcp(app, mcp, settings.mcp_path_token)
 
     if settings.static_dir:
         _mount_spa(app, settings.static_dir)

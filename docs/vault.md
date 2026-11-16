@@ -173,6 +173,29 @@ you: Tickets → Changes → create plan → Apply
 - The helpers run inside the container: `docker compose -f ../app/compose.yml exec -T web
   lifeos tasks input|check|done`. `lifeos moodle-sync` runs the Moodle sync from the shell.
 
+## Study (question banks, progress, MCP)
+
+```
+ready/knowledge/Studium/<Subject>/_Fach.md            subject: fach, kürzel, prüfung (ISO date/time), prüfungsformat, sprache
+ready/knowledge/Studium/<Subject>/<Topic> - Prüfen.md  question bank (cards)
+ready/knowledge/Studium/<Subject>/<Topic>.md           learning text, read section by section (## headings)
+ready/knowledge/Studium/<Subject>/lernstand.jsonl      progress log, one line per answer (append-only)
+```
+
+- A card is `**ID** – title` followed by `- Key: value` lines (e.g. `Definition`,
+  `Lückensatz`, `Funktion`, `Muss-Punkte`, `Gruppe`). LifeOS only reads the banks.
+- Each answer is appended to `lernstand.jsonl` (`ts`, `card`, `result` = correct, partial or
+  wrong, `mode`, `session`, `note`). Card states are computed from it: Leitner boxes 0–4,
+  intervals 0 / 4 h / 1 d / 2 d / 4 d capped at half the time left before the exam; secure =
+  box 2+ with a correct last answer. Missed cards return within the same session.
+- Readiness (`GET /api/study/<subject>/progress`): secure share, new and due cards, weak
+  cards, minutes still needed and per day until the exam.
+- The MCP server (`LIFEOS_MCP_PATH_TOKEN`, see `docker/env.example`) offers the same as
+  tools for ChatGPT and other assistants: `list_subjects`, `start_session`, `next_question`,
+  `record_answer`, `end_session`, `progress`, `read_material`. Its instructions carry the
+  tutor rules (one question at a time, varied question types, strict grading, short turns).
+- `end_session` commits the log as `study: <Subject> – N answers, M correct`.
+
 ## Workspace lifecycle
 
 1. **Create** — an agent writes exactly one Markdown file into `ready/workspaces/`.

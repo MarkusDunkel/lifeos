@@ -17,6 +17,7 @@ dependencies = [
     "python-docx>=1.1",
     "markdownify>=0.14",
     "tzdata>=2024.1",
+    "mcp>=2.3",
 ]
 
 [project.scripts]

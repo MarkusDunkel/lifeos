@@ -11,11 +11,37 @@ from lifeos.connectors.moodle.sync import MoodleSync, SyncReport
 from lifeos.core.config import Settings
 from lifeos.core.git_sync import GitError, GitSync, file_list
 from lifeos.core.vault import KNOWLEDGE, Vault
+from lifeos.modules.study.bank import STUDY_DIR
+from lifeos.modules.study.progress import PROGRESS_FILE
 from lifeos.worker.scheduler import Daily, Every, Job, JobResult, parse_time
+
+
+def commit_study_leftovers(git: GitSync) -> list[str]:
+    """Commit progress logs of study sessions that were never ended, as ``study: …``.
+
+    Normally ``end_session`` commits them; this keeps them out of ``auto-sync`` commits.
+    """
+    root = git.root / KNOWLEDGE / STUDY_DIR
+    committed: list[str] = []
+    if not root.is_dir():
+        return committed
+    for log_file in sorted(root.glob(f"*/{PROGRESS_FILE}")):
+        rel = log_file.relative_to(git.root).as_posix()
+        added = git.added_lines(rel)
+        if not added:
+            continue
+        subject = log_file.parent.name
+        message = f"study: {subject} – {added} answers (session not ended)\n"
+        committed += git.commit_paths([rel], message)
+    return committed
 
 
 def git_sync_job(git: GitSync) -> Callable[[], JobResult]:
     def run() -> JobResult:
+        try:
+            commit_study_leftovers(git)
+        except GitError as exc:
+            return JobResult("error", f"study commit failed: {exc}")
         result = git.run()
         return JobResult(result.status, result.message)
 

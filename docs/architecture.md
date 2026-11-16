@@ -61,6 +61,7 @@ Writers that know what they changed commit their own paths right away
 | Prefix | Writer |
 |---|---|
 | `moodle:` | daily Moodle job, e.g. `moodle: 3 new, 2 updated` with courses and files in the body |
+| `study:` | end of a study session, e.g. `study: Spanish – 15 answers, 12 correct`; unfinished sessions are committed by the sync job as `study: … (session not ended)` |
 | `lifeos: auto-sync` | the periodic sync, collecting everything else (e.g. edits in the web app) |
 
 Future writers (OneDrive, tickets, study progress, agents) follow the same pattern.
@@ -93,6 +94,8 @@ SSH remote URL (`git@github.com:<owner>/<repo>.git`), set `LIFEOS_GIT_SYNC_INTER
 | `core/git_sync.py` | Vault sync with its private remote: commit, rebase, push; conflict-safe |
 | `worker/` | `lifeos worker`: scheduler (`scheduler.py`) and jobs (`jobs.py`) |
 | `core/locks.py` | File locks shared by the web and worker processes |
+| `modules/study` | Question banks in `Studium/`, append-only progress log, exam-aware repetition, readiness |
+| `mcp_server/` | MCP server (study tools) for ChatGPT and other assistants |
 | `modules/vault_sync` | Sync status and "sync now" endpoints |
 | `modules/knowledge` | Tree, read/write, FTS5 search, wikilink backlinks |
 | `modules/notes` | JSON Lines store with per-note revisions, column schema (inferred or `schema.json`) |

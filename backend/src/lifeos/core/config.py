@@ -80,6 +80,15 @@ class Settings(BaseSettings):
         ),
     )
 
+    mcp_path_token: str | None = Field(
+        default=None,
+        min_length=32,
+        description=(
+            "Enables the MCP server at /mcp/<token>/ (study tools for ChatGPT and other "
+            "assistants). Random, at least 32 characters (`lifeos secret`). Unset = MCP off."
+        ),
+    )
+
     git_sync_interval: int = Field(
         default=0,
         ge=0,

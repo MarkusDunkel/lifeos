@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import os
 import subprocess
 import threading
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
 
 GIT_TIMEOUT = 120
 MAX_LISTED_FILES = 20
+
+log = logging.getLogger("lifeos.git")
 
 
 class GitError(RuntimeError):
@@ -104,6 +107,15 @@ class GitSync:
                     "--", *paths,
                 )  # fmt: skip
             return changed
+
+    def added_lines(self, path: str) -> int:
+        """Lines added to ``path`` since the last commit (all lines for a new file)."""
+        if not (self.root / ".git").exists() or not (self.root / path).is_file():
+            return 0
+        if self._git_raw("ls-files", "--error-unmatch", "--", path).returncode != 0:
+            return len((self.root / path).read_text(encoding="utf-8").splitlines())
+        numstat = self._git("diff", "--numstat", "HEAD", "--", path).split()
+        return int(numstat[0]) if numstat and numstat[0].isdigit() else 0
 
     def status(self) -> dict:
         if self.status_file and self.status_file.exists():
@@ -245,6 +257,25 @@ class GitSync:
                     yield
             else:
                 yield
+
+
+def background_committer(git: GitSync) -> Callable[[list[str], str], None]:
+    """Commit ``paths`` with ``message`` and sync, in a background thread.
+
+    Used by request handlers (e.g. the end of a study session) that should answer quickly.
+    """
+
+    def commit(paths: list[str], message: str) -> None:
+        def work() -> None:
+            try:
+                if git.commit_paths(paths, message):
+                    git.run()
+            except GitError:
+                log.exception("commit of %s failed", ", ".join(paths))
+
+        threading.Thread(target=work, name="lifeos-commit", daemon=True).start()
+
+    return commit
 
 
 def git_sync_for(settings: Settings) -> GitSync:
