@@ -71,6 +71,15 @@ class Settings(BaseSettings):
         default="UTC", description="Time zone for due dates, e.g. `Europe/Vienna`."
     )
 
+    git_sync_interval: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Seconds between automatic vault syncs with its git remote (commit, pull --rebase, "
+            "push) run by `lifeos worker`. 0 disables the sync, e.g. on a laptop clone."
+        ),
+    )
+
     @property
     def github_repo_list(self) -> list[str]:
         return [r.strip() for r in self.github_repos.split(",") if r.strip()]

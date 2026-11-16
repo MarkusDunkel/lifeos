@@ -31,15 +31,22 @@ GITIGNORE = """\
 
 PRE_PUSH_HOOK = """\
 #!/bin/sh
-# The vault holds private data and must never be pushed anywhere.
-echo "lifeos vault: pushing is disabled (private data stays local)." >&2
+# The vault holds private data. Pushing is blocked unless the remote URL is allowed
+# explicitly, e.g. a private sync repository:
+#   git config --add lifeos.allowedPushUrl <url>
+# $1 = remote name, $2 = remote URL
+for url in $(git config --get-all lifeos.allowedPushUrl); do
+  [ "$2" = "$url" ] && exit 0
+done
+echo "lifeos vault: pushing to '$2' is blocked (see git config lifeos.allowedPushUrl)." >&2
 exit 1
 """
 
 CLAUDE_MD = """\
 # Vault rules for agents
 
-This is a private vault. It is versioned locally with git and never pushed.
+This is a private vault, versioned with git. It is pushed only to its own private
+sync repository (the pre-push hook blocks every other target).
 
 ## Layout
 - `inbox/` raw ingest data per connector. Never edit by hand; reproducible.
@@ -130,5 +137,5 @@ def init_vault(root: Path) -> list[str]:
     if not hook.exists():
         hook.write_text(PRE_PUSH_HOOK, encoding="utf-8", newline="\n")
         hook.chmod(0o755)
-        log.append("installed pre-push hook (pushing disabled)")
+        log.append("installed pre-push hook (pushing blocked unless allowed)")
     return log or ["vault already initialised"]

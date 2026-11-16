@@ -1,4 +1,4 @@
-"""Command line helpers: ``lifeos serve``, ``lifeos hash-password``, ``lifeos init-vault``."""
+"""Command line helpers: ``lifeos serve``, ``lifeos worker``, ``lifeos init-vault`` and more."""
 
 from __future__ import annotations
 
@@ -40,8 +40,27 @@ def main(argv: list[str] | None = None) -> int:
     tasks.add_argument("--label", default="university")
 
     sub.add_parser("moodle-sync", help="sync Moodle now (same as the button in the app)")
+    sub.add_parser("worker", help="run background jobs (vault git sync)")
+    sub.add_parser("git-sync", help="sync the vault with its git remote once")
 
     args = parser.parse_args(argv)
+    if args.cmd == "worker":
+        import logging
+
+        from lifeos.worker.runner import run_worker
+
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+        run_worker()
+        return 0
+    if args.cmd == "git-sync":
+        from dataclasses import asdict
+
+        from lifeos.core.config import get_settings
+        from lifeos.core.git_sync import git_sync_for
+
+        result = git_sync_for(get_settings()).run()
+        _print(asdict(result))
+        return 0 if result.status in ("ok", "skipped") else 1
     if args.cmd == "tasks":
         return _tasks(args)
     if args.cmd == "moodle-sync":

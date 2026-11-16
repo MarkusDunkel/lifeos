@@ -18,6 +18,7 @@ from lifeos.connectors.onedrive.client import GraphClient
 from lifeos.connectors.onedrive.sync import PresentationsSync
 from lifeos.core import auth
 from lifeos.core.config import Settings, get_settings
+from lifeos.core.git_sync import git_sync_for
 from lifeos.core.vault import RevisionConflict, Vault, VaultPathError
 from lifeos.modules.knowledge.index import KnowledgeIndex
 from lifeos.modules.knowledge.router import build_router as knowledge_router
@@ -28,6 +29,7 @@ from lifeos.modules.notes.store import NotesStore
 from lifeos.modules.presentations.router import build_router as presentations_router
 from lifeos.modules.tickets.router import build_router as tickets_router
 from lifeos.modules.tickets.service import TicketService
+from lifeos.modules.vault_sync.router import build_router as vault_sync_router
 from lifeos.modules.workspaces.router import build_router as workspaces_router
 from lifeos.modules.workspaces.service import FeedbackError, WorkspaceService
 
@@ -95,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tickets_router(TicketService(github)))
     app.include_router(_presentations(settings, vault))
     app.include_router(_moodle_router(settings, vault))
+    app.include_router(vault_sync_router(git_sync_for(settings), settings.git_sync_interval))
 
     if settings.static_dir:
         _mount_spa(app, settings.static_dir)

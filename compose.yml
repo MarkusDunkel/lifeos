@@ -1,22 +1,45 @@
 # Default layout (see docs/architecture.md):
 #   lifeos/app     this repository
-#   lifeos/vault   private data (git, never pushed)
-#   lifeos/deploy  .env with secrets, state/ with connector tokens
+#   lifeos/vault   private data (git; pushed only to its private sync repository)
+#   lifeos/deploy  .env with secrets, state/ with connector tokens, ssh/ with the vault deploy key
 # Override paths with LIFEOS_VAULT / LIFEOS_ENV_FILE if your layout differs.
+#
+# `docker compose up -d` starts the web app. On the server, also start the background
+# worker (vault git sync): `COMPOSE_PROFILES=worker docker compose up -d`.
+x-lifeos: &lifeos
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  image: lifeos:local
+  env_file: ${LIFEOS_ENV_FILE:-../deploy/.env}
+  environment:
+    LIFEOS_STATE_DIR: /state
+  volumes:
+    - ${LIFEOS_VAULT:-../vault}:/vault
+    # Connector tokens, kept out of the vault (create the folder before the first start).
+    - ${LIFEOS_STATE:-../deploy/state}:/state
+  user: "${LIFEOS_UID:-1000}:${LIFEOS_GID:-1000}"
+  restart: unless-stopped
+
 services:
   web:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    image: lifeos:local
-    env_file: ${LIFEOS_ENV_FILE:-../deploy/.env}
-    environment:
-      LIFEOS_STATE_DIR: /state
-    volumes:
-      - ${LIFEOS_VAULT:-../vault}:/vault
-      # Connector tokens, kept out of the vault (create the folder before the first start).
-      - ${LIFEOS_STATE:-../deploy/state}:/state
+    <<: *lifeos
     ports:
       - "${LIFEOS_BIND:-127.0.0.1}:${LIFEOS_PORT:-8000}:8000"
-    user: "${LIFEOS_UID:-1000}:${LIFEOS_GID:-1000}"
-    restart: unless-stopped
+
+  worker:
+    <<: *lifeos
+    profiles: [worker]
+    command: ["lifeos", "worker"]
+    environment:
+      LIFEOS_STATE_DIR: /state
+      # Deploy key with write access to the private vault repository only.
+      GIT_SSH_COMMAND: >-
+        ssh -i /ssh/id_ed25519 -o IdentitiesOnly=yes
+        -o UserKnownHostsFile=/ssh/known_hosts -o StrictHostKeyChecking=yes
+    volumes:
+      - ${LIFEOS_VAULT:-../vault}:/vault
+      - ${LIFEOS_STATE:-../deploy/state}:/state
+      - ${LIFEOS_SSH:-../deploy/ssh}:/ssh:ro
+    healthcheck:
+      disable: true

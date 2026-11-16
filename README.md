@@ -12,8 +12,8 @@ I work together with AI agents — study notes, a knowledge hub, short-lived AI 
   files, versioned with git. The app, Obsidian, VS Code and AI agents all work on the
   same files; a small SQLite index exists only for search and job state.
 - **Data is separated from code by sensitivity.** This repository contains only code.
-  The vault is a separate git repository that is never pushed; secrets live in a third
-  folder outside of any repository.
+  The vault is a separate git repository, pushed only to its own private sync
+  repository; secrets live in a third folder outside of any repository.
 - **Ingest → AI-ready → digest.** Connectors import data (`inbox/`) into the workbench
   (`ready/`), where humans and agents edit it; digests write changes back to their
   source (`outbox/` holds the plans and results) — always reviewed before applying.
@@ -39,7 +39,7 @@ I work together with AI agents — study notes, a knowledge hub, short-lived AI 
 ```
 lifeos/
 ├── app/      ← this repo (public): FastAPI backend, React frontend, Docker
-├── vault/    ← private data, git without remote (pre-push hook blocks pushing)
+├── vault/    ← private data, git; pushed only to a private sync repo (pre-push hook)
 └── deploy/   ← .env with secrets, not versioned
 ```
 

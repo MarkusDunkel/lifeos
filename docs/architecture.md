@@ -5,8 +5,8 @@
 | Folder | Contents | Versioning | Leaves the machine? |
 |---|---|---|---|
 | `app/` | Code only, generic agent templates, docs | git, public GitHub | yes (public) |
-| `vault/` | All personal content | git, **no remote**; a pre-push hook rejects every push | only as encrypted backup |
-| `deploy/` | `.env` (session secret, password hash, API keys), `state/` (connector tokens), compose overrides | none | no |
+| `vault/` | All personal content | git; pushed **only** to its own private sync repository (a pre-push hook rejects every other target) | only to that private repository |
+| `deploy/` | `.env` (session secret, password hash, API keys), `state/` (connector tokens), `ssh/` (vault deploy key), compose overrides | none | no |
 
 The app never contains personal data, paths or tokens — everything specific comes from
 `deploy/.env`. CI runs gitleaks to catch accidental secrets.
@@ -29,8 +29,34 @@ Browser / PWA ──HTTPS── web (FastAPI + static React build) ──┐
 
 - **web** serves the API under `/api` and the single-page app for every other path, so
   client-side routes survive reloads.
-- **worker** (from R4) runs background jobs and Claude agents from the same image.
+- **worker** (`lifeos worker`, compose profile `worker`) runs background jobs from the same
+  image. Today: the vault git sync. Planned: scheduled connector syncs and Claude agents.
 - **SQLite** holds only derived data (search index, job state). Deleting it loses nothing.
+
+## Vault sync
+
+The hosted app and a laptop work on separate clones of the vault. A private git
+repository is the hub between them and doubles as off-site backup:
+
+```
+server: web + worker ── vault clone ──auto──▶ private vault repo ◀──pull/push── laptop clone
+```
+
+- The worker runs `GitSync` every `LIFEOS_GIT_SYNC_INTERVAL` seconds: commit everything,
+  `git fetch`, rebase onto the remote if it moved, push. Status goes to
+  `state/git-sync.json`; `GET /api/vault-sync/status` reads it, `POST /api/vault-sync/run`
+  syncs now. `lifeos git-sync` does one run from the shell.
+- Conflicts stay rare because every file has a single writer (the user or the app). If a
+  rebase conflicts anyway, it is aborted, nothing is pushed and the status stays
+  `conflict` until a human resolves it on the server.
+- On the laptop the interval stays 0; the user pulls before and pushes after working.
+- The pre-push hook (`init-vault`) blocks every push unless the URL is allowed explicitly:
+  `git config --add lifeos.allowedPushUrl <url>`.
+
+Server setup: create a deploy key with write access for the private repository only, put
+it at `deploy/ssh/id_ed25519` with GitHub's host key in `deploy/ssh/known_hosts`, use an
+SSH remote URL (`git@github.com:<owner>/<repo>.git`), set `LIFEOS_GIT_SYNC_INTERVAL` in
+`deploy/.env` and start with `COMPOSE_PROFILES=worker docker compose up -d`.
 
 ## Backend layout (`backend/src/lifeos`)
 
@@ -38,7 +64,10 @@ Browser / PWA ──HTTPS── web (FastAPI + static React build) ──┐
 |---|---|
 | `core/vault.py` | Path guard (no `..`, no absolute paths, no symlinks, per-module zones), atomic writes, optimistic locking via content revisions (HTTP 409 on conflict) |
 | `core/auth.py` | Single-user login, argon2 password hash, signed HttpOnly session cookie |
-| `core/vault_init.py` | Idempotent vault skeleton incl. git and push block |
+| `core/vault_init.py` | Idempotent vault skeleton incl. git and push block (allow-list) |
+| `core/git_sync.py` | Vault sync with its private remote: commit, rebase, push; conflict-safe |
+| `worker/` | `lifeos worker`: periodic background jobs |
+| `modules/vault_sync` | Sync status and "sync now" endpoints |
 | `modules/knowledge` | Tree, read/write, FTS5 search, wikilink backlinks |
 | `modules/notes` | JSON Lines store with per-note revisions, column schema (inferred or `schema.json`) |
 | `modules/workspaces` | Read-only reports, archive, change logs; md4h feedback rounds (draft → sealed) |
