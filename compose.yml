@@ -3,6 +3,8 @@
 #   lifeos/vault   private data (git; pushed only to its private sync repository)
 #   lifeos/deploy  .env with secrets, state/ with connector tokens, ssh/ with the vault deploy key
 # Override paths with LIFEOS_VAULT / LIFEOS_ENV_FILE if your layout differs.
+# The image has a user for uid 1000 (needed by ssh in the worker); keep LIFEOS_UID at 1000
+# or extend the Dockerfile when the host user has another uid.
 #
 # `docker compose up -d` starts the web app. On the server, also start the background
 # worker (vault git sync): `COMPOSE_PROFILES=worker docker compose up -d`.

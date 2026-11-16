@@ -33,7 +33,10 @@ ENV LIFEOS_STATIC_DIR=/app/static \
     LIFEOS_VAULT_ROOT=/vault
 
 # The vault is bind-mounted; run as the host user via `user:` in compose.
-RUN git config --system --add safe.directory /vault
+# ssh (vault git sync) needs a passwd entry for that uid; 1000 is the compose default.
+RUN git config --system --add safe.directory /vault \
+    && groupadd --gid 1000 lifeos \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /usr/sbin/nologin lifeos
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"

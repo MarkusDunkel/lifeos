@@ -182,8 +182,8 @@ class GitSync:
         proc = self._git_raw(*args)
         if proc.returncode != 0:
             cmd = next(a for a in args if not a.startswith("-") and "=" not in a)
-            detail = (proc.stderr or proc.stdout).strip().splitlines()
-            raise GitError(f"git {cmd} failed: {detail[-1] if detail else proc.returncode}")
+            lines = [ln.strip() for ln in (proc.stderr or proc.stdout).splitlines() if ln.strip()]
+            raise GitError(f"git {cmd} failed: {lines[0] if lines else proc.returncode}")
         return proc.stdout
 
     def _write_status(self, result: SyncResult) -> None:
