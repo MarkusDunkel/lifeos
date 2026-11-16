@@ -11,8 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from lifeos import __version__
 from lifeos.connectors.github.client import GitHubClient, GitHubError
 from lifeos.connectors.github.sync import GitHubConnector, SyncError
-from lifeos.connectors.moodle.client import MoodleClient, MoodleError
-from lifeos.connectors.moodle.sync import MoodleAccess, MoodleSync
+from lifeos.connectors.moodle.client import MoodleError
+from lifeos.connectors.moodle.setup import build_moodle
 from lifeos.connectors.onedrive.auth import MicrosoftAuth, OneDriveError
 from lifeos.connectors.onedrive.client import GraphClient
 from lifeos.connectors.onedrive.sync import PresentationsSync
@@ -97,7 +97,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tickets_router(TicketService(github)))
     app.include_router(_presentations(settings, vault))
     app.include_router(_moodle_router(settings, vault))
-    app.include_router(vault_sync_router(git_sync_for(settings), settings.git_sync_interval))
+    jobs_file = settings.state_dir / "jobs.json" if settings.state_dir else None
+    app.include_router(
+        vault_sync_router(git_sync_for(settings), settings.git_sync_interval, jobs_file)
+    )
 
     if settings.static_dir:
         _mount_spa(app, settings.static_dir)
@@ -123,18 +126,7 @@ def _presentations(settings: Settings, vault: Vault):
 
 
 def _moodle_router(settings: Settings, vault: Vault):
-    missing = [
-        name
-        for name, value in (
-            ("LIFEOS_MOODLE_URL", settings.moodle_url),
-            ("LIFEOS_STATE_DIR", settings.state_dir),
-        )
-        if not value
-    ]
-    access = None
-    if settings.moodle_url and settings.state_dir:
-        access = MoodleAccess(settings.moodle_url, settings.state_dir, MoodleClient)
-    sync = MoodleSync(vault, access, settings.moodle_dir, timezone=settings.timezone)
+    sync, missing = build_moodle(settings, vault)
     return moodle_router(sync, missing)
 
 

@@ -4,6 +4,10 @@ One run: commit local changes, ``git pull --rebase``, push. The vault design kee
 conflicts rare (every file has a single writer: the user or the app). If a conflict
 happens anyway, the rebase is aborted, nothing is overwritten and the status reports
 ``conflict`` until a human resolves it.
+
+Writers that know what they changed (connector jobs, agents) commit their own paths with
+a descriptive message via :meth:`GitSync.commit_paths` before the run; the run then only
+collects what is left under ``lifeos: auto-sync``.
 """
 
 from __future__ import annotations
@@ -13,18 +17,16 @@ import json
 import os
 import subprocess
 import threading
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from lifeos.core.locks import FileLock
+
 if TYPE_CHECKING:
     from lifeos.core.config import Settings
-
-try:  # POSIX only; on Windows (development) runs are serialised per process
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None  # type: ignore[assignment]
 
 GIT_TIMEOUT = 120
 MAX_LISTED_FILES = 20
@@ -44,6 +46,14 @@ class SyncResult:
     at: str = field(default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds"))
 
 
+def file_list(paths: list[str]) -> str:
+    """Bullet list for commit bodies, capped at ``MAX_LISTED_FILES`` entries."""
+    listed = "\n".join(f"- {p}" for p in paths[:MAX_LISTED_FILES])
+    if len(paths) > MAX_LISTED_FILES:
+        listed += f"\n- … and {len(paths) - MAX_LISTED_FILES} more"
+    return listed
+
+
 class GitSync:
     def __init__(
         self,
@@ -59,13 +69,41 @@ class GitSync:
     # -- public ---------------------------------------------------------------
 
     def run(self) -> SyncResult:
-        with self._lock, self._file_lock():
+        with self._locked():
             try:
                 result = self._run()
             except GitError as exc:
                 result = SyncResult("error", str(exc))
             self._write_status(result)
             return result
+
+    def commit_paths(
+        self, paths: list[str], message: str | Callable[[list[str]], str]
+    ) -> list[str]:
+        """Commit only the changes below ``paths`` (relative to the vault) with ``message``.
+
+        ``message`` may be a function of the changed files. Other pending changes stay
+        uncommitted for the next run. Returns the committed files; nothing is committed
+        when there are no changes or no git repository.
+        """
+        if not (self.root / ".git").exists():
+            return []
+        with self._locked():
+            if self._operation_in_progress():
+                raise GitError("a merge or rebase is in progress in the vault")
+            # A path that neither exists nor is tracked would make `git add` fail.
+            paths = [p for p in paths if (self.root / p).exists() or self._git("ls-files", "--", p)]
+            if not paths:
+                return []
+            self._git("add", "--all", "--", *paths)
+            changed = self._staged(*paths)
+            if changed:
+                text = message(changed) if callable(message) else message
+                self._git(
+                    *self._identity(), "commit", "--quiet", "--no-verify", "-m", text,
+                    "--", *paths,
+                )  # fmt: skip
+            return changed
 
     def status(self) -> dict:
         if self.status_file and self.status_file.exists():
@@ -127,19 +165,17 @@ class GitSync:
 
     def _commit_all(self) -> list[str]:
         self._git("add", "--all")
-        changed = [
-            line for line in self._git("diff", "--cached", "--name-only").splitlines() if line
-        ]
-        if not changed:
-            return []
-        listed = "\n".join(f"- {name}" for name in changed[:MAX_LISTED_FILES])
-        if len(changed) > MAX_LISTED_FILES:
-            listed += f"\n- … and {len(changed) - MAX_LISTED_FILES} more"
-        message = f"lifeos: auto-sync ({len(changed)} file(s))\n\n{listed}\n"
-        self._git(*self._identity(), "commit", "--quiet", "--no-verify", "-m", message)
+        changed = self._staged()
+        if changed:
+            message = f"lifeos: auto-sync ({len(changed)} file(s))\n\n{file_list(changed)}\n"
+            self._git(*self._identity(), "commit", "--quiet", "--no-verify", "-m", message)
         return changed
 
     # -- helpers --------------------------------------------------------------
+
+    def _staged(self, *paths: str) -> list[str]:
+        args = ["diff", "--cached", "--name-only"] + (["--", *paths] if paths else [])
+        return [line for line in self._git(*args).splitlines() if line]
 
     def _identity(self) -> list[str]:
         """Fallback author when the vault has no git identity configured."""
@@ -200,31 +236,18 @@ class GitSync:
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
         tmp.replace(self.status_file)
 
-    def _file_lock(self):
-        """Serialise runs across processes (worker and web share the state dir)."""
-        if fcntl is None or not self.status_file:
-            return contextlib.nullcontext()
-        return _FcntlLock(self.status_file.with_suffix(".lock"))
+    @contextlib.contextmanager
+    def _locked(self):
+        """Serialise git operations across threads and processes (web and worker)."""
+        with self._lock:
+            if self.status_file:
+                with FileLock(self.status_file.with_suffix(".lock")):
+                    yield
+            else:
+                yield
 
 
 def git_sync_for(settings: Settings) -> GitSync:
     """The vault sync used by the worker and the API; status lives in the state dir."""
     status_file = settings.state_dir / "git-sync.json" if settings.state_dir else None
     return GitSync(settings.vault_root, status_file)
-
-
-class _FcntlLock:
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self._fd: int | None = None
-
-    def __enter__(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
-        fcntl.flock(self._fd, fcntl.LOCK_EX)  # type: ignore[union-attr]
-
-    def __exit__(self, *exc: object) -> None:
-        if self._fd is not None:
-            fcntl.flock(self._fd, fcntl.LOCK_UN)  # type: ignore[union-attr]
-            os.close(self._fd)
-            self._fd = None

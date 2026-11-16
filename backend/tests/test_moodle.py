@@ -9,7 +9,6 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-import lifeos.main
 from lifeos.connectors.moodle.client import MoodleClient, MoodleError, _flatten, request_token
 from lifeos.connectors.moodle.sync import MoodleAccess, MoodleSync, safe_name
 from lifeos.core.auth import hash_password
@@ -485,7 +484,7 @@ def api(tmp_path: Path, moodle: FakeMoodle, monkeypatch: pytest.MonkeyPatch) -> 
     (root / "ready" / "knowledge").mkdir(parents=True)
     state = tmp_path / "deploy-state"
     state.mkdir()
-    monkeypatch.setattr(lifeos.main, "MoodleClient", lambda url, token: moodle)
+    monkeypatch.setattr("lifeos.connectors.moodle.setup.MoodleClient", lambda url, token: moodle)
     monkeypatch.setattr(
         "lifeos.connectors.moodle.sync.request_token", lambda url, user, password: "TOKEN"
     )

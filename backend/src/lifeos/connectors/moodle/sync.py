@@ -30,9 +30,11 @@ from lifeos.connectors.moodle.client import (
 )
 from lifeos.core.extract import ExtractError, html_to_markdown, supported, to_markdown
 from lifeos.core.extract.text import dump_front, front_matter, link, mark_deleted
+from lifeos.core.locks import FileLock, LockBusy
 from lifeos.core.vault import INBOX, KNOWLEDGE, STATE, Vault, VaultPathError, write_atomic
 
 STATE_FILE = f"{STATE}/moodle/state.json"
+LOCK_FILE = f"{STATE}/moodle/sync.lock"  # shared by the web app and the worker
 TASKS_FILE = f"{INBOX}/moodle/tasks.json"
 # Activity dates from core_course_get_contents (dates[].dataid) and their names in the overview.
 DATE_LABELS = {
@@ -258,8 +260,11 @@ class MoodleSync:
         if not self._lock.acquire(blocking=False):
             raise MoodleError("a sync is already running", 409)
         try:
-            api, userid = access.client()
-            return self._sync(api, userid, access.base_url)
+            with FileLock(self.vault.resolve(LOCK_FILE), blocking=False):
+                api, userid = access.client()
+                return self._sync(api, userid, access.base_url)
+        except LockBusy as exc:
+            raise MoodleError("a sync is already running", 409) from exc
         finally:
             self._lock.release()
 

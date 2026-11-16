@@ -71,6 +71,15 @@ class Settings(BaseSettings):
         default="UTC", description="Time zone for due dates, e.g. `Europe/Vienna`."
     )
 
+    moodle_sync_at: str | None = Field(
+        default=None,
+        pattern=r"^([01]\d|2[0-3]):[0-5]\d$",
+        description=(
+            "Daily time (HH:MM, in LIFEOS_TIMEZONE) at which `lifeos worker` syncs Moodle and "
+            "commits the result as `moodle: …`. Unset disables the daily job."
+        ),
+    )
+
     git_sync_interval: int = Field(
         default=0,
         ge=0,

@@ -142,6 +142,11 @@ Moodle ──sync──▶ ready/knowledge/<LIFEOS_MOODLE_DIR>/<Course>/<Course>
 Setup: set `LIFEOS_MOODLE_URL` (e.g. `https://moodle.example.edu`) and optionally
 `LIFEOS_MOODLE_DIR` in `deploy/.env`, restart, then connect on the Moodle page.
 
+Daily sync: with `LIFEOS_MOODLE_SYNC_AT=05:00` the worker syncs every day at that time and
+commits the mirror right away as `moodle: 3 new, 2 updated` (courses and files in the
+commit body), then pushes. Let only one machine sync Moodle (the server); the selection and
+sync state in `.lifeos/moodle/state.json` are not versioned, copy them once when moving.
+
 ## University tasks (AI drafts, reviewed by you)
 
 ```

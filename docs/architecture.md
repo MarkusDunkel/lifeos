@@ -29,8 +29,8 @@ Browser / PWA ──HTTPS── web (FastAPI + static React build) ──┐
 
 - **web** serves the API under `/api` and the single-page app for every other path, so
   client-side routes survive reloads.
-- **worker** (`lifeos worker`, compose profile `worker`) runs background jobs from the same
-  image. Today: the vault git sync. Planned: scheduled connector syncs and Claude agents.
+- **worker** (`lifeos worker`, compose profile `worker`) runs scheduled jobs from the same
+  image (see below). Planned: more connector syncs and Claude agents.
 - **SQLite** holds only derived data (search index, job state). Deleting it loses nothing.
 
 ## Vault sync
@@ -53,6 +53,31 @@ server: web + worker ── vault clone ──auto──▶ private vault repo �
 - The pre-push hook (`init-vault`) blocks every push unless the URL is allowed explicitly:
   `git config --add lifeos.allowedPushUrl <url>`.
 
+### Commit messages
+
+Writers that know what they changed commit their own paths right away
+(`GitSync.commit_paths`), so the vault history shows who changed what:
+
+| Prefix | Writer |
+|---|---|
+| `moodle:` | daily Moodle job, e.g. `moodle: 3 new, 2 updated` with courses and files in the body |
+| `lifeos: auto-sync` | the periodic sync, collecting everything else (e.g. edits in the web app) |
+
+Future writers (OneDrive, tickets, study progress, agents) follow the same pattern.
+`git log --grep "^moodle:"` lists only the Moodle updates.
+
+### Worker jobs
+
+| Job | Schedule | Setting |
+|---|---|---|
+| `moodle-sync` | daily at a local time; missed runs are caught up, failures retried hourly (max. 3 per day) | `LIFEOS_MOODLE_SYNC_AT=05:00`, `LIFEOS_TIMEZONE` |
+| `git-sync` | every N seconds | `LIFEOS_GIT_SYNC_INTERVAL` |
+
+The last run of every job is kept in `state/jobs.json` (`GET /api/jobs/status`), so a
+restart neither repeats nor forgets a daily job. Moodle syncs from the web app and the
+worker exclude each other through a file lock. Only one machine should sync Moodle (the
+server): the mirror's state (`.lifeos/moodle/state.json`) is not versioned.
+
 Server setup: create a deploy key with write access for the private repository only, put
 it at `deploy/ssh/id_ed25519` with GitHub's host key in `deploy/ssh/known_hosts`, use an
 SSH remote URL (`git@github.com:<owner>/<repo>.git`), set `LIFEOS_GIT_SYNC_INTERVAL` in
@@ -66,7 +91,8 @@ SSH remote URL (`git@github.com:<owner>/<repo>.git`), set `LIFEOS_GIT_SYNC_INTER
 | `core/auth.py` | Single-user login, argon2 password hash, signed HttpOnly session cookie |
 | `core/vault_init.py` | Idempotent vault skeleton incl. git and push block (allow-list) |
 | `core/git_sync.py` | Vault sync with its private remote: commit, rebase, push; conflict-safe |
-| `worker/` | `lifeos worker`: periodic background jobs |
+| `worker/` | `lifeos worker`: scheduler (`scheduler.py`) and jobs (`jobs.py`) |
+| `core/locks.py` | File locks shared by the web and worker processes |
 | `modules/vault_sync` | Sync status and "sync now" endpoints |
 | `modules/knowledge` | Tree, read/write, FTS5 search, wikilink backlinks |
 | `modules/notes` | JSON Lines store with per-note revisions, column schema (inferred or `schema.json`) |

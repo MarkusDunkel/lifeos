@@ -136,19 +136,16 @@ def _tasks(args) -> int:
 def _moodle_sync() -> int:
     from dataclasses import asdict
 
-    from lifeos.connectors.moodle.client import MoodleClient, MoodleError
-    from lifeos.connectors.moodle.sync import MoodleAccess, MoodleSync
+    from lifeos.connectors.moodle.client import MoodleError
+    from lifeos.connectors.moodle.setup import build_moodle
     from lifeos.core.config import get_settings
     from lifeos.core.vault import Vault
 
     settings = get_settings()
-    if not settings.moodle_url or not settings.state_dir:
-        print("Moodle is not set up (LIFEOS_MOODLE_URL, LIFEOS_STATE_DIR)", file=sys.stderr)
+    sync, missing = build_moodle(settings, Vault.open(settings.vault_root))
+    if missing:
+        print(f"Moodle is not set up ({', '.join(missing)})", file=sys.stderr)
         return 2
-    access = MoodleAccess(settings.moodle_url, settings.state_dir, MoodleClient)
-    sync = MoodleSync(
-        Vault.open(settings.vault_root), access, settings.moodle_dir, timezone=settings.timezone
-    )
     try:
         report = asdict(sync.sync())
     except MoodleError as exc:
