@@ -7,16 +7,21 @@ never conflicts in git). The state of a card is always computed from the log:
 - a card is due again after 0 / 4 h / 1 day / 2 days / 4 days, but never later than half
   the time left until the exam, so everything is repeated shortly before it
 - a card counts as *secure* in box >= 2 with a correct last answer
+
+The exam date comes from the card's question bank (or the subject), so topics with
+different exams are paced separately.
 """
 
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from lifeos.core.locks import FileLock
+from lifeos.modules.study.bank import Card
 
 PROGRESS_FILE = "lernstand.jsonl"
 RESULTS = ("correct", "partial", "wrong")
@@ -135,35 +140,73 @@ def priority(state: CardState, now: datetime, exam: datetime | None) -> tuple[in
     return (3, overdue)
 
 
+def status(state: CardState) -> str:
+    """Learning status of a card: new, wrong, partial, learning or secure."""
+    if not state.seen:
+        return "new"
+    if state.secure:
+        return "secure"
+    if state.last_result in ("wrong", "partial"):
+        return state.last_result
+    return "learning"  # answered correctly, but not often enough yet
+
+
+def _minutes_needed(states: list[CardState]) -> float:
+    # Correct answers still needed until every card is secure (box 2, last answer correct).
+    needed = sum(max(1, SECURE_BOX - s.box) for s in states if not s.secure)
+    return needed * SECONDS_PER_ANSWER / 60
+
+
+def _per_day(minutes: float, exam: datetime | None, now: datetime) -> float | None:
+    """Minutes per day until an upcoming exam; ``None`` without one or after it."""
+    if exam is None or exam <= now:
+        return None
+    days_left = (exam - now).total_seconds() / 86400
+    return minutes if days_left < 1 else minutes / int(days_left)
+
+
+def _days(exam: datetime | None, now: datetime) -> float | None:
+    if exam is None:
+        return None
+    return round(max((exam - now).total_seconds() / 86400, 0), 1)
+
+
 def readiness(
-    states: dict[str, CardState],
-    titles: dict[str, str],
-    topics: dict[str, str],
-    now: datetime,
-    exam: datetime | None,
+    states: dict[str, CardState], cards: list[Card], now: datetime, next_exam: datetime | None
 ) -> dict:
+    """Readiness of a subject, overall (towards ``next_exam``) and per topic (towards the
+    exam of the topic's bank)."""
+    by_id = {c.id: c for c in cards}
     total = len(states)
     secure = [s for s in states.values() if s.secure]
     seen = [s for s in states.values() if s.seen]
-    due = [s for s in states.values() if priority(s, now, exam) is not None]
-    # Correct answers still needed until every card is secure (box 2, last answer correct).
-    needed = sum(max(1, SECURE_BOX - s.box) for s in states.values() if not s.secure)
-    minutes = round(needed * SECONDS_PER_ANSWER / 60)
-    days_left = None
-    per_day = None
-    if exam is not None:
-        days_left = max((exam - now).total_seconds() / 86400, 0)
-        per_day = minutes if days_left < 1 else round(minutes / max(int(days_left), 1))
+    due = [s for s in states.values() if priority(s, now, by_id[s.card].exam) is not None]
     weak = sorted(
         (s for s in states.values() if s.seen and not s.secure),
         key=lambda s: (-(s.wrong + 0.5 * s.partial), s.box),
     )[:8]
-    by_topic: dict[str, dict] = {}
+
+    grouped: dict[str, list[CardState]] = {}
     for s in states.values():
-        entry = by_topic.setdefault(topics[s.card], {"cards": 0, "secure": 0, "seen": 0})
-        entry["cards"] += 1
-        entry["secure"] += int(s.secure)
-        entry["seen"] += int(bool(s.seen))
+        grouped.setdefault(by_id[s.card].topic, []).append(s)
+    by_topic: dict[str, dict] = {}
+    per_day_total: float | None = None
+    for topic, group in grouped.items():
+        exam = by_id[group[0].card].exam
+        minutes = _minutes_needed(group)
+        per_day = _per_day(minutes, exam, now)
+        if per_day is not None:
+            per_day_total = (per_day_total or 0) + per_day
+        by_topic[topic] = {
+            "cards": len(group),
+            "secure": sum(s.secure for s in group),
+            "seen": sum(bool(s.seen) for s in group),
+            "dueNow": sum(priority(s, now, exam) is not None for s in group),
+            "exam": exam.isoformat() if exam else None,
+            "examInDays": _days(exam, now),
+            "minutesNeeded": round(minutes),
+            "minutesPerDay": math.ceil(per_day) if per_day is not None else None,
+        }
     return {
         "cards": total,
         "seen": len(seen),
@@ -171,11 +214,12 @@ def readiness(
         "new": total - len(seen),
         "readiness": round(100 * len(secure) / total) if total else 0,
         "dueNow": len(due),
-        "examInDays": round(days_left, 1) if days_left is not None else None,
-        "minutesNeeded": minutes,
-        "minutesPerDay": per_day,
+        "nextExam": next_exam.isoformat() if next_exam else None,
+        "examInDays": _days(next_exam, now),
+        "minutesNeeded": round(_minutes_needed(list(states.values()))),
+        "minutesPerDay": (math.ceil(per_day_total) if per_day_total is not None else None),
         "weak": [
-            {"id": s.card, "title": titles[s.card], "wrong": s.wrong, "partial": s.partial}
+            {"id": s.card, "title": by_id[s.card].title, "wrong": s.wrong, "partial": s.partial}
             for s in weak
         ],
         "topics": by_topic,

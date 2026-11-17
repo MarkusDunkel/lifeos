@@ -63,7 +63,8 @@ Other requests
 - "explain ..." / "read me ...": call read_material(subject, topic) and summarise it
   briefly, then go back to the session.
 - "how am I doing" / "am I ready": call progress(subject) and answer in two sentences
-  (readiness percent, cards secure, minutes per day still needed).
+  (readiness percent, cards secure, minutes per day still needed). Exam dates are set per
+  topic; if a subject has several exams, name the next one and its topics.
 """
 
 
@@ -80,7 +81,12 @@ def _safe(fn: Callable[..., dict]) -> Callable[..., dict]:
 def build_mcp(study: StudyService) -> MCPServer:
     server = MCPServer(name="LifeOS Study", instructions=INSTRUCTIONS)
 
-    @server.tool(description="List the subjects with exam date, number of cards and readiness.")
+    @server.tool(
+        description=(
+            "List the subjects with their exam dates (a subject can have several: exam dates "
+            "are set per topic), number of cards and readiness."
+        )
+    )
     def list_subjects() -> dict:
         return {"subjects": study.overview()}
 
@@ -124,7 +130,10 @@ def build_mcp(study: StudyService) -> MCPServer:
         return _safe(study.end_session)(session_id, skip_pending)
 
     @server.tool(
-        description="Readiness for a subject: percent secure, weak cards, minutes per day."
+        description=(
+            "Readiness for a subject: percent secure, weak cards, minutes per day until the "
+            "next exam, and per topic with that topic's exam date."
+        )
     )
     def progress(subject: str) -> dict:
         return _safe(study.progress)(subject)

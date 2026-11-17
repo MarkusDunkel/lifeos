@@ -3,7 +3,9 @@
 Layout per subject folder::
 
     Studium/<Subject>/_Fach.md          frontmatter: fach, kürzel, prüfung, prüfungsformat, sprache
-    Studium/<Subject>/<Topic> - Prüfen.md   question bank (cards)
+    Studium/<Subject>/<Topic> - Prüfen.md   question bank (cards), frontmatter: thema, kürzel
+                                        and optionally prüfung / prüfungsformat, which
+                                        override the subject's exam for this topic
     Studium/<Subject>/<Topic>.md        learning text (tutorial)
 
 A card is a bold id, a dash and a title, followed by ``- Key: value`` lines::
@@ -11,6 +13,9 @@ A card is a bold id, a dash and a title, followed by ``- Key: value`` lines::
     **LE-VOC-01** – zero-sum game
     - Definition: a situation in which one person's gain is another's loss
     - Muss-Punkte: zero-sum game
+
+A long title may wrap onto the next lines (until the first field); an indented line
+continues the previous field's value.
 """
 
 from __future__ import annotations
@@ -39,9 +44,34 @@ class Card:
     title: str
     topic: str
     fields: dict[str, str] = field(default_factory=dict)
+    exam: datetime | None = None  # exam of the card's bank (or of the subject)
 
     def as_dict(self) -> dict:
         return {"id": self.id, "title": self.title, "topic": self.topic, **self.fields}
+
+
+@dataclass
+class Bank:
+    """One question bank file. Its own ``prüfung:`` overrides the subject's exam date."""
+
+    topic: str
+    file: str  # relative to ``ready/knowledge``, e.g. "Studium/Spanish/Verbs - Prüfen.md"
+    code: str
+    exam: datetime | None
+    own_exam: bool
+    exam_format: str
+    cards: list[Card]
+
+    def summary(self) -> dict:
+        return {
+            "topic": self.topic,
+            "file": self.file,
+            "code": self.code,
+            "exam": iso(self.exam),
+            "ownExam": self.own_exam,
+            "examFormat": self.exam_format,
+            "cards": len(self.cards),
+        }
 
 
 @dataclass
@@ -50,46 +80,102 @@ class Subject:
     name: str
     code: str
     folder: str  # vault-relative, e.g. "ready/knowledge/Studium/Spanish"
-    exam: datetime | None
+    exam: datetime | None  # default exam date from ``_Fach.md``
     exam_format: str
     language: str
-    cards: list[Card]
+    banks: list[Bank] = field(default_factory=list)
+
+    @property
+    def cards(self) -> list[Card]:
+        return [c for b in self.banks for c in b.cards]
+
+    @property
+    def knowledge_folder(self) -> str:
+        """The folder relative to ``ready/knowledge`` (paths of the knowledge API)."""
+        return self.folder.removeprefix(f"{KNOWLEDGE}/")
 
     def card(self, card_id: str) -> Card | None:
         return next((c for c in self.cards if c.id.lower() == card_id.strip().lower()), None)
 
-    def summary(self) -> dict:
+    def exams(self, now: datetime) -> list[dict]:
+        """Exam dates of the subject, each with the topics (banks) it covers, by date."""
+        groups: dict[datetime, list[Bank]] = {}
+        for bank in self.banks:
+            if bank.exam is not None:
+                groups.setdefault(bank.exam, []).append(bank)
+        if not groups and self.exam is not None:
+            groups[self.exam] = []
+        result = []
+        for when in sorted(groups):
+            banks = groups[when]
+            formats = list(dict.fromkeys(b.exam_format for b in banks if b.exam_format))
+            result.append(
+                {
+                    "date": when.isoformat(),
+                    "format": " · ".join(formats) or self.exam_format,
+                    "topics": [b.topic for b in banks],
+                    "past": when <= now,
+                }
+            )
+        return result
+
+    def next_exam(self, now: datetime) -> datetime | None:
+        """The next upcoming exam, or the latest past one if none is ahead."""
+        dates = sorted({b.exam for b in self.banks if b.exam} | ({self.exam} - {None}))
+        ahead = [d for d in dates if d > now]
+        if ahead:
+            return ahead[0]
+        return dates[-1] if dates else None
+
+    def summary(self, now: datetime) -> dict:
         return {
             "key": self.key,
             "name": self.name,
-            "exam": self.exam.isoformat() if self.exam else None,
+            "exam": iso(self.next_exam(now)),
             "examFormat": self.exam_format,
             "language": self.language,
             "cards": len(self.cards),
             "topics": sorted({c.topic for c in self.cards}),
+            "exams": self.exams(now),
+            "banks": [b.summary() for b in self.banks],
         }
+
+
+def iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
 
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
-def parse_cards(text: str, topic: str) -> list[Card]:
+def parse_cards(text: str, topic: str, exam: datetime | None = None) -> list[Card]:
     cards: list[Card] = []
     current: Card | None = None
+    title_open = False  # the title may still continue on the next line
+    last_key: str | None = None
     for line in text.split("\n"):
         match = CARD_RE.match(line)
         if match:
-            current = Card(match["id"], match["title"], topic)
+            current = Card(match["id"], match["title"], topic, exam=exam)
             cards.append(current)
+            title_open, last_key = True, None
             continue
         if current is None:
             continue
         fmatch = FIELD_RE.match(line)
         if fmatch:
-            current.fields[fmatch["key"].strip()] = fmatch["value"]
+            last_key = fmatch["key"].strip()
+            current.fields[last_key] = fmatch["value"]
+            title_open = False
         elif line.startswith("#"):
             current = None  # a heading ends the card
+        elif not line.strip():
+            title_open = False
+        elif title_open and not line.startswith(("-", ">", "|", " ", "\t")):
+            current.title = f"{current.title} {line.strip()}"
+        elif last_key is not None and line.startswith((" ", "\t")):
+            current.fields[last_key] = f"{current.fields[last_key]} {line.strip()}".strip()
     return cards
 
 
@@ -107,6 +193,25 @@ def parse_exam(value: object, tz: ZoneInfo) -> datetime | None:
     return None
 
 
+def load_bank(
+    path: Path, folder_rel: str, exam: datetime | None, exam_format: str, tz: ZoneInfo
+) -> Bank:
+    text = read_text(path)
+    meta = front_matter(text)
+    topic = str(meta.get("thema") or path.name[: -len(BANK_SUFFIX)])
+    own = parse_exam(meta.get("prüfung"), tz)
+    bank_exam = own or exam
+    return Bank(
+        topic=topic,
+        file=f"{folder_rel}/{path.name}",
+        code=str(meta.get("kürzel") or ""),
+        exam=bank_exam,
+        own_exam=own is not None,
+        exam_format=str(meta.get("prüfungsformat") or exam_format),
+        cards=parse_cards(text, topic, bank_exam),
+    )
+
+
 def load_subjects(vault: Vault, tz: ZoneInfo) -> list[Subject]:
     root = vault.resolve(STUDY_DIR, zone=KNOWLEDGE)
     if not root.is_dir():
@@ -119,21 +224,22 @@ def load_subjects(vault: Vault, tz: ZoneInfo) -> list[Subject]:
         if not meta_file.is_file():
             continue
         meta = front_matter(read_text(meta_file))
-        cards: list[Card] = []
-        for bank in sorted(folder.glob(f"*{BANK_SUFFIX}")):
-            text = read_text(bank)
-            topic = str(front_matter(text).get("thema") or bank.name[: -len(BANK_SUFFIX)])
-            cards.extend(parse_cards(text, topic))
+        exam = parse_exam(meta.get("prüfung"), tz)
+        exam_format = str(meta.get("prüfungsformat") or "")
+        rel = f"{STUDY_DIR}/{folder.name}"
         subjects.append(
             Subject(
                 key=folder.name,
                 name=str(meta.get("fach") or folder.name),
                 code=str(meta.get("kürzel") or ""),
-                folder=f"{KNOWLEDGE}/{STUDY_DIR}/{folder.name}",
-                exam=parse_exam(meta.get("prüfung"), tz),
-                exam_format=str(meta.get("prüfungsformat") or ""),
+                folder=f"{KNOWLEDGE}/{rel}",
+                exam=exam,
+                exam_format=exam_format,
                 language=str(meta.get("sprache") or "de"),
-                cards=cards,
+                banks=[
+                    load_bank(bank, rel, exam, exam_format, tz)
+                    for bank in sorted(folder.glob(f"*{BANK_SUFFIX}"))
+                ],
             )
         )
     return subjects

@@ -14,7 +14,7 @@ from lifeos.core.git_sync import GitSync
 from lifeos.core.vault import Vault
 from lifeos.main import create_app
 from lifeos.modules.study.bank import parse_cards
-from lifeos.modules.study.progress import Attempt, card_states
+from lifeos.modules.study.progress import Attempt, card_states, priority
 from lifeos.modules.study.service import StudyError, StudyService
 from lifeos.worker.jobs import commit_study_leftovers
 
@@ -126,6 +126,23 @@ def test_parse_cards_reads_ids_titles_and_fields() -> None:
     assert cards[2].fields == {"Definition": "the third letter", "Muss-Punkte": "gamma"}
 
 
+def test_wrapped_titles_and_field_values() -> None:
+    text = """**SL-Q-01** – What is the difference between a short and
+a long question?
+- Muss-Punkte: length · wrapping
+  over two lines
+- Musterantwort: one line
+
+**SL-Q-02** – Short?
+- Muss-Punkte: yes
+"""
+    first, second = parse_cards(text, "Questions")
+    assert first.title == "What is the difference between a short and a long question?"
+    assert first.fields["Muss-Punkte"] == "length · wrapping over two lines"
+    assert first.fields["Musterantwort"] == "one line"
+    assert second.title == "Short?"
+
+
 def test_subjects_with_exam_and_topics(vault_root: Path) -> None:
     study = service(vault_root, Clock(datetime(2026, 11, 16, 12, tzinfo=UTC)))
     (subject,) = study.subjects()
@@ -137,6 +154,84 @@ def test_subjects_with_exam_and_topics(vault_root: Path) -> None:
     assert study.subject("SL").key == "Sample"
     with pytest.raises(StudyError):
         study.subject("history")
+
+
+def own_exam(root: Path, when: str = "2026-12-15T09:00") -> None:
+    """Give the phrases bank its own exam date."""
+    path = root / "ready/knowledge/Studium/Sample/Phrases - Prüfen.md"
+    text = path.read_text(encoding="utf-8")
+    extra = f"thema: Phrases\nprüfung: {when}\nprüfungsformat: oral\n"
+    path.write_text(text.replace("thema: Phrases\n", extra), encoding="utf-8")
+
+
+def test_bank_exam_overrides_the_subject_exam(vault_root: Path) -> None:
+    own_exam(vault_root)
+    now = datetime(2026, 11, 16, 12, tzinfo=UTC)
+    study = service(vault_root, Clock(now))
+    (subject,) = study.subjects()
+    banks = {b.topic: b for b in subject.banks}
+    vocab, phrases = banks["Vocabulary"], banks["Phrases"]
+    assert vocab.exam == datetime(2026, 11, 21, 11, 30, tzinfo=UTC)
+    assert not vocab.own_exam
+    assert phrases.exam == datetime(2026, 12, 15, 8, tzinfo=UTC)
+    assert phrases.own_exam
+    assert phrases.exam_format == "oral"
+    assert subject.card("SL-P-01").exam == phrases.exam
+    exams = subject.exams(now)
+    assert [(e["topics"], e["format"]) for e in exams] == [
+        (["Vocabulary"], "vocab test"),
+        (["Phrases"], "oral"),
+    ]
+    assert subject.next_exam(now) == vocab.exam
+    # After the first exam the next one is the phrases exam.
+    later = datetime(2026, 11, 22, tzinfo=UTC)
+    assert subject.next_exam(later) == phrases.exam
+    assert subject.exams(later)[0]["past"] is True
+
+
+def test_readiness_per_topic_uses_the_bank_exam(vault_root: Path) -> None:
+    own_exam(vault_root)
+    study = service(vault_root, Clock(datetime(2026, 11, 22, 12, tzinfo=UTC)))
+    p = study.progress("Sample")
+    assert p["nextExam"] == "2026-12-15T09:00:00+01:00"
+    assert p["exam"] == "2026-12-15T09:00:00+01:00"
+    assert p["topics"]["Vocabulary"]["minutesPerDay"] is None  # exam is over
+    assert p["topics"]["Phrases"]["examInDays"] == pytest.approx(22.9, abs=0.1)
+    assert p["minutesPerDay"] == p["topics"]["Phrases"]["minutesPerDay"] == 1
+
+
+def test_interval_cap_uses_the_bank_exam(vault_root: Path) -> None:
+    own_exam(vault_root, "2026-11-17T12:00")
+    t = datetime(2026, 11, 16, 12, tzinfo=UTC)
+    study = service(vault_root, Clock(t))
+    (subject,) = study.subjects()
+    state = card_states(["SL-P-01"], [attempt("SL-P-01", "correct", t)])["SL-P-01"]
+    state.box = 3
+    # The phrases exam is ~23 h away: due after half of that, not after 2 days.
+    later = t + timedelta(hours=12)
+    assert priority(state, later, subject.card("SL-P-01").exam) is not None
+    assert priority(state, later, subject.card("SL-V-01").exam) is None
+
+
+def test_pick_prefers_due_cards_of_the_sooner_exam(vault_root: Path) -> None:
+    own_exam(vault_root, "2026-11-17T12:00")
+    t = datetime(2026, 11, 16, 12, tzinfo=UTC)
+    log = vault_root / "ready/knowledge/Studium/Sample/lernstand.jsonl"
+    lines = [attempt(cid, "correct", t - timedelta(days=1)) for cid in ("SL-V-01", "SL-P-01")]
+    lines += [attempt(cid, "correct", t) for cid in ("SL-V-01", "SL-P-01")]
+    log.write_text("".join(json.dumps(a.__dict__) + "\n" for a in lines), encoding="utf-8")
+    # The three new cards come first; then the only due card is SL-P-01 (its exam is
+    # close, so its interval is capped), SL-V-01 waits for its normal interval.
+    study = service(vault_root, Clock(t + timedelta(hours=12)))
+    sid = study.start_session("Sample", count=4)["session_id"]
+    asked = []
+    for _ in range(4):
+        q = study.next_question(sid)
+        if q["done"]:
+            break
+        asked.append(q["card"]["id"])
+        study.record(sid, q["card"]["id"], "correct")
+    assert asked[3] == "SL-P-01"
 
 
 # -- repetition -------------------------------------------------------------------
@@ -267,7 +362,11 @@ def test_readiness(vault_root: Path) -> None:
     assert p["weak"][0]["id"] == "SL-V-02"
     assert p["examInDays"] == pytest.approx(5.0, abs=0.1)
     assert p["minutesNeeded"] == 3  # 2+2+2+2 correct answers needed × 20 s
-    assert p["topics"]["Vocabulary"] == {"cards": 3, "secure": 1, "seen": 2}
+    vocab = p["topics"]["Vocabulary"]
+    assert (vocab["cards"], vocab["secure"], vocab["seen"]) == (3, 1, 2)
+    assert vocab["exam"] == "2026-11-21T12:30:00+01:00"
+    assert vocab["minutesPerDay"] == 1  # 4 answers × 20 s over 5 days, rounded up
+    assert p["nextExam"] == "2026-11-21T12:30:00+01:00"
 
 
 def test_material_sections_and_topic(vault_root: Path) -> None:
@@ -292,8 +391,49 @@ def test_rest_progress(vault_root: Path) -> None:
     assert client.get("/api/study/nothing/progress").status_code == 404
 
 
+def test_rest_detail_with_card_status_and_material(vault_root: Path) -> None:
+    log = vault_root / "ready/knowledge/Studium/Sample/lernstand.jsonl"
+    t = datetime(2026, 11, 15, tzinfo=UTC)
+    lines = [
+        attempt("SL-V-01", "correct", t),
+        attempt("SL-V-01", "correct", t + timedelta(hours=5)),
+        attempt("SL-V-02", "wrong", t),
+        attempt("SL-P-01", "correct", t),
+    ]
+    log.write_text("".join(json.dumps(a.__dict__) + "\n" for a in lines), encoding="utf-8")
+    settings = Settings(vault_root=vault_root, session_secret="x" * 40, auth_disabled=True)
+    client = TestClient(create_app(settings))
+
+    d = client.get("/api/study/subjects/Sample").json()
+
+    assert d["subjectFile"] == "Studium/Sample/_Fach.md"
+    assert d["exams"][0]["topics"] == ["Phrases", "Vocabulary"]
+    banks = {b["topic"]: b for b in d["banks"]}
+    assert banks["Vocabulary"]["file"] == "Studium/Sample/Vocabulary - Prüfen.md"
+    status = {c["id"]: c["status"] for b in d["banks"] for c in b["cards"]}
+    assert status == {
+        "SL-P-01": "learning",
+        "SL-P-02": "new",
+        "SL-V-01": "secure",
+        "SL-V-02": "wrong",
+        "SL-V-03": "new",
+    }
+    first = banks["Vocabulary"]["cards"][0]
+    assert first["fields"]["Lückensatz"] == "… comes before beta."
+    assert first["lastAt"].startswith("2026-11-15T05:00")
+    (material,) = d["material"]
+    assert material["file"] == "Studium/Sample/Sample.md"
+    assert material["sections"] == ["1. Letters", "2. Interrupting"]
+    assert d["progress"]["secure"] == 1
+    # The knowledge API reads and writes the same paths.
+    doc = client.get("/api/knowledge/file", params={"path": material["file"]}).json()
+    assert "## 1. Letters" in doc["content"]
+    assert client.get("/api/study/subjects/nothing").status_code == 404
+
+
 def test_rest_requires_login(anon) -> None:
     assert anon.get("/api/study/subjects").status_code == 401
+    assert anon.get("/api/study/subjects/Sample").status_code == 401
 
 
 def git(cwd: Path, *args: str) -> str:

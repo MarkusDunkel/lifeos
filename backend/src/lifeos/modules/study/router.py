@@ -12,6 +12,13 @@ def build_router(service: StudyService) -> APIRouter:
     def subjects() -> list[dict]:
         return service.overview()
 
+    @router.get("/subjects/{subject}")
+    def detail(subject: str) -> dict:
+        try:
+            return service.detail(subject)
+        except StudyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
     @router.get("/{subject}/progress")
     def progress(subject: str) -> dict:
         try:

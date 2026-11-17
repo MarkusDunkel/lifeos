@@ -10,8 +10,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from lifeos.core.extract.text import front_matter
 from lifeos.core.vault import STATE, Vault
 from lifeos.modules.study.bank import (
+    SUBJECT_FILE,
     Subject,
     load_subjects,
     material_files,
@@ -26,6 +28,7 @@ from lifeos.modules.study.progress import (
     card_states,
     priority,
     readiness,
+    status,
 )
 
 REPEAT_AFTER = 4  # a missed card comes back after this many other questions
@@ -102,11 +105,58 @@ class StudyService:
 
     def overview(self) -> list[dict]:
         now = self.clock()
-        return [s.summary() | {"progress": self._readiness(s, now)} for s in self.subjects()]
+        return [s.summary(now) | {"progress": self._readiness(s, now)} for s in self.subjects()]
 
     def progress(self, name: str) -> dict:
         subject = self.subject(name)
-        return subject.summary() | self._readiness(subject, self.clock())
+        now = self.clock()
+        return subject.summary(now) | self._readiness(subject, now)
+
+    def detail(self, name: str) -> dict:
+        """Everything the study page shows for a subject: exams, question banks with every
+        card and its learning status, learning texts and readiness. File paths are relative
+        to ``ready/knowledge`` (the knowledge API edits them)."""
+        subject = self.subject(name)
+        now = self.clock()
+        states = card_states([c.id for c in subject.cards], self._log(subject).read())
+        banks = []
+        for bank in subject.banks:
+            cards = []
+            for card in bank.cards:
+                state = states[card.id]
+                cards.append(
+                    {
+                        "id": card.id,
+                        "title": card.title,
+                        "fields": card.fields,
+                        "status": status(state),
+                        "box": state.box,
+                        "seen": state.seen,
+                        "wrong": state.wrong,
+                        "partial": state.partial,
+                        "lastAt": state.last_at.isoformat() if state.last_at else None,
+                        "lastResult": state.last_result,
+                    }
+                )
+            banks.append(bank.summary() | {"cards": cards})
+        material = []
+        for path in material_files(self.vault, subject):
+            text = read_text(path)
+            material.append(
+                {
+                    "file": f"{subject.knowledge_folder}/{path.name}",
+                    "title": path.stem,
+                    "topic": str(front_matter(text).get("thema") or ""),
+                    "sections": [h for h, _ in sections(text) if h],
+                }
+            )
+        return subject.summary(now) | {
+            "code": subject.code,
+            "subjectFile": f"{subject.knowledge_folder}/{SUBJECT_FILE}",
+            "banks": banks,
+            "material": material,
+            "progress": self._readiness(subject, now),
+        }
 
     # -- sessions ---------------------------------------------------------------------
 
@@ -123,7 +173,7 @@ class StudyService:
             self.sessions[session.id] = session
         result = {
             "session_id": session.id,
-            "subject": subject.summary(),
+            "subject": subject.summary(now),
             "progress": self._readiness(subject, now),
             "question": self._next(session, subject),
         }
@@ -268,10 +318,9 @@ class StudyService:
         states = card_states([c.id for c in subject.cards], self._log(subject).read())
         return readiness(
             states,
-            {c.id: c.title for c in subject.cards},
-            {c.id: c.topic for c in subject.cards},
+            subject.cards,
             now,
-            subject.exam,
+            subject.next_exam(now),
         )
 
     def _session(self, session_id: str) -> Session:
@@ -342,7 +391,7 @@ class StudyService:
             return None
         now = self.clock()
         states = card_states([c.id for c in cards], self._log(subject).read())
-        ranked = [(priority(states[c.id], now, subject.exam), c.id) for c in cards]
+        ranked = [(priority(states[c.id], now, c.exam), c.id) for c in cards]
         due = [(p, cid) for p, cid in ranked if p is not None]
         if due:
             best = min(p[0] for p, _ in due)
