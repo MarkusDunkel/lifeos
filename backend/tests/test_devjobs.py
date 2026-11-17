@@ -105,6 +105,8 @@ class Site:
             return httpx.Response(200, text=SITEMAP)
         if path == f"/job/{ID3}":
             return httpx.Response(404)
+        if path == f"/job/{'d' * 32}":
+            return httpx.Response(410)
         if path.startswith("/job/"):
             posting_id = path.rsplit("/", 1)[1]
             return httpx.Response(200, text=page(posting_id, title=f"Job {posting_id[:4]}"))
@@ -159,6 +161,9 @@ def test_client_reports_missing_posting_and_blocks() -> None:
     with pytest.raises(DevjobsError) as err:
         c.posting(ID3)
     assert err.value.status == 404
+    with pytest.raises(DevjobsError) as err:
+        c.posting("d" * 32)
+    assert err.value.status == 404  # 410 Gone counts as removed
 
     blocked = DevjobsClient(
         httpx.MockTransport(lambda r: httpx.Response(403)), sleep=lambda s: None

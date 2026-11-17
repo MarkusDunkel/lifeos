@@ -99,7 +99,7 @@ class DevjobsClient:
                 "run the import on a home connection",
                 403,
             )
-        if response.status_code == 404:
+        if response.status_code in (404, 410):  # removed since the sitemap was read
             raise DevjobsError(f"not found: {url}", 404)
         if response.status_code >= 400:
             raise DevjobsError(f"devjobs.at answered HTTP {response.status_code} for {url}")
