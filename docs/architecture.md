@@ -84,6 +84,25 @@ it at `deploy/ssh/id_ed25519` with GitHub's host key in `deploy/ssh/known_hosts`
 SSH remote URL (`git@github.com:<owner>/<repo>.git`), set `LIFEOS_GIT_SYNC_INTERVAL` in
 `deploy/.env` and start with `COMPOSE_PROFILES=worker docker compose up -d`.
 
+## Job search
+
+Job postings come from devjobs.at. It blocks data-centre IPs, so the **importer runs on
+the user's PC** (`lifeos jobsearch import`) and sends postings to the server:
+
+1. Fetch `robots.txt` (stop if posting pages are disallowed) and `sitemap-job.xml`, which
+   lists every active posting. Search pages (`/jobs/search?`) are never requested.
+2. `POST /api/jobsearch/import/diff` with all ids: the server answers with the unknown ones
+   and marks known postings that left the sitemap as gone.
+3. Fetch only the unknown posting pages (`/job/<id>`), at least one second or twice the
+   response time apart, and parse their JSON-LD `JobPosting`. Requests go through `curl`
+   with an honest User-Agent; if devjobs.at refuses them, the import stops and reports it.
+4. `POST /import/postings` in batches, then `POST /import/finish` with the run's stats.
+
+The import routes accept `Authorization: Bearer <LIFEOS_JOBSEARCH_IMPORT_TOKEN>` (and only
+they do); the PC reads `LIFEOS_JOBSEARCH_SERVER_URL` and the same token. The server keeps
+postings and their state in `.lifeos/jobsearch/` (not versioned). An interrupted import
+continues on the next run because the server knows what it already has.
+
 ## Backend layout (`backend/src/lifeos`)
 
 | Module | Responsibility |
@@ -110,6 +129,8 @@ SSH remote URL (`git@github.com:<owner>/<repo>.git`), set `LIFEOS_GIT_SYNC_INTER
 | `templates/` | Agent commands installed into the vault by `init-vault` (e.g. `/uni-tasks`) |
 | `modules/moodle` | Status, connect, course selection and sync endpoints |
 | `modules/presentations` | Status, connect/disconnect and sync endpoints for the mirror |
+| `connectors/devjobs` | devjobs.at sitemap and posting pages (JSON-LD), polite client over `curl` |
+| `modules/jobsearch` | Posting model, store in `.lifeos/jobsearch/`, import API, PC importer |
 
 ## Editing safety
 

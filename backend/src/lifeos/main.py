@@ -25,6 +25,8 @@ from lifeos.core.git_sync import background_committer, git_sync_for
 from lifeos.core.vault import RevisionConflict, Vault, VaultPathError
 from lifeos.mcp_server.http import mount_mcp
 from lifeos.mcp_server.server import build_mcp
+from lifeos.modules.jobsearch.router import build_router as jobsearch_router
+from lifeos.modules.jobsearch.store import JobStore
 from lifeos.modules.knowledge.index import KnowledgeIndex
 from lifeos.modules.knowledge.router import build_router as knowledge_router
 from lifeos.modules.knowledge.service import KnowledgeService
@@ -123,6 +125,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     jobs_file = settings.state_dir / "jobs.json" if settings.state_dir else None
     app.include_router(vault_sync_router(git, settings.git_sync_interval, jobs_file))
     app.include_router(study_router(study))
+    app.include_router(jobsearch_router(JobStore(vault), settings.timezone))
 
     if mcp is not None and settings.mcp_path_token:
         mount_mcp(app, mcp, settings.mcp_path_token)

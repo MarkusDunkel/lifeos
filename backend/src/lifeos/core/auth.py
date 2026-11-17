@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
@@ -17,6 +18,8 @@ from lifeos.core.config import Settings
 COOKIE_NAME = "lifeos_session"
 SESSION_PAYLOAD = "owner"
 PUBLIC_API_PREFIXES = ("/api/auth/", "/api/health")
+# Machine clients with a bearer token: path prefix → Settings field holding the token.
+TOKEN_API_PREFIXES = {"/api/jobsearch/import/": "jobsearch_import_token"}
 
 _hasher = PasswordHasher()
 
@@ -42,6 +45,20 @@ def is_authenticated(request: Request, settings: Settings) -> bool:
     return value.decode() == SESSION_PAYLOAD
 
 
+def has_valid_token(request: Request, settings: Settings) -> bool:
+    """A bearer token is accepted only on the prefixes it was made for."""
+    path = request.url.path
+    for prefix, field in TOKEN_API_PREFIXES.items():
+        if not path.startswith(prefix):
+            continue
+        expected = getattr(settings, field, None)
+        header = request.headers.get("authorization", "")
+        scheme, _, given = header.partition(" ")
+        if expected and scheme.lower() == "bearer" and given:
+            return hmac.compare_digest(given.strip().encode(), expected.encode())
+    return False
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     """Rejects unauthenticated API calls. Static files and the SPA stay public
     (they contain no data); the SPA itself shows the login screen."""
@@ -53,7 +70,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
         protected = path.startswith("/api/") and not path.startswith(PUBLIC_API_PREFIXES)
-        if protected and not is_authenticated(request, self.settings):
+        if (
+            protected
+            and not is_authenticated(request, self.settings)
+            and not has_valid_token(request, self.settings)
+        ):
             return JSONResponse({"detail": "not authenticated"}, status_code=401)
         return await call_next(request)
 

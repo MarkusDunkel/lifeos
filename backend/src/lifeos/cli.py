@@ -39,6 +39,13 @@ def main(argv: list[str] | None = None) -> int:
     tasks.add_argument("--repo", default=None, help="board repository (owner/name)")
     tasks.add_argument("--label", default="university")
 
+    jobs = sub.add_parser("jobsearch", help="job search: import postings on the PC")
+    jobs.add_argument("action", choices=["import"])
+    jobs.add_argument("--limit", type=int, default=None, help="fetch at most N new postings")
+    jobs.add_argument(
+        "--env-file", type=Path, default=None, help="file with LIFEOS_JOBSEARCH_* settings"
+    )
+
     sub.add_parser("moodle-sync", help="sync Moodle now (same as the button in the app)")
     sub.add_parser("worker", help="run background jobs (vault git sync)")
     sub.add_parser("git-sync", help="sync the vault with its git remote once")
@@ -68,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
         return _tasks(args)
     if args.cmd == "moodle-sync":
         return _moodle_sync()
+    if args.cmd == "jobsearch":
+        return _jobsearch(args)
     if args.cmd == "import":
         from lifeos.core.importer import import_tree
 
@@ -133,6 +142,41 @@ def _tasks(args) -> int:
     except TasksError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    return 0
+
+
+def _jobsearch(args) -> int:
+    from lifeos.connectors.devjobs.client import DevjobsClient, DevjobsError
+    from lifeos.modules.jobsearch.importer import (
+        ImportServer,
+        ServerError,
+        load_settings,
+        run_import,
+    )
+
+    settings = load_settings(args.env_file)
+    if settings.missing():
+        print(f"job import is not set up: {', '.join(settings.missing())}", file=sys.stderr)
+        return 2
+    server = ImportServer(settings.jobsearch_server_url, settings.jobsearch_import_token)
+    devjobs = DevjobsClient()
+
+    def progress(done: int, total: int) -> None:
+        if done == total or done % 10 == 0:
+            print(f"\r{done}/{total} postings fetched", end="", flush=True)
+
+    try:
+        result = run_import(server, devjobs, args.limit, progress)
+    except (DevjobsError, ServerError) as exc:
+        print(f"\nimport stopped: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nimport interrupted; the next run continues", file=sys.stderr)
+        return 130
+    finally:
+        devjobs.close()
+        server.close()
+    print(f"\n{result.listed} postings listed on devjobs.at; {result.summary()}")
     return 0
 
 

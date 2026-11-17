@@ -98,6 +98,23 @@ class Settings(BaseSettings):
         ),
     )
 
+    jobsearch_import_token: str | None = Field(
+        default=None,
+        min_length=32,
+        description=(
+            "Bearer token for /api/jobsearch/import/* (the job importer on the PC). "
+            "Random, at least 32 characters (`lifeos secret`). Unset = import disabled."
+        ),
+    )
+    jobsearch_evaluate_interval: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Seconds between job evaluation runs of `lifeos worker` (pre-filter and rating of "
+            "newly imported postings). 0 disables the job."
+        ),
+    )
+
     @property
     def github_repo_list(self) -> list[str]:
         return [r.strip() for r in self.github_repos.split(",") if r.strip()]
