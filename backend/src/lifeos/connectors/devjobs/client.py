@@ -22,6 +22,8 @@ from lifeos.modules.jobsearch.model import Posting
 USER_AGENT = "LifeOS-jobsearch/0.1 (personal job search)"
 SITEMAP = f"{BASE_URL}/sitemap-job.xml"
 MIN_DELAY = 1.0
+RETRY_DELAYS = (10.0, 30.0, 90.0)
+TRANSIENT_STATUS = {502, 503, 504}
 
 
 class DevjobsError(Exception):
@@ -70,17 +72,27 @@ class DevjobsClient:
         return parse_posting(posting_id, self._get(posting_url(posting_id)))
 
     def _get(self, url: str) -> str:
-        wait = self._next_allowed - self._clock()
-        if wait > 0:
-            self._sleep(wait)
-        started = self._clock()
-        try:
-            response = self._http.get(url)
-        except httpx.HTTPError as exc:
-            raise DevjobsError(f"cannot reach devjobs.at: {exc}") from exc
-        finally:
-            elapsed = self._clock() - started
-            self._next_allowed = self._clock() + max(MIN_DELAY, 2 * elapsed)
+        """Network trouble and 502–504 are retried after growing pauses; a refusal
+        (403) or rate limit (429) is never retried."""
+        for attempt in range(len(RETRY_DELAYS) + 1):
+            wait = self._next_allowed - self._clock()
+            if wait > 0:
+                self._sleep(wait)
+            started = self._clock()
+            try:
+                response = self._http.get(url)
+            except httpx.HTTPError as exc:
+                problem = DevjobsError(f"cannot reach devjobs.at: {exc}")
+            else:
+                if response.status_code not in TRANSIENT_STATUS:
+                    break
+                problem = DevjobsError(f"devjobs.at answered HTTP {response.status_code}")
+            finally:
+                elapsed = self._clock() - started
+                self._next_allowed = self._clock() + max(MIN_DELAY, 2 * elapsed)
+            if attempt == len(RETRY_DELAYS):
+                raise problem
+            self._sleep(RETRY_DELAYS[attempt])
         if response.status_code == 403:
             raise DevjobsError(
                 "devjobs.at refused the request (HTTP 403); it blocks data-centre IPs, "

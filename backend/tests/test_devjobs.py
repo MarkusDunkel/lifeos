@@ -106,7 +106,8 @@ class Site:
         if path == f"/job/{ID3}":
             return httpx.Response(404)
         if path.startswith("/job/"):
-            return httpx.Response(200, text=page(path.rsplit("/", 1)[1]))
+            posting_id = path.rsplit("/", 1)[1]
+            return httpx.Response(200, text=page(posting_id, title=f"Job {posting_id[:4]}"))
         return httpx.Response(500)
 
 
@@ -165,3 +166,59 @@ def test_client_reports_missing_posting_and_blocks() -> None:
     with pytest.raises(DevjobsError) as err:
         blocked.sitemap_ids()
     assert err.value.status == 403
+
+
+def test_client_retries_network_trouble_but_not_refusals() -> None:
+    ok = httpx.Response(200, text=SITEMAP)
+    answers = iter([httpx.ConnectError("dns"), httpx.Response(503), ok])
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    t = FakeTime()
+    c = DevjobsClient(httpx.MockTransport(flaky), sleep=t.sleep, clock=t.clock)
+    assert c.sitemap_ids() == [ID1, ID2]
+    assert 10.0 in t.slept and 30.0 in t.slept
+
+    refusals: list[int] = []
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        refusals.append(1)
+        return httpx.Response(403)
+
+    blocked = DevjobsClient(httpx.MockTransport(refuse), sleep=lambda s: None)
+    with pytest.raises(DevjobsError):
+        blocked.sitemap_ids()
+    assert refusals == [1]
+
+
+def test_import_server_retries_until_it_gives_up() -> None:
+    from lifeos.modules.jobsearch.importer import ImportServer, ServerError
+
+    calls: list[int] = []
+
+    def down_then_up(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) < 3:
+            raise httpx.ConnectError("getaddrinfo failed")
+        return httpx.Response(200, json={"unknown": [], "known": 0, "gone": 0, "back": 0})
+
+    slept: list[float] = []
+    transport = httpx.MockTransport(down_then_up)
+    server = ImportServer("http://x", "t" * 40, transport, sleep=slept.append)
+    assert server.diff("devjobs", [])["known"] == 0
+    assert slept == [5.0, 20.0]
+
+    unavailable = httpx.MockTransport(lambda r: httpx.Response(503))
+    never = ImportServer("http://x", "t" * 40, unavailable, sleep=lambda s: None)
+    with pytest.raises(ServerError):
+        never.diff("devjobs", [])
+    offline = ImportServer(
+        "http://x", "t" * 40, httpx.MockTransport(lambda r: httpx.Response(503)), sleep=slept.append
+    )
+    with pytest.raises(ServerError):
+        offline.status()  # autorun's quick check does not wait
+    assert slept == [5.0, 20.0]

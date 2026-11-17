@@ -13,6 +13,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAgentsRouteImport } from './routes/_app/agents'
+import { Route as AppJobsRouteImport } from './routes/_app/jobs'
 import { Route as AppKnowledgeRouteImport } from './routes/_app/knowledge'
 import { Route as AppMoodleRouteImport } from './routes/_app/moodle'
 import { Route as AppNotesRouteImport } from './routes/_app/notes'
@@ -41,6 +42,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppAgentsRoute = AppAgentsRouteImport.update({
   id: '/agents',
   path: '/agents',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppJobsRoute = AppJobsRouteImport.update({
+  id: '/jobs',
+  path: '/jobs',
   getParentRoute: () => AppRoute,
 } as any)
 const AppKnowledgeRoute = AppKnowledgeRouteImport.update({
@@ -98,6 +104,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
   '/agents': typeof AppAgentsRoute
+  '/jobs': typeof AppJobsRoute
   '/knowledge': typeof AppKnowledgeRouteWithChildren
   '/moodle': typeof AppMoodleRoute
   '/notes': typeof AppNotesRoute
@@ -112,6 +119,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/agents': typeof AppAgentsRoute
+  '/jobs': typeof AppJobsRoute
   '/moodle': typeof AppMoodleRoute
   '/notes': typeof AppNotesRoute
   '/settings': typeof AppSettingsRoute
@@ -127,6 +135,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/_app/agents': typeof AppAgentsRoute
+  '/_app/jobs': typeof AppJobsRoute
   '/_app/knowledge': typeof AppKnowledgeRouteWithChildren
   '/_app/moodle': typeof AppMoodleRoute
   '/_app/notes': typeof AppNotesRoute
@@ -145,6 +154,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/agents'
+    | '/jobs'
     | '/knowledge'
     | '/moodle'
     | '/notes'
@@ -159,6 +169,7 @@ export interface FileRouteTypes {
   to:
     | '/login'
     | '/agents'
+    | '/jobs'
     | '/moodle'
     | '/notes'
     | '/settings'
@@ -173,6 +184,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/login'
     | '/_app/agents'
+    | '/_app/jobs'
     | '/_app/knowledge'
     | '/_app/moodle'
     | '/_app/notes'
@@ -219,6 +231,13 @@ declare module '@tanstack/react-router' {
       path: '/agents'
       fullPath: '/agents'
       preLoaderRoute: typeof AppAgentsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/jobs': {
+      id: '/_app/jobs'
+      path: '/jobs'
+      fullPath: '/jobs'
+      preLoaderRoute: typeof AppJobsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/knowledge': {
@@ -324,6 +343,7 @@ const AppWorkspacesRouteWithChildren = AppWorkspacesRoute._addFileChildren(
 
 interface AppRouteChildren {
   AppAgentsRoute: typeof AppAgentsRoute
+  AppJobsRoute: typeof AppJobsRoute
   AppKnowledgeRoute: typeof AppKnowledgeRouteWithChildren
   AppMoodleRoute: typeof AppMoodleRoute
   AppNotesRoute: typeof AppNotesRoute
@@ -335,6 +355,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAgentsRoute: AppAgentsRoute,
+  AppJobsRoute: AppJobsRoute,
   AppKnowledgeRoute: AppKnowledgeRouteWithChildren,
   AppMoodleRoute: AppMoodleRoute,
   AppNotesRoute: AppNotesRoute,

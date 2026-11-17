@@ -40,7 +40,12 @@ def main(argv: list[str] | None = None) -> int:
     tasks.add_argument("--label", default="university")
 
     jobs = sub.add_parser("jobsearch", help="job search: import postings on the PC")
-    jobs.add_argument("action", choices=["import"])
+    jobs.add_argument(
+        "action",
+        choices=["import", "autorun", "install-autostart", "uninstall-autostart"],
+        help="import: now, with progress; autorun: what the scheduled task runs (asks first); "
+        "install-/uninstall-autostart: register the Windows scheduled task",
+    )
     jobs.add_argument("--limit", type=int, default=None, help="fetch at most N new postings")
     jobs.add_argument(
         "--env-file", type=Path, default=None, help="file with LIFEOS_JOBSEARCH_* settings"
@@ -154,7 +159,46 @@ def _jobsearch(args) -> int:
         run_import,
     )
 
+    if args.action in ("install-autostart", "uninstall-autostart"):
+        from lifeos.modules.jobsearch.autostart import AutostartError, install, uninstall
+
+        try:
+            if args.action == "uninstall-autostart":
+                print(f"removed scheduled task {uninstall()}")
+                return 0
+            if args.env_file is None:
+                print("--env-file is required (the task reads its settings there)", file=sys.stderr)
+                return 2
+            if load_settings(args.env_file).missing():
+                print("the env file lacks LIFEOS_JOBSEARCH_* settings", file=sys.stderr)
+                return 2
+            print(f"installed scheduled task {install(args.env_file)}")
+        except AutostartError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        return 0
+
     settings = load_settings(args.env_file)
+    if args.action == "autorun":
+        from lifeos.modules.jobsearch.autorun import (
+            app_dir,
+            autorun,
+            default_notifier,
+            setup_logging,
+        )
+
+        setup_logging(app_dir())
+        try:
+            outcome = autorun(settings, default_notifier(), app_dir())
+        except Exception:  # no console: make sure the log tells what happened
+            import logging
+
+            logging.getLogger("lifeos.jobsearch.autorun").exception("autorun failed")
+            return 1
+        import logging
+
+        logging.getLogger("lifeos.jobsearch.autorun").info("autorun: %s", outcome)
+        return 0
     if settings.missing():
         print(f"job import is not set up: {', '.join(settings.missing())}", file=sys.stderr)
         return 2

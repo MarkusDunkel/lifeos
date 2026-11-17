@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from test_devjobs import ID1, ID2, ID3, Site
+from test_devjobs import ID1, ID2, Site
 
 from lifeos.connectors.devjobs.client import DevjobsClient
 from lifeos.core.auth import hash_password
@@ -74,7 +74,7 @@ def test_diff_postings_finish_cycle(machine: TestClient, browser: TestClient) ->
     assert r.json()["unknown"] == [ID1, ID2]
 
     r = machine.post("/api/jobsearch/import/postings", json={"postings": [posting(ID1)]})
-    assert r.json() == {"stored": 1}
+    assert r.json()["stored"] == 1 and r.json()["added"] == 1
     r = machine.post("/api/jobsearch/import/diff", json={"source": "devjobs", "ids": [ID1, ID2]})
     assert r.json()["unknown"] == [ID2] and r.json()["known"] == 1
 
@@ -88,10 +88,13 @@ def test_diff_postings_finish_cycle(machine: TestClient, browser: TestClient) ->
     assert r.json()["doneToday"] is True
 
     status = browser.get("/api/jobsearch/status").json()
-    assert status["counts"]["new"] == 1 and status["counts"]["gone"] == 1
-    rows = browser.get("/api/jobsearch/postings").json()
-    assert [row["id"] for row in rows] == [ID2]
-    assert "description" not in rows[0]
+    assert status["counts"]["active"] == 1 and status["counts"]["gone"] == 1
+    page = browser.get("/api/jobsearch/postings").json()
+    assert page["total"] == 1 and [row["id"] for row in page["items"]] == [ID2]
+    assert "description" not in page["items"][0]
+    detail = browser.get(f"/api/jobsearch/postings/devjobs/{ID2}").json()
+    assert detail["title"] == "Developer" and "description" in detail
+    assert browser.get(f"/api/jobsearch/postings/devjobs/{'0' * 32}").status_code == 404
 
 
 def test_incomplete_import_is_not_done_today(machine: TestClient) -> None:
@@ -132,5 +135,6 @@ def test_run_import_end_to_end(machine: TestClient, browser: TestClient) -> None
     third = run_import(server, devjobs)
     assert third.new == 0 and third.pending == 0
     assert sum(1 for call in site.calls if call.startswith("/job/")) == 2  # nothing fetched twice
-    assert ID3 not in {row["id"] for row in browser.get("/api/jobsearch/postings").json()}
+    items = browser.get("/api/jobsearch/postings").json()["items"]
+    assert {row["id"] for row in items} == {ID1, ID2}
     assert browser.get("/api/jobsearch/status").json()["doneToday"] is True

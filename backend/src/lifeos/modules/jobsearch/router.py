@@ -11,11 +11,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from lifeos.modules.jobsearch.model import ID_PATTERN, SOURCE_PATTERN, Posting
-from lifeos.modules.jobsearch.store import STATES, JobStore
+from lifeos.modules.jobsearch.store import JobStore
 
 MAX_IDS = 50_000
 MAX_POSTINGS = 200
@@ -35,6 +35,8 @@ class FinishRequest(BaseModel):
     started: str | None = None
     listed: int = 0
     new: int = 0
+    duplicates: int = 0
+    reposts: int = 0
     failed: int = 0
     complete: bool = True  # False when the run was interrupted or limited
     errors: list[str] = Field(default_factory=list, max_length=20)
@@ -76,7 +78,7 @@ def build_router(store: JobStore, timezone: str) -> APIRouter:
 
     @router.post("/import/postings")
     def import_postings(body: PostingsRequest) -> dict:
-        return {"stored": store.add(body.postings)}
+        return store.add(body.postings)
 
     @router.post("/import/finish")
     def import_finish(body: FinishRequest) -> dict:
@@ -88,37 +90,88 @@ def build_router(store: JobStore, timezone: str) -> APIRouter:
 
     @router.get("/status")
     def status() -> dict:
-        return {"lastImport": _last_import(), "doneToday": _today_done(), "counts": store.counts()}
+        return {
+            "lastImport": _last_import(),
+            "doneToday": _today_done(),
+            "counts": store.counts(),
+            "runs": store.runs()[:10],
+        }
 
     @router.get("/postings")
     def postings(
-        state: str | None = None,
-        min_score: int | None = None,
-        days: int | None = None,
-        limit: int = 200,
-    ) -> list[dict]:
-        if state and state not in STATES:
-            raise HTTPException(400, f"state must be one of {', '.join(STATES)}")
+        q: str = "",
+        duplicates: bool = False,
+        gone: bool = False,
+        days: int | None = Query(default=None, ge=1),
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> dict:
+        """Imported postings, newest first. ``q`` matches title, company, place and
+        skills (all words must match)."""
+        words = q.lower().split()
         since = (datetime.now(UTC) - timedelta(days=days)).isoformat() if days else None
+        index = store.index()
+        dupes: dict[str, int] = {}
+        for entry in index.values():
+            if entry.get("duplicateOf") and not entry.get("goneAt"):
+                dupes[entry["duplicateOf"]] = dupes.get(entry["duplicateOf"], 0) + 1
         rows = []
-        for key, entry in store.index().items():
-            if entry.get("goneAt"):
+        for key, entry in index.items():
+            if entry.get("goneAt") and not gone:
                 continue
-            if state and entry.get("state") != state:
-                continue
-            if min_score is not None and (entry.get("score") or 0) < min_score:
+            if entry.get("duplicateOf") and not duplicates:
                 continue
             if since and entry.get("firstSeen", "") < since:
                 continue
+            if words:
+                text = " ".join(
+                    [entry.get("title", ""), entry.get("company", "")]
+                    + entry.get("cities", [])
+                    + entry.get("skills", [])
+                ).lower()
+                if not all(w in text for w in words):
+                    continue
             rows.append((key, entry))
-        rows.sort(key=lambda kv: (-(kv[1].get("score") or 0), kv[1].get("firstSeen", "")))
-        out = []
-        for key, entry in rows[: max(1, min(limit, 1000))]:
+        rows.sort(key=lambda kv: (kv[1].get("firstSeen", ""), kv[0]), reverse=True)
+        items = []
+        for key, entry in rows[offset : offset + limit]:
             posting = store.posting(key)
             if posting is None:
                 continue
-            summary = posting.model_dump(exclude={"description", "benefits"})
-            out.append(summary | {"key": key, **entry})
-        return out
+            items.append(_row(key, entry, posting) | {"duplicateCount": dupes.get(key, 0)})
+        return {"total": len(rows), "offset": offset, "items": items}
+
+    @router.get("/postings/{source}/{posting_id}")
+    def posting(source: str, posting_id: str) -> dict:
+        key = f"{_source(source)}:{posting_id}"
+        entry = store.index().get(key)
+        found = store.posting(key) if entry and ID_PATTERN.match(posting_id) else None
+        if found is None:
+            raise HTTPException(404, "posting not found")
+        others = [
+            _row(k, e, p)
+            for k, e in store.index().items()
+            if (e.get("duplicateOf") == key or key == entry.get("duplicateOf"))
+            and k != key
+            and (p := store.posting(k)) is not None
+        ]
+        return _row(key, entry, found) | {
+            "description": found.description,
+            "benefits": found.benefits,
+            "related": others,
+        }
 
     return router
+
+
+def _row(key: str, entry: dict[str, Any], posting: Posting) -> dict[str, Any]:
+    data = posting.model_dump(mode="json", exclude={"description", "benefits"})
+    return data | {
+        "key": key,
+        "place": posting.place(),
+        "firstSeen": entry.get("firstSeen"),
+        "lastSeen": entry.get("lastSeen"),
+        "goneAt": entry.get("goneAt"),
+        "duplicateOf": entry.get("duplicateOf"),
+        "repostOf": entry.get("repostOf"),
+    }

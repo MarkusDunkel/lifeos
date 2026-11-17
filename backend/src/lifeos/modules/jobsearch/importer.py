@@ -7,6 +7,7 @@ which postings it has, so an interrupted import simply continues on the next run
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -21,6 +22,8 @@ from lifeos.connectors.devjobs.parse import SOURCE, ParseError
 from lifeos.modules.jobsearch.model import Posting
 
 BATCH = 25
+RETRY_DELAYS = (5.0, 20.0, 60.0)
+TRANSIENT_STATUS = {502, 503, 504}
 
 
 class ImporterSettings(BaseSettings):
@@ -56,7 +59,11 @@ class ImportServer:
     """Client for ``/api/jobsearch/import/*`` on the LifeOS server."""
 
     def __init__(
-        self, base_url: str, token: str, transport: httpx.BaseTransport | None = None
+        self,
+        base_url: str,
+        token: str,
+        transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._http = httpx.Client(
             base_url=base_url.rstrip("/") + "/api/jobsearch/import",
@@ -64,15 +71,27 @@ class ImportServer:
             timeout=60,
             transport=transport,
         )
+        self._sleep = sleep
 
     def close(self) -> None:
         self._http.close()
 
-    def _call(self, method: str, path: str, json: Any = None) -> dict[str, Any]:
-        try:
-            response = self._http.request(method, path, json=json)
-        except httpx.HTTPError as exc:
-            raise ServerError(f"cannot reach the LifeOS server: {exc}") from exc
+    def _call(self, method: str, path: str, json: Any = None, retry: bool = True) -> dict[str, Any]:
+        """Network trouble and a restarting server (502–504) are retried with growing
+        pauses; anything else fails at once."""
+        delays = RETRY_DELAYS if retry else ()
+        for attempt in range(len(delays) + 1):
+            try:
+                response = self._http.request(method, path, json=json)
+            except httpx.HTTPError as exc:
+                problem: str | None = f"cannot reach the LifeOS server: {exc}"
+            else:
+                if response.status_code not in TRANSIENT_STATUS:
+                    break
+                problem = f"LifeOS server: HTTP {response.status_code}"
+            if attempt == len(delays):
+                raise ServerError(problem)
+            self._sleep(delays[attempt])
         if response.status_code == 401:
             raise ServerError("the LifeOS server rejected the import token")
         if response.status_code >= 400:
@@ -80,14 +99,14 @@ class ImportServer:
         return response.json()
 
     def status(self) -> dict[str, Any]:
-        return self._call("GET", "/status")
+        return self._call("GET", "/status", retry=False)  # autorun: offline means "not now"
 
     def diff(self, source: str, ids: list[str]) -> dict[str, Any]:
         return self._call("POST", "/diff", {"source": source, "ids": ids})
 
-    def postings(self, postings: list[Posting]) -> int:
+    def postings(self, postings: list[Posting]) -> dict[str, int]:
         payload = {"postings": [p.model_dump(mode="json") for p in postings]}
-        return self._call("POST", "/postings", payload)["stored"]
+        return self._call("POST", "/postings", payload)
 
     def finish(self, run: dict[str, Any]) -> dict[str, Any]:
         return self._call("POST", "/finish", run)
@@ -97,6 +116,8 @@ class ImportServer:
 class ImportResult:
     listed: int = 0
     new: int = 0  # postings sent to the server
+    duplicates: int = 0  # of which the same job as an active posting
+    reposts: int = 0  # of which a job that was offline before
     pending: int = 0  # unknown postings before this run
     gone: int = 0
     failed: int = 0
@@ -105,6 +126,8 @@ class ImportResult:
 
     def summary(self) -> str:
         text = f"{self.new} new posting(s) imported"
+        if self.duplicates:
+            text += f" ({self.duplicates} duplicate(s))"
         if self.pending > self.new:
             text += f", {self.pending - self.new} still to fetch"
         if self.gone:
@@ -127,7 +150,10 @@ def run_import(
 
     def flush() -> None:
         if batch:
-            result.new += server.postings(batch)
+            answer = server.postings(batch)
+            result.new += answer["stored"]
+            result.duplicates += answer.get("duplicates", 0)
+            result.reposts += answer.get("reposts", 0)
             batch.clear()
 
     devjobs.check_robots()
@@ -167,6 +193,8 @@ def run_import(
                     "started": started,
                     "listed": result.listed,
                     "new": result.new,
+                    "duplicates": result.duplicates,
+                    "reposts": result.reposts,
                     "failed": result.failed,
                     "complete": result.complete,
                     "errors": result.errors[-20:],

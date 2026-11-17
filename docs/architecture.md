@@ -101,7 +101,26 @@ the user's PC** (`lifeos jobsearch import`) and sends postings to the server:
 The import routes accept `Authorization: Bearer <LIFEOS_JOBSEARCH_IMPORT_TOKEN>` (and only
 they do); the PC reads `LIFEOS_JOBSEARCH_SERVER_URL` and the same token. The server keeps
 postings and their state in `.lifeos/jobsearch/` (not versioned). An interrupted import
-continues on the next run because the server knows what it already has.
+continues on the next run because the server knows what it already has. Network trouble
+and a restarting server (502–504) are retried with growing pauses; a refusal is not.
+
+**Duplicates.** Company and title are normalised (legal forms, gender suffixes such as
+`(m/w/d)` or `:in`, punctuation). A new posting that matches an active one in a shared city
+gets `duplicateOf` (the earliest active posting of the job); one that matches only offline
+postings gets `repostOf`. When the first posting of a job goes offline, its earliest
+duplicate takes over. Postings offline for 90 days are deleted at the end of an import.
+
+**Daily run on the PC.** `lifeos jobsearch install-autostart --env-file <deploy/.env>`
+registers a Windows scheduled task (logon, wake from sleep, hourly; current user, no admin,
+`pythonw` without console) that runs `lifeos jobsearch autorun`. The autorun stays quiet
+if another run is active, the user snoozed it, the server is unreachable or today's import
+is complete; otherwise it asks with a notification (Import now / In 1 hour / Not today;
+`win11toast` from the optional `pc` extra, a message box as fallback) and reports the
+result. If devjobs.at refuses the importer it stops for the day. Log and state live in
+`%LOCALAPPDATA%\LifeOS\jobsearch`. `uninstall-autostart` removes the task.
+
+The **Jobs** page of the web app shows the import status and the postings (search, new
+since, duplicates and offline postings on request, details with the full text).
 
 ## Backend layout (`backend/src/lifeos`)
 
@@ -130,7 +149,7 @@ continues on the next run because the server knows what it already has.
 | `modules/moodle` | Status, connect, course selection and sync endpoints |
 | `modules/presentations` | Status, connect/disconnect and sync endpoints for the mirror |
 | `connectors/devjobs` | devjobs.at sitemap and posting pages (JSON-LD), polite client over `curl` |
-| `modules/jobsearch` | Posting model, store in `.lifeos/jobsearch/`, import API, PC importer |
+| `modules/jobsearch` | Posting model, store in `.lifeos/jobsearch/` with duplicate detection, import API, PC importer, autorun and Windows autostart |
 
 ## Editing safety
 
