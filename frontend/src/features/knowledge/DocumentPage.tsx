@@ -1,14 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Check, Eye, Link2, Pencil, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError } from "../../lib/api";
-import { backlinksQuery, deleteDoc, docQuery, saveDoc, treeQuery } from "./api";
+import { ArrowLeft, Link2, Pencil, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { backlinksQuery, deleteDoc, treeQuery } from "./api";
+import { ConflictBanner, docBtn, EditButtons } from "./DocEditor";
 import { MirrorBar } from "../mirrors/MirrorBar";
 import { mirrorOf } from "../mirrors/mirror";
 import { assetUrl, flattenFiles, isImage, isMarkdown, splitFrontmatter } from "./links";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { MarkdownView } from "./MarkdownView";
+import { useDocEditor } from "./useDocEditor";
 
 export function DocumentPage({ path, edit }: { path: string; edit: boolean }) {
   if (!isMarkdown(path)) return <AssetPage path={path} />;
@@ -49,13 +50,13 @@ function AssetPage({ path }: { path: string }) {
   );
 }
 
-const btn =
-  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";
+const btn = docBtn;
 
 function MarkdownPage({ path, startInEdit }: { path: string; startInEdit: boolean }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const doc = useQuery(docQuery(path));
+  const editor = useDocEditor(path);
+  const doc = editor.doc;
   const tree = useQuery(treeQuery);
   const backlinks = useQuery(backlinksQuery(path));
   const files = useMemo(() => (tree.data ? flattenFiles(tree.data) : []), [tree.data]);
@@ -64,47 +65,6 @@ function MarkdownPage({ path, startInEdit }: { path: string; startInEdit: boolea
   const mirror = useMemo(() => mirrorOf(parts.frontmatter), [parts.frontmatter]);
 
   const [editing, setEditing] = useState(startInEdit);
-  const [draft, setDraft] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<string | null>(null);
-  const dirty = draft !== null && doc.data !== undefined && draft !== doc.data.content;
-
-  const save = useMutation({
-    mutationFn: (revision: string) => saveDoc(path, draft ?? "", revision),
-    onSuccess: async ({ revision }) => {
-      queryClient.setQueryData(docQuery(path).queryKey, { path, content: draft ?? "", revision });
-      setConflict(null);
-      await queryClient.invalidateQueries({ queryKey: ["knowledge", "backlinks"] });
-    },
-    onError: (e) => {
-      if (e instanceof ApiError && e.status === 409) {
-        setConflict((e.body as { currentRevision: string | null }).currentRevision);
-      }
-    },
-  });
-
-  const doSave = useCallback(() => {
-    if (doc.data && dirty && !save.isPending) save.mutate(doc.data.revision);
-  }, [doc.data, dirty, save]);
-
-  // Ctrl/Cmd+S saves.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        doSave();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [doSave]);
-
-  // Warn before leaving with unsaved changes.
-  useEffect(() => {
-    if (!dirty) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [dirty]);
 
   const remove = async () => {
     if (!doc.data || !window.confirm(`Delete "${path}"? (Recoverable from the vault's git history.)`)) return;
@@ -122,30 +82,13 @@ function MarkdownPage({ path, startInEdit }: { path: string; startInEdit: boolea
     );
   if (!doc.data) return <p className="p-6 text-slate-400">Loading…</p>;
 
-  const content = draft ?? doc.data.content;
+  const content = editor.content;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Header path={path}>
         {editing ? (
-          <>
-            <span className="hidden text-xs text-slate-400 sm:inline">
-              {save.isPending ? "Saving…" : dirty ? "Unsaved changes" : "Saved"}
-            </span>
-            <button onClick={doSave} disabled={!dirty || save.isPending} className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}>
-              <Check className="size-4" /> Save
-            </button>
-            <button
-              onClick={() => {
-                if (dirty && !window.confirm("Discard unsaved changes?")) return;
-                setDraft(null);
-                setEditing(false);
-              }}
-              className={`${btn} hover:bg-slate-100 dark:hover:bg-slate-800`}
-            >
-              <Eye className="size-4" /> View
-            </button>
-          </>
+          <EditButtons editor={editor} onView={() => setEditing(false)} />
         ) : (
           <>
             {!mirror && (
@@ -160,29 +103,12 @@ function MarkdownPage({ path, startInEdit }: { path: string; startInEdit: boolea
         )}
       </Header>
 
-      {conflict !== null && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm dark:border-amber-800 dark:bg-amber-950">
-          <span className="flex-1">This note was changed elsewhere (Obsidian, an agent, …) since you opened it.</span>
-          <button
-            className={`${btn} bg-white dark:bg-slate-900`}
-            onClick={async () => {
-              setDraft(null);
-              setConflict(null);
-              await doc.refetch();
-            }}
-          >
-            Load theirs (discard mine)
-          </button>
-          <button className={`${btn} bg-amber-600 text-white`} onClick={() => save.mutate(conflict)}>
-            Overwrite with mine
-          </button>
-        </div>
-      )}
+      <ConflictBanner editor={editor} />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {editing ? (
           <div className="h-full p-3">
-            <MarkdownEditor value={content} onChange={setDraft} />
+            <MarkdownEditor value={content} onChange={editor.setDraft} />
           </div>
         ) : (
           <div className="mx-auto max-w-3xl px-4 py-6 sm:px-8">

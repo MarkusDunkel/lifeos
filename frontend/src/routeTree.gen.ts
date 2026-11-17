@@ -22,6 +22,8 @@ import { Route as AppTicketsRouteImport } from './routes/_app/tickets'
 import { Route as AppWorkspacesRouteImport } from './routes/_app/workspaces'
 import { Route as AppKnowledgeIndexRouteImport } from './routes/_app/knowledge/index'
 import { Route as AppKnowledgeSplatRouteImport } from './routes/_app/knowledge/$'
+import { Route as AppStudyIndexRouteImport } from './routes/_app/study/index'
+import { Route as AppStudySubjectRouteImport } from './routes/_app/study/$subject'
 import { Route as AppWorkspacesIndexRouteImport } from './routes/_app/workspaces/index'
 import { Route as AppWorkspacesSplatRouteImport } from './routes/_app/workspaces/$'
 
@@ -89,6 +91,16 @@ const AppKnowledgeSplatRoute = AppKnowledgeSplatRouteImport.update({
   path: '/$',
   getParentRoute: () => AppKnowledgeRoute,
 } as any)
+const AppStudyIndexRoute = AppStudyIndexRouteImport.update({
+  id: '/study/',
+  path: '/study/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppStudySubjectRoute = AppStudySubjectRouteImport.update({
+  id: '/study/$subject',
+  path: '/study/$subject',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppWorkspacesIndexRoute = AppWorkspacesIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -112,8 +124,10 @@ export interface FileRoutesByFullPath {
   '/tickets': typeof AppTicketsRoute
   '/workspaces': typeof AppWorkspacesRouteWithChildren
   '/knowledge/$': typeof AppKnowledgeSplatRoute
+  '/study/$subject': typeof AppStudySubjectRoute
   '/workspaces/$': typeof AppWorkspacesSplatRoute
   '/knowledge/': typeof AppKnowledgeIndexRoute
+  '/study/': typeof AppStudyIndexRoute
   '/workspaces/': typeof AppWorkspacesIndexRoute
 }
 export interface FileRoutesByTo {
@@ -126,8 +140,10 @@ export interface FileRoutesByTo {
   '/tickets': typeof AppTicketsRoute
   '/': typeof AppIndexRoute
   '/knowledge/$': typeof AppKnowledgeSplatRoute
+  '/study/$subject': typeof AppStudySubjectRoute
   '/workspaces/$': typeof AppWorkspacesSplatRoute
   '/knowledge': typeof AppKnowledgeIndexRoute
+  '/study': typeof AppStudyIndexRoute
   '/workspaces': typeof AppWorkspacesIndexRoute
 }
 export interface FileRoutesById {
@@ -144,8 +160,10 @@ export interface FileRoutesById {
   '/_app/workspaces': typeof AppWorkspacesRouteWithChildren
   '/_app/': typeof AppIndexRoute
   '/_app/knowledge/$': typeof AppKnowledgeSplatRoute
+  '/_app/study/$subject': typeof AppStudySubjectRoute
   '/_app/workspaces/$': typeof AppWorkspacesSplatRoute
   '/_app/knowledge/': typeof AppKnowledgeIndexRoute
+  '/_app/study/': typeof AppStudyIndexRoute
   '/_app/workspaces/': typeof AppWorkspacesIndexRoute
 }
 export interface FileRouteTypes {
@@ -162,8 +180,10 @@ export interface FileRouteTypes {
     | '/tickets'
     | '/workspaces'
     | '/knowledge/$'
+    | '/study/$subject'
     | '/workspaces/$'
     | '/knowledge/'
+    | '/study/'
     | '/workspaces/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -176,8 +196,10 @@ export interface FileRouteTypes {
     | '/tickets'
     | '/'
     | '/knowledge/$'
+    | '/study/$subject'
     | '/workspaces/$'
     | '/knowledge'
+    | '/study'
     | '/workspaces'
   id:
     | '__root__'
@@ -193,8 +215,10 @@ export interface FileRouteTypes {
     | '/_app/workspaces'
     | '/_app/'
     | '/_app/knowledge/$'
+    | '/_app/study/$subject'
     | '/_app/workspaces/$'
     | '/_app/knowledge/'
+    | '/_app/study/'
     | '/_app/workspaces/'
   fileRoutesById: FileRoutesById
 }
@@ -296,6 +320,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppKnowledgeSplatRouteImport
       parentRoute: typeof AppKnowledgeRoute
     }
+    '/_app/study/': {
+      id: '/_app/study/'
+      path: '/study'
+      fullPath: '/study/'
+      preLoaderRoute: typeof AppStudyIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/study/$subject': {
+      id: '/_app/study/$subject'
+      path: '/study/$subject'
+      fullPath: '/study/$subject'
+      preLoaderRoute: typeof AppStudySubjectRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/workspaces/': {
       id: '/_app/workspaces/'
       path: '/'
@@ -351,6 +389,8 @@ interface AppRouteChildren {
   AppTicketsRoute: typeof AppTicketsRoute
   AppWorkspacesRoute: typeof AppWorkspacesRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
+  AppStudySubjectRoute: typeof AppStudySubjectRoute
+  AppStudyIndexRoute: typeof AppStudyIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -363,6 +403,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppTicketsRoute: AppTicketsRoute,
   AppWorkspacesRoute: AppWorkspacesRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
+  AppStudySubjectRoute: AppStudySubjectRoute,
+  AppStudyIndexRoute: AppStudyIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

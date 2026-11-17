@@ -177,19 +177,31 @@ you: Tickets → Changes → create plan → Apply
 
 ```
 ready/knowledge/Studium/<Subject>/_Fach.md            subject: fach, kürzel, prüfung (ISO date/time), prüfungsformat, sprache
-ready/knowledge/Studium/<Subject>/<Topic> - Prüfen.md  question bank (cards)
+ready/knowledge/Studium/<Subject>/<Topic> - Prüfen.md  question bank: thema, kürzel, optional prüfung, prüfungsformat
 ready/knowledge/Studium/<Subject>/<Topic>.md           learning text, read section by section (## headings)
 ready/knowledge/Studium/<Subject>/lernstand.jsonl      progress log, one line per answer (append-only)
 ```
 
 - A card is `**ID** – title` followed by `- Key: value` lines (e.g. `Definition`,
-  `Lückensatz`, `Funktion`, `Muss-Punkte`, `Gruppe`). LifeOS only reads the banks.
+  `Lückensatz`, `Funktion`, `Muss-Punkte`, `Gruppe`). A long title may wrap onto the
+  next lines; an indented line continues the previous field.
+- Exam dates: `prüfung` in `_Fach.md` is the default for the subject; a question bank
+  with its own `prüfung` (and optionally `prüfungsformat`) belongs to a separate exam.
+  So one subject can have several exams, each covering some topics. Repetition, due
+  order and readiness use the exam of each card's bank; after an exam its cards fall
+  back to the normal intervals.
 - Each answer is appended to `lernstand.jsonl` (`ts`, `card`, `result` = correct, partial or
   wrong, `mode`, `session`, `note`). Card states are computed from it: Leitner boxes 0–4,
   intervals 0 / 4 h / 1 d / 2 d / 4 d capped at half the time left before the exam; secure =
   box 2+ with a correct last answer. Missed cards return within the same session.
 - Readiness (`GET /api/study/<subject>/progress`): secure share, new and due cards, weak
-  cards, minutes still needed and per day until the exam.
+  cards, minutes still needed and per day until the next exam, and the same per topic
+  with that topic's exam.
+- Study page (`/study` in the web app, `GET /api/study/subjects` and
+  `GET /api/study/subjects/<subject>`): exams by date, and per subject the learning texts,
+  every card with its learning status (new, wrong, partial, learning, secure) and
+  `_Fach.md`. Editing goes through the knowledge API (`/api/knowledge/file`, revision
+  check), so the tutor reads the corrected files right away.
 - The MCP server (`LIFEOS_MCP_PATH_TOKEN`, see `docker/env.example`) offers the same as
   tools for ChatGPT and other assistants: `list_subjects`, `start_session`, `next_question`,
   `record_answer`, `end_session`, `progress`, `read_material`. Its instructions carry the

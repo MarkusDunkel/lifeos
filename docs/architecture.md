@@ -197,7 +197,7 @@ the master. The cover letter must fit one page, the CV two.
 | `core/git_sync.py` | Vault sync with its private remote: commit, rebase, push; conflict-safe |
 | `worker/` | `lifeos worker`: scheduler (`scheduler.py`) and jobs (`jobs.py`) |
 | `core/locks.py` | File locks shared by the web and worker processes |
-| `modules/study` | Question banks in `Studium/`, append-only progress log, exam-aware repetition, readiness |
+| `modules/study` | Question banks in `Studium/` (exam date per bank), append-only progress log, exam-aware repetition, readiness, detail API for the study page |
 | `mcp_server/` | MCP server (study tools) for ChatGPT and other assistants |
 | `modules/vault_sync` | Sync status and "sync now" endpoints |
 | `modules/knowledge` | Tree, read/write, FTS5 search, wikilink backlinks |
