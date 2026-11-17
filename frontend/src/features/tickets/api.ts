@@ -3,16 +3,20 @@ import { api, qs } from "../../lib/api";
 
 export type FieldMeta = { type: "SINGLE_SELECT" | "TEXT" | "NUMBER" | "DATE"; options: string[] };
 
+export type ProjectMeta = { ref: string; url: string | null; fields: Record<string, FieldMeta> };
+
+/** Field values per project title. */
+export type ProjectValues = Record<string, Record<string, string | null>>;
+
 export type Meta = {
   configured: boolean;
   repos: string[];
-  project: string | null;
-  fields: Record<string, FieldMeta>;
+  /** Configured Projects v2 boards by title; the first (primary) holds the tasks. */
+  projects: Record<string, ProjectMeta>;
+  primary: string | null;
   labels: Record<string, string[]>;
   assignees: Record<string, string[]>;
   synced_at: string | null;
-  /** The project board on GitHub (shown as "Roadmap"). */
-  project_url: string | null;
 };
 
 export type TicketSummary = {
@@ -23,7 +27,7 @@ export type TicketSummary = {
   state: "open" | "closed";
   labels: string[];
   assignees: string[];
-  project: Record<string, string>;
+  projects: ProjectValues;
   url: string | null;
   updated: string | null;
   conflicts: string[];
@@ -33,7 +37,7 @@ export type TicketSummary = {
 export type TicketDoc = TicketSummary & {
   body: string;
   revision: string;
-  base: (Omit<TicketSummary, "path" | "conflicts" | "changes"> & { body: string; project: Record<string, string | null> }) | null;
+  base: (Omit<TicketSummary, "path" | "conflicts" | "changes"> & { body: string }) | null;
 };
 
 export type PlanInfo = { id: string; status: "pending" | "applied" };
@@ -57,7 +61,7 @@ export type SyncReport = {
 };
 
 export type EditableFields = Partial<
-  Pick<TicketDoc, "title" | "state" | "labels" | "assignees" | "body"> & { project: Record<string, string | null> }
+  Pick<TicketDoc, "title" | "state" | "labels" | "assignees" | "body" | "projects">
 >;
 
 export const ticketsQuery = queryOptions({

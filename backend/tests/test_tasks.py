@@ -49,7 +49,7 @@ def draft(name: str, marker: str | None, due: str | None = "2026-10-03", **kw) -
         number=kw.pop("number", None),
         title=kw.pop("title", name),
         labels=kw.pop("labels", ["university"]),
-        project=project,
+        projects={"Tasks": project},
         body=body,
         url=kw.pop("url", None),
         **kw,
@@ -63,11 +63,13 @@ def root(tmp_path: Path) -> Path:
     write(r, "ready/knowledge/Moodle/CA/01 Week 1/Script.md", mirror_note("Script"))
     write(r, "ready/knowledge/Moodle/CA/CA.md", "---\ntype: moodle-course\nmoodle_id: '10'\n---\n")
     write(r, "ready/knowledge/Own note.md", "# not a mirror\n")
+    fields = {
+        "Status": {"type": "SINGLE_SELECT", "options": ["Todo", "Done"]},
+        "Due": {"type": "DATE", "options": []},
+    }
     meta = {
-        "fields": {
-            "Status": {"type": "SINGLE_SELECT", "options": ["Todo", "Done"]},
-            "Due": {"type": "DATE", "options": []},
-        },
+        "primary": "Tasks",
+        "projects": {"Tasks": {"ref": "me/1", "url": "u", "fields": fields}},
         "labels": {REPO: ["bug", "university"]},
         "synced_at": "2026-10-01T00:00:00Z",
     }
@@ -190,7 +192,8 @@ def test_check_finds_broken_drafts(root: Path) -> None:
 
 
 def test_check_warns_when_the_board_meta_is_stale(root: Path) -> None:
-    write(root, ".lifeos/github/meta.json", json.dumps({"fields": {}, "labels": {REPO: []}}))
+    stale = {"primary": "Tasks", "projects": {"Tasks": {"fields": {}}}, "labels": {REPO: []}}
+    write(root, ".lifeos/github/meta.json", json.dumps(stale))
     result = tool(root).check()
     assert result["ok"] and len(result["warnings"]) == 2
 

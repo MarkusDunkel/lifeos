@@ -1,20 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleDot, ExternalLink, GitPullRequestArrow, Map as MapIcon, LayoutGrid, List, Plus, RefreshCw, Search, TriangleAlert } from "lucide-react";
+import { CircleDot, ExternalLink, GitPullRequestArrow, Plus, RefreshCw, Search, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { api, qs } from "../../lib/api";
 import { formatTime } from "../workspaces/review";
-import {
-  createTicket,
-  type Meta,
-  runSync,
-  saveTicket,
-  type SyncReport,
-  type TicketDoc,
-  ticketsQuery,
-  type TicketSummary,
-} from "./api";
-import { boardField, columnOf, filterTickets, groupTickets, isPending, ticketLabel, type TicketView } from "./board";
+import { createTicket, type Meta, runSync, type SyncReport, ticketsQuery, type TicketSummary } from "./api";
 import { ChangesPanel } from "./ChangesPanel";
+import { filterTickets, isPending, NO_PROJECT, projectStatuses, statusField, ticketLabel, type TicketView } from "./list";
 import { TicketEditor } from "./TicketEditor";
 
 type Props = { search: TicketView; onChange: (next: TicketView, replace?: boolean) => void };
@@ -40,10 +30,10 @@ export function TicketsPage({ search, onChange }: Props) {
   }, [q, search, onChange]);
 
   const meta = data?.meta;
-  const field = meta ? boardField(meta) : null;
-  const visible = useMemo(() => (data ? filterTickets(data.tickets, search) : []), [data, search]);
+  const visible = useMemo(() => (data && meta ? filterTickets(data.tickets, search, meta) : []), [data, meta, search]);
   const pending = data?.tickets.filter(isPending).length ?? 0;
   const multiRepo = (meta?.repos.length ?? 0) > 1;
+  const labels = useMemo(() => [...new Set((data?.tickets ?? []).flatMap((t) => t.labels))].sort(), [data]);
 
   const sync = async () => {
     setSyncing(true);
@@ -72,22 +62,15 @@ export function TicketsPage({ search, onChange }: Props) {
     }
   };
 
-  /** Drag & drop on the board: set the board field (or the state) and save right away. */
-  const move = async (path: string, column: string | null) => {
-    const fresh = await api<TicketDoc>(`/api/tickets/file?${qs({ path })}`);
-    const fields = field ? { project: { ...fresh.project, [field]: column } } : { state: (column ?? "open") as TicketDoc["state"] };
-    try {
-      await saveTicket(path, fields, fresh.revision);
-    } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
-    }
-    await queryClient.invalidateQueries({ queryKey: ["tickets"] });
-  };
-
   if (isError) return <p className="p-6 text-red-600">Could not load tickets: {String(error)}</p>;
   if (!data || !meta) return <p className="p-6 text-slate-400">Loading…</p>;
 
   const panelOpen = Boolean(search.ticket || search.changes);
+  const projectNames = Object.keys(meta.projects);
+  const chosen = search.project && search.project !== NO_PROJECT ? search.project : undefined;
+  const field = statusField(meta, chosen);
+  const statusOptions = chosen && field ? (meta.projects[chosen]?.fields[field]?.options ?? []) : [];
+  const boardUrl = chosen ? meta.projects[chosen]?.url : null;
 
   return (
     <div className="flex h-full min-h-0">
@@ -103,17 +86,6 @@ export function TicketsPage({ search, onChange }: Props) {
                 className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-3 pl-8 text-sm focus:border-sky-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900"
               />
             </div>
-            {meta.project_url && (
-              <a
-                href={meta.project_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`${btn} ring-1 ring-slate-200 hover:bg-slate-100 dark:ring-slate-700 dark:hover:bg-slate-800`}
-                title="Open the project board on GitHub"
-              >
-                <MapIcon className="size-4" /> Roadmap
-              </a>
-            )}
             <button onClick={sync} disabled={syncing || !meta.configured} className={`${btn} ring-1 ring-slate-200 hover:bg-slate-100 dark:ring-slate-700 dark:hover:bg-slate-800`} title="Fetch from GitHub and merge">
               <RefreshCw className={`size-4 ${syncing ? "animate-spin" : ""}`} /> Sync
             </button>
@@ -128,24 +100,41 @@ export function TicketsPage({ search, onChange }: Props) {
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <div className="inline-flex rounded-lg ring-1 ring-slate-200 dark:ring-slate-700">
-              {(["board", "list"] as const).map((v) => (
-                <button
-                  key={v}
-                  onClick={() => onChange({ ...search, view: v === "board" ? undefined : v }, true)}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 first:rounded-l-lg last:rounded-r-lg ${
-                    (search.view ?? "board") === v ? "bg-slate-100 font-medium dark:bg-slate-800" : "text-slate-500"
-                  }`}
-                >
-                  {v === "board" ? <LayoutGrid className="size-4" /> : <List className="size-4" />} {v === "board" ? "Board" : "List"}
-                </button>
+            <select
+              value={search.project ?? ""}
+              onChange={(e) => onChange({ ...search, project: e.target.value || undefined, status: undefined }, true)}
+              className={select}
+              aria-label="Project"
+            >
+              <option value="">All projects</option>
+              {projectNames.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
               ))}
-            </div>
+              <option value={NO_PROJECT}>No project</option>
+            </select>
+            {statusOptions.length > 0 && (
+              <select value={search.status ?? ""} onChange={(e) => onChange({ ...search, status: e.target.value || undefined }, true)} className={select} aria-label={field ?? "Status"}>
+                <option value="">Any {field?.toLowerCase()}</option>
+                {statusOptions.map((o) => (
+                  <option key={o}>{o}</option>
+                ))}
+              </select>
+            )}
             <select value={search.state ?? "open"} onChange={(e) => onChange({ ...search, state: e.target.value === "open" ? undefined : (e.target.value as TicketView["state"]) }, true)} className={select} aria-label="State">
               <option value="open">Open</option>
               <option value="closed">Closed</option>
               <option value="all">All</option>
             </select>
+            {labels.length > 0 && (
+              <select value={search.label ?? ""} onChange={(e) => onChange({ ...search, label: e.target.value || undefined }, true)} className={select} aria-label="Label">
+                <option value="">Any label</option>
+                {labels.map((l) => (
+                  <option key={l}>{l}</option>
+                ))}
+              </select>
+            )}
             {multiRepo && (
               <select value={search.repo ?? ""} onChange={(e) => onChange({ ...search, repo: e.target.value || undefined }, true)} className={select} aria-label="Repository">
                 <option value="">All repositories</option>
@@ -154,15 +143,21 @@ export function TicketsPage({ search, onChange }: Props) {
                 ))}
               </select>
             )}
+            {boardUrl && (
+              <a href={boardUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-sky-600 hover:underline" title="Open the project on GitHub">
+                <ExternalLink className="size-3.5" /> {chosen} on GitHub
+              </a>
+            )}
             <span className="ml-auto text-xs text-slate-400">
-              {meta.synced_at ? `Synced ${formatTime(meta.synced_at)}` : meta.configured ? "Not synced yet" : ""}
+              {visible.length} ticket{visible.length === 1 ? "" : "s"}
+              {meta.synced_at ? ` · synced ${formatTime(meta.synced_at)}` : meta.configured ? " · not synced yet" : ""}
             </span>
           </div>
           {report && <SyncNotice report={report} onClose={() => setReport(null)} />}
           {!meta.configured && (
             <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">
               GitHub is not configured. Set <code>LIFEOS_GITHUB_TOKEN</code>, <code>LIFEOS_GITHUB_REPOS</code> and optionally{" "}
-              <code>LIFEOS_GITHUB_PROJECT</code> in <code>deploy/.env</code> and restart.
+              <code>LIFEOS_GITHUB_PROJECTS</code> in <code>deploy/.env</code> and restart.
             </p>
           )}
           {data.broken.length > 0 && (
@@ -171,11 +166,7 @@ export function TicketsPage({ search, onChange }: Props) {
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto">
-          {(search.view ?? "board") === "board" ? (
-            <Board tickets={visible} meta={meta} field={field} showRepo={multiRepo} selected={search.ticket} onOpen={(p) => onChange({ ...search, ticket: p, changes: undefined })} onMove={move} />
-          ) : (
-            <TicketList tickets={visible} field={field} showRepo={multiRepo} selected={search.ticket} onOpen={(p) => onChange({ ...search, ticket: p, changes: undefined })} />
-          )}
+          <TicketList tickets={visible} meta={meta} showRepo={multiRepo} selected={search.ticket} onOpen={(p) => onChange({ ...search, ticket: p, changes: undefined })} />
         </div>
       </div>
 
@@ -236,92 +227,7 @@ function GitHubLink({ url }: { url: string | null }) {
   );
 }
 
-function Card({ t, showRepo, selected, onOpen }: { t: TicketSummary; showRepo: boolean; selected: boolean; onOpen: () => void }) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      draggable
-      onDragStart={(e) => e.dataTransfer.setData("text/plain", t.path)}
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
-      className={`block w-full cursor-pointer rounded-lg border bg-white p-2.5 text-left text-sm shadow-sm hover:border-sky-400 dark:bg-slate-900 ${
-        selected ? "border-sky-500" : "border-slate-200 dark:border-slate-700"
-      }`}
-    >
-      <div className="mb-1 flex items-center gap-1.5 text-xs text-slate-400">
-        <span>{ticketLabel(t, showRepo)}</span>
-        {t.state === "closed" && <span className="rounded bg-slate-100 px-1 dark:bg-slate-800">closed</span>}
-        <span className="flex-1" />
-        {t.conflicts.length > 0 && <TriangleAlert className="size-3.5 text-amber-600" aria-label="Conflict" />}
-        {isPending(t) && <CircleDot className="size-3.5 text-sky-600" aria-label="Local changes" />}
-        <GitHubLink url={t.url} />
-      </div>
-      <p className="font-medium">{t.title}</p>
-      {t.labels.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {t.labels.map((l) => (
-            <span key={l} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-              {l}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Board(props: {
-  tickets: TicketSummary[];
-  meta: Meta;
-  field: string | null;
-  showRepo: boolean;
-  selected?: string;
-  onOpen: (path: string) => void;
-  onMove: (path: string, column: string | null) => void;
-}) {
-  const groups = groupTickets(props.tickets, props.meta, props.field);
-  const [over, setOver] = useState<string | null | undefined>(undefined);
-  return (
-    <div className="flex h-full min-h-0 gap-3 overflow-x-auto p-3">
-      {[...groups.entries()].map(([column, items]) => (
-        <section
-          key={column ?? "__none__"}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setOver(column);
-          }}
-          onDragLeave={() => setOver(undefined)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setOver(undefined);
-            const path = e.dataTransfer.getData("text/plain");
-            const t = props.tickets.find((x) => x.path === path);
-            if (t && columnOf(t, props.field) !== column) props.onMove(path, column);
-          }}
-          className={`flex w-72 shrink-0 flex-col rounded-xl bg-slate-50 dark:bg-slate-900/50 ${over === column ? "ring-2 ring-sky-400" : ""}`}
-        >
-          <h3 className="flex items-center gap-2 px-3 pt-3 pb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">
-            <span className="flex-1">{column ?? (props.field ? `No ${props.field}` : "—")}</span>
-            <span className="font-normal">{items.length}</span>
-          </h3>
-          <div className="min-h-16 flex-1 space-y-2 overflow-y-auto px-2 pb-2">
-            {items.map((t) => (
-              <Card key={t.path} t={t} showRepo={props.showRepo} selected={props.selected === t.path} onOpen={() => props.onOpen(t.path)} />
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-}
-
-function TicketList(props: { tickets: TicketSummary[]; field: string | null; showRepo: boolean; selected?: string; onOpen: (path: string) => void }) {
+function TicketList(props: { tickets: TicketSummary[]; meta: Meta; showRepo: boolean; selected?: string; onOpen: (path: string) => void }) {
   const th = "px-3 py-2 text-left text-xs font-medium text-slate-500";
   if (props.tickets.length === 0) return <p className="p-6 text-slate-500">No tickets match.</p>;
   return (
@@ -330,8 +236,7 @@ function TicketList(props: { tickets: TicketSummary[]; field: string | null; sho
         <tr>
           <th className={th}>#</th>
           <th className={th}>Title</th>
-          {props.field && <th className={th}>{props.field}</th>}
-          <th className={th}>State</th>
+          <th className={th}>Project · status</th>
           <th className={th}>Labels</th>
           <th className={th}></th>
         </tr>
@@ -340,13 +245,24 @@ function TicketList(props: { tickets: TicketSummary[]; field: string | null; sho
         {props.tickets.map((t) => (
           <tr key={t.path} onClick={() => props.onOpen(t.path)} className={`cursor-pointer border-t border-slate-100 hover:bg-sky-50 dark:border-slate-800 dark:hover:bg-slate-900 ${props.selected === t.path ? "bg-sky-50 dark:bg-slate-900" : ""}`}>
             <td className="px-3 py-2 whitespace-nowrap text-slate-400">{ticketLabel(t, props.showRepo)}</td>
-            <td className="px-3 py-2">{t.title}</td>
-            {props.field && <td className="px-3 py-2 whitespace-nowrap">{t.project[props.field] ?? ""}</td>}
-            <td className="px-3 py-2">{t.state}</td>
+            <td className="px-3 py-2">
+              {t.title}
+              {t.state === "closed" && <span className="ml-2 rounded bg-slate-100 px-1 text-xs text-slate-500 dark:bg-slate-800">closed</span>}
+            </td>
+            <td className="px-3 py-2">
+              <div className="flex flex-wrap gap-1">
+                {projectStatuses(t, props.meta).map(({ project, status }) => (
+                  <span key={project} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] whitespace-nowrap text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    {project}
+                    {status ? ` · ${status}` : ""}
+                  </span>
+                ))}
+              </div>
+            </td>
             <td className="px-3 py-2 text-xs text-slate-500">{t.labels.join(", ")}</td>
-            <td className="px-3 py-2 text-right">
-              {t.conflicts.length > 0 && <TriangleAlert className="inline size-4 text-amber-600" />}
-              {isPending(t) && <CircleDot className="inline size-4 text-sky-600" />}
+            <td className="px-3 py-2 text-right whitespace-nowrap">
+              {t.conflicts.length > 0 && <TriangleAlert className="inline size-4 text-amber-600" aria-label="Conflict" />}
+              {isPending(t) && <CircleDot className="inline size-4 text-sky-600" aria-label="Local changes" />}
               <GitHubLink url={t.url} />
             </td>
           </tr>

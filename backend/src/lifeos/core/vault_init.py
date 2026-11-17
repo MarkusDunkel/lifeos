@@ -66,6 +66,14 @@ sync repository (the pre-push hook blocks every other target).
   no raw HTML or angle brackets outside code, no lists mixing checkboxes and plain items.
 - Knowledge hub: extend instead of duplicating, link related notes with [[wikilinks]],
   keep sources.
+- Tickets: GitHub is the source of truth, `ready/tickets/` is the editable copy. Agents
+  never write to GitHub themselves: they edit the copy (titles, text, labels, project
+  fields, new tickets as `new-*.md` files) and the user reviews and sends the changes via
+  "Changes" in LifeOS. Only the app writes directly, and only uncritical things: tickets
+  the user creates with a button, status moves inside a process the user steers (e.g. an
+  application from Active to In Review), closing/reopening as a consequence of the user's
+  move, and notice comments with links. When an agent's commit belongs to a ticket, its
+  message ends with `Refs <owner>/<repo>#<number>`.
 """
 
 GITATTRIBUTES = """* text=auto eol=lf

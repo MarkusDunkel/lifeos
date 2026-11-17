@@ -11,12 +11,13 @@ from pydantic import ValidationError
 from lifeos.core.vault import KNOWLEDGE, Vault
 from lifeos.modules.applications.model import MasterCv, Personal
 
-CAREER = f"{KNOWLEDGE}/Karriere"
-CV_DIR = f"{CAREER}/Lebenslauf"
-PERSONAL_FILE = f"{CV_DIR}/Stammdaten.yaml"
-MASTER_FILE = f"{CV_DIR}/Lebenslauf.yaml"
-EXAMPLES_DIR = f"{CAREER}/Bewerbungen/Beispiele"
-GUIDE_FILE = f"{CAREER}/Bewerbungs-Leitfaden.md"
+CAREER = f"{KNOWLEDGE}/Career"
+CV_DIR = f"{CAREER}/CV"
+PERSONAL_FILE = f"{CV_DIR}/personal.yaml"
+MASTER_FILE = f"{CV_DIR}/cv.yaml"
+APPLICATIONS_DIR = f"{CAREER}/Applications"
+EXAMPLES_DIR = f"{APPLICATIONS_DIR}/Examples"
+GUIDE_FILE = f"{CAREER}/Application-Guide.md"
 
 
 class ProfileError(Exception):

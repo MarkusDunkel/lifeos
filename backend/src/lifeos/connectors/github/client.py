@@ -249,6 +249,21 @@ class GitHubClient:
         payload = {"fieldId": field_id, "singleSelectOptions": _option_inputs(options)}
         self.graphql(q, {"input": payload})
 
+    def rename_project(self, project_id: str, title: str) -> None:
+        q = """mutation($p: ID!, $t: String!) {
+          updateProjectV2(input: {projectId: $p, title: $t}) { projectV2 { id } } }"""
+        self.graphql(q, {"p": project_id, "t": title})
+
+    def rename_field(self, field_id: str, name: str) -> None:
+        q = """mutation($input: UpdateProjectV2FieldInput!) {
+          updateProjectV2Field(input: $input) { clientMutationId } }"""
+        self.graphql(q, {"input": {"fieldId": field_id, "name": name}})
+
+    def rename_label(self, label_id: str, name: str) -> None:
+        q = """mutation($id: ID!, $n: String!) {
+          updateLabel(input: {id: $id, name: $n}) { label { id } } }"""
+        self.graphql(q, {"id": label_id, "n": name})
+
     def create_label(self, repo_id: str, name: str, color: str = "0e8a16") -> str:
         q = """mutation($r: ID!, $n: String!, $c: String!) {
           createLabel(input: {repositoryId: $r, name: $n, color: $c}) { label { id } } }"""

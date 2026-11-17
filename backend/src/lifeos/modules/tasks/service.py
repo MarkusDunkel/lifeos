@@ -78,14 +78,26 @@ class UniTasks:
     def draft_dir(self) -> str:
         return f"{TICKETS}/{self.repo}"
 
+    @property
+    def primary(self) -> str | None:
+        return self.meta.get("primary")
+
+    @property
+    def fields(self) -> dict[str, Any]:
+        """Fields of the primary project (where university tasks live)."""
+        if self.primary:
+            return (self.meta.get("projects") or {}).get(self.primary, {}).get("fields") or {}
+        return self.meta.get("fields") or {}  # meta written before multi-project support
+
     def board(self) -> dict[str, Any]:
-        fields = self.meta.get("fields") or {}
+        fields = self.fields
         status = fields.get("Status") or {}
         return {
             "repo": self.repo,
             "draft_dir": self.draft_dir,
             "draft_name": f"{self.draft_dir}/new-<slug>-<4 hex digits>.md",
             "label": self.label,
+            "project": self.primary,
             "label_exists": self.label in (self.meta.get("labels") or {}).get(self.repo, []),
             "status_options": status.get("options") or [],
             "has_due_field": "Due" in fields,
@@ -115,7 +127,7 @@ class UniTasks:
             rel = path.relative_to(self.vault.root).as_posix()
             text = path.read_text(encoding="utf-8")
             try:
-                t = load(text, self.repo)
+                t = load(text, self.repo, self.primary)
             except ValueError as exc:
                 out.append({"path": rel, "error": str(exc), "markers": MARKER.findall(text)})
                 continue
@@ -130,12 +142,15 @@ class UniTasks:
                     "title": t.title,
                     "state": t.state,
                     "labels": t.labels,
-                    "status": norm_value(t.project.get("Status")),
-                    "due": norm_value(t.project.get("Due")),
+                    "status": norm_value(self._values(t).get("Status")),
+                    "due": norm_value(self._values(t).get("Due")),
                     "markers": markers,
                 }
             )
         return out
+
+    def _values(self, t: Any) -> dict[str, Any]:
+        return t.projects.get(self.primary or "", {}) if self.primary else {}
 
     def _log(self) -> dict[str, Any]:
         log = self._json(LOG_FILE) or {}

@@ -2,7 +2,7 @@
 
 Moving a ticket between columns is how the user steers the process. The worker polls the
 board, compares each item's status with the last one it saw (``board.json``) and runs the
-handler of the new column once. Column names are the user's (German) board content.
+handler of the new column once.
 """
 
 from __future__ import annotations
@@ -21,30 +21,38 @@ from lifeos.core.vault import write_atomic
 log = logging.getLogger("lifeos.applications")
 
 STATUS = "Status"
-SUGGESTED = "Vorschlag"
-SUGGESTION_DECLINED = "Vorschlag abgelehnt"
-NEW = "Neu"
-ACTIVE = "Aktiv"
+NEW = "New"
+ACTIVE = "Active"
 IN_REVIEW = "In Review"
-SENT = "Versendet"
-INTERVIEW_1 = "1. Gespräch"
-INTERVIEW_2 = "2. Gespräch"
-INTERVIEW_3 = "3.+ Gespräch"
-OFFER = "Angebot"
-ACCEPTED = "Zugesagt"
-REJECTED = "Absage erhalten"
-DECLINED = "Von mir abgelehnt"
+SENT = "Sent"
+INTERVIEW_1 = "1st Interview"
+INTERVIEW_2 = "2nd Interview"
+INTERVIEW_3 = "3rd+ Interview"
+OFFER = "Offer"
+ACCEPTED = "Accepted"
+REJECTED = "Rejected"
+DECLINED = "Declined"
 COLUMNS = [
-    SUGGESTED, SUGGESTION_DECLINED, NEW, ACTIVE, IN_REVIEW, SENT,
-    INTERVIEW_1, INTERVIEW_2, INTERVIEW_3, OFFER, ACCEPTED, REJECTED, DECLINED,
+    NEW, ACTIVE, IN_REVIEW, SENT, INTERVIEW_1, INTERVIEW_2, INTERVIEW_3,
+    OFFER, ACCEPTED, REJECTED, DECLINED,
 ]  # fmt: skip
-CLOSING = {SUGGESTION_DECLINED, ACCEPTED, REJECTED, DECLINED}
-ROUND_FIELD = "Gesprächsrunde"
-COMPANY_FIELD = "Firma"
-POSTING_FIELD = "Inserat"
+CLOSING = {ACCEPTED, REJECTED, DECLINED}
+ROUND_FIELD = "Interview round"
+COMPANY_FIELD = "Company"
+POSTING_FIELD = "Posting"
 EXTRA_FIELDS = {ROUND_FIELD: "NUMBER", COMPANY_FIELD: "TEXT", POSTING_FIELD: "TEXT"}
-LABEL = "bewerbung"
-BOARD_TITLE = "Bewerbungen"
+LABEL = "application"
+BOARD_TITLE = "LifeOS Applications"
+
+# The first version of the board used German names; setup_board migrates them.
+LEGACY_COLUMNS = {
+    "Neu": NEW, "Aktiv": ACTIVE, "In Review": IN_REVIEW, "Versendet": SENT,
+    "1. Gespräch": INTERVIEW_1, "2. Gespräch": INTERVIEW_2, "3.+ Gespräch": INTERVIEW_3,
+    "Angebot": OFFER, "Zugesagt": ACCEPTED, "Absage erhalten": REJECTED,
+    "Von mir abgelehnt": DECLINED,
+}  # fmt: skip
+LEGACY_FIELDS = {"Gesprächsrunde": ROUND_FIELD, "Firma": COMPANY_FIELD, "Inserat": POSTING_FIELD}
+LEGACY_LABEL = "bewerbung"
 
 
 class BoardError(Exception):
@@ -59,9 +67,10 @@ def split_project(ref: str) -> tuple[str, int]:
 
 
 def setup_board(gh: Any, repo: str, project_ref: str | None) -> str:
-    """Create (or complete) the board: columns, extra fields, linked repo, label.
+    """Create (or complete) the board: title, columns, extra fields, linked repo, label.
 
-    Returns ``owner/number``. Safe to run again.
+    An existing board is migrated: renamed columns keep their tickets, renamed fields and
+    the label keep their values. Returns ``owner/number``. Safe to run again.
     """
     owner = repo.split("/", 1)[0]
     if project_ref:
@@ -71,6 +80,8 @@ def setup_board(gh: Any, repo: str, project_ref: str | None) -> str:
         number = created["number"]
     project = gh.project(owner, number)
     meta = gh.repo(repo)
+    if project.title != BOARD_TITLE:
+        gh.rename_project(project.id, BOARD_TITLE)
     try:
         gh.link_repository(project.id, meta.id)
     except GitHubError as exc:  # already linked
@@ -79,12 +90,28 @@ def setup_board(gh: Any, repo: str, project_ref: str | None) -> str:
     if status is None:
         gh.create_field(project.id, STATUS, "SINGLE_SELECT", COLUMNS)
     elif list(status.options) != COLUMNS:
+        # Replacing the options clears every item's status: remember and restore it.
+        current = {
+            item.item_id: LEGACY_COLUMNS.get(item.status or "", item.status)
+            for item in board_items(gh.project_items(project.id), project.fields)
+        }
         gh.set_options(status.id, COLUMNS)
+        project = gh.project(owner, number)
+        for item_id, column in current.items():
+            if column in COLUMNS:
+                gh.set_field(project.id, item_id, project.fields[STATUS], column)
+    for old, new in LEGACY_FIELDS.items():
+        if old in project.fields and new not in project.fields:
+            gh.rename_field(project.fields[old].id, new)
+    project = gh.project(owner, number)
     for name, data_type in EXTRA_FIELDS.items():
         if name not in project.fields:
             gh.create_field(project.id, name, data_type)
     if LABEL not in meta.labels:
-        gh.create_label(meta.id, LABEL)
+        if LEGACY_LABEL in meta.labels:
+            gh.rename_label(meta.labels[LEGACY_LABEL], LABEL)
+        else:
+            gh.create_label(meta.id, LABEL)
     return f"{owner}/{number}"
 
 

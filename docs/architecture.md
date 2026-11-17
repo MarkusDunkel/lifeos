@@ -62,6 +62,7 @@ Writers that know what they changed commit their own paths right away
 |---|---|
 | `moodle:` | daily Moodle job, e.g. `moodle: 3 new, 2 updated` with courses and files in the body |
 | `study:` | end of a study session, e.g. `study: Spanish – 15 answers, 12 correct`; unfinished sessions are committed by the sync job as `study: … (session not ended)` |
+| `application:` / `agent(application):` | applications: new ticket folder, drafts written by the AI (`… vN`, with `Refs owner/repo#N`) |
 | `lifeos: auto-sync` | the periodic sync, collecting everything else (e.g. edits in the web app) |
 
 Future writers (OneDrive, tickets, study progress, agents) follow the same pattern.
@@ -122,15 +123,50 @@ result. If devjobs.at refuses the importer it stops for the day. Log and state l
 The **Jobs** page of the web app shows the import status and the postings (search, new
 since, duplicates and offline postings on request, details with the full text).
 
+## Tickets: one repository, several projects, a review layer
+
+All tickets are issues in **one** private repository (`LIFEOS_GITHUB_REPOS`). Projects v2
+boards group them by purpose (`LIFEOS_GITHUB_PROJECTS`, e.g. "LifeOS Tasks"; the
+applications board is added automatically). An issue lives in exactly one repository and
+can be on any number of boards; every board has its own fields (e.g. its own `Status`).
+
+The mirror (`connectors/github`) writes each issue to `ready/tickets/<owner>/<repo>/` with
+`projects: {<board title>: {<field>: <value>}}` in the frontmatter (a flat `project:` is read
+as the primary board, the first configured). The Tickets page lists them with filters by
+project, that project's status, state, label and text; there is no board view, because
+statuses differ per project. The editor groups fields per project and can add a ticket
+to another project; removing it from a project is done on GitHub.
+
+**Review layer.** GitHub is the source of truth for tickets; `ready/tickets/` is the
+editable copy in LifeOS. Changes are split by how much they matter:
+
+| Change | Path to GitHub |
+|---|---|
+| Ticket the user creates with a button (e.g. **Apply**) | direct |
+| Status move inside a process the user steers (application: Active → In Review) | direct |
+| Mechanical consequence of the user's move (close/reopen on outcome columns) | direct |
+| Notice comment by the system (draft ready, links, commit reference) | direct |
+| Anything an AI writes: titles, text, labels, project fields | copy → **Changes** → plan → apply |
+| New tickets on an AI's own initiative (e.g. job suggestions) | copy (or LifeOS page) → user → GitHub |
+| A status an AI *decides* ("this task is done") | copy → **Changes** → plan → apply |
+
+Agents never call GitHub themselves; the vault rules (`vault/CLAUDE.md`) say the same.
+Commits of agents that belong to a ticket end with `Refs <owner>/<repo>#<number>`, which
+links them in the ticket's timeline.
+
 ## Applications
 
-A job application is a ticket on its own Projects v2 board (`LIFEOS_APPLICATIONS_PROJECT`,
-created by `lifeos applications setup-board`): issues in the private board repository with
-the label `bewerbung`, a single-select `Status` with the user's columns (suggestion, new,
-active, in review, sent, interviews, offer, outcomes) and the fields `Gesprächsrunde`,
-`Firma`, `Inserat`. **Apply** on the Jobs page (`POST /api/applications`) creates the ticket in
-the first working column, a folder `ready/knowledge/Karriere/Bewerbungen/<date> <company> –
-<title>/` with `Bewerbung.md` and an `Inserat.md` snapshot, and marks the posting.
+A job application is a ticket on the board "LifeOS Applications"
+(`LIFEOS_APPLICATIONS_PROJECT`, created or migrated by `lifeos applications setup-board`):
+issues in the board repository with the label `application`, a single-select `Status` with
+the columns New, Active, In Review, Sent, 1st/2nd/3rd+ Interview, Offer, Accepted,
+Rejected, Declined, and the fields `Interview round`, `Company`, `Posting`. **Apply** on the
+Jobs page (`POST /api/applications`) creates the ticket in New, a folder
+`ready/knowledge/Career/Applications/<date> <company> – <title>/` with `Application.md` and a
+`Posting.md` snapshot, and marks the posting (commit `application: new – …`). AI
+suggestions will first appear in LifeOS and become a ticket only when the user accepts.
+`lifeos applications migrate-vault [--commit]` moves the first, German layout
+(`Karriere/…`) to the English one.
 
 The worker job `applications-board` (`LIFEOS_APPLICATIONS_INTERVAL`) polls the board and runs
 the handler of a column once when a ticket arrives there (state in
@@ -138,8 +174,9 @@ the handler of a column once when a ticket arrives there (state in
 until the ticket moves again). Outcome columns close the issue; moving it back reopens it.
 
 Documents are rendered with Typst (`typst` Python package) from `templates/typst/` and the
-bundled XCharter font; the master CV (`Karriere/Lebenslauf/Lebenslauf.yaml`) and personal
-data (`Stammdaten.yaml`) live in the vault. A draft may only select master entries and
+bundled XCharter font; the master CV (`Career/CV/cv.yaml`) and personal data
+(`Career/CV/personal.yaml`) live in the vault; `Career/Application-Guide.md` collects rules
+and lessons, `Career/Applications/Examples/` earlier cover letters. A draft may only select master entries and
 bullets by id and titles from the allowed variants; companies and periods always come from
 the master. The cover letter must fit one page, the CV two.
 
@@ -159,7 +196,7 @@ the master. The cover letter must fit one page, the CV two.
 | `modules/knowledge` | Tree, read/write, FTS5 search, wikilink backlinks |
 | `modules/notes` | JSON Lines store with per-note revisions, column schema (inferred or `schema.json`) |
 | `modules/workspaces` | Read-only reports, archive, change logs; md4h feedback rounds (draft → sealed) |
-| `modules/tickets` | Ticket board/list and editor over `ready/tickets`, conflict resolution |
+| `modules/tickets` | Ticket list (filters by project/status/label) and editor over `ready/tickets`, conflict resolution |
 | `modules/agents` | Upcoming review gate |
 | `connectors/github` | GraphQL client, ingest → 3-way merge, write-back plans and apply |
 | `connectors/onedrive` | Microsoft device-code sign-in, read-only Graph client, `.pptx` text extraction, one-way mirror into the knowledge hub |

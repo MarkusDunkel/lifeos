@@ -4,7 +4,7 @@ import { useState } from "react";
 import { MarkdownView } from "../knowledge/MarkdownView";
 import { api, qs } from "../../lib/api";
 import { applyPlan, createPlan, discardPlan, planQuery, revertTicket, type TicketDoc, type TicketsData } from "./api";
-import { changeName, isPending, ticketLabel } from "./board";
+import { changeName, isPending, ticketLabel } from "./list";
 
 const btn =
   "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,7 @@ class FakeGitHub:
         number = len(self.projects) + 7
         self.projects[number] = {
             "id": f"P{number}",
+            "title": title,
             "fields": {"Status": ProjectField("F_status", "Status", "SINGLE_SELECT",
                                               {"Todo": "o1", "Done": "o2"})},
         }  # fmt: skip
@@ -64,7 +66,27 @@ class FakeGitHub:
 
     def project(self, owner: str, number: int) -> Project:
         p = self.projects[number]
-        return Project(p["id"], "Bewerbungen", "https://example.org/p", dict(p["fields"]))
+        return Project(p["id"], p["title"], "https://example.org/p", dict(p["fields"]))
+
+    def rename_project(self, project_id: str, title: str) -> None:
+        self._project_by_id(project_id)["title"] = title
+        self.calls.append("rename_project")
+
+    def rename_field(self, field_id: str, name: str) -> None:
+        for p in self.projects.values():
+            for old, f in list(p["fields"].items()):
+                if f.id == field_id:
+                    p["fields"][name] = ProjectField(f.id, name, f.type, f.options)
+                    del p["fields"][old]
+                    for item in self.items.values():
+                        if old in item["values"]:
+                            item["values"][name] = item["values"].pop(old)
+        self.calls.append("rename_field")
+
+    def rename_label(self, label_id: str, name: str) -> None:
+        old = next(k for k, v in self.labels.items() if v == label_id)
+        self.labels[name] = self.labels.pop(old)
+        self.calls.append("rename_label")
 
     def _project_by_id(self, project_id: str) -> dict[str, Any]:
         return next(p for p in self.projects.values() if p["id"] == project_id)
@@ -79,6 +101,8 @@ class FakeGitHub:
         self.calls.append(f"create_field:{name}")
 
     def set_options(self, field_id: str, options: list[str]) -> None:
+        for item in self.items.values():  # like GitHub: replacing options clears values
+            item["values"].pop("Status", None)
         for p in self.projects.values():
             for name, f in p["fields"].items():
                 if f.id == field_id:
@@ -154,7 +178,8 @@ def test_setup_board_creates_columns_fields_and_label(gh: FakeGitHub) -> None:
     owner, number = ref.split("/")
     project = gh.project(owner, int(number))
     assert list(project.fields["Status"].options) == COLUMNS
-    assert {"Gesprächsrunde", "Firma", "Inserat"} <= set(project.fields)
+    assert {"Interview round", "Company", "Posting"} <= set(project.fields)
+    assert project.title == "LifeOS Applications"
     assert LABEL in gh.labels and gh.linked
 
     gh.calls.clear()
@@ -200,14 +225,15 @@ def test_start_creates_ticket_folder_and_link(vault, jobs, gh, board) -> None:
     assert issue["title"] == "Beispiel GmbH – Application Manager (m/w/d)"
     assert issue["labelIds"] == [gh.labels[LABEL]]
     values = gh.items["PI1"]["values"]
-    assert values["Status"] == NEW and values["Firma"] == "Beispiel GmbH"
-    assert values["Inserat"].startswith("https://devjobs.at/job/")
+    assert values["Status"] == NEW and values["Company"] == "Beispiel GmbH"
+    assert values["Posting"].startswith("https://devjobs.at/job/")
 
     folder = vault.resolve(result["folder"])
     assert folder.name.endswith("Beispiel GmbH – Application Manager")
-    snapshot = (folder / "Inserat.md").read_text(encoding="utf-8")
-    assert "Betreuung von Anwendungen" in snapshot and "Technologien: SAP" in snapshot
-    assert "https://example.org/i/1" in (folder / "Bewerbung.md").read_text(encoding="utf-8")
+    assert folder.parent.as_posix().endswith("ready/knowledge/Career/Applications")
+    snapshot = (folder / "Posting.md").read_text(encoding="utf-8")
+    assert "Betreuung von Anwendungen" in snapshot and "Technologies: SAP" in snapshot
+    assert "https://example.org/i/1" in (folder / "Application.md").read_text(encoding="utf-8")
     assert jobs.index()["devjobs:" + "a" * 32]["application"] == "https://example.org/i/1"
     assert apps.list()[0]["issue"] == 1
 
@@ -220,7 +246,7 @@ def test_manual_posting(vault, jobs, gh, board) -> None:
     apps = service(vault, jobs, gh, board)
     manual = ManualPosting(company="Firma X", title="IT-Projektleiter", text="Aufgaben …")
     result = apps.start(manual=manual)
-    assert result["issue"] == 1 and "Inserat" not in gh.items["PI1"]["values"]
+    assert result["issue"] == 1 and "Posting" not in gh.items["PI1"]["values"]
 
 
 def test_start_needs_a_configured_board(vault, jobs) -> None:
@@ -248,15 +274,15 @@ def test_handler_runs_once_per_arrival(vault, jobs, gh, board, tmp_path) -> None
 
     assert w.poll() == []  # first sight in "Neu": just remembered
     gh.drag("PI1", ACTIVE)
-    assert w.poll() == ["#1 Aktiv: drafted"]
-    assert w.poll() == []  # still Aktiv: nothing again
+    assert w.poll() == ["#1 Active: drafted"]
+    assert w.poll() == []  # still Active: nothing again
     assert seen == ["Beispiel GmbH – Application Manager (m/w/d)"]
 
     item = board_items(gh.project_items("x"), w.project.fields)[0]
     w.set_status(item, IN_REVIEW)  # the writer moves it on: no trigger
     assert w.poll() == []
     gh.drag("PI1", ACTIVE)
-    assert w.poll() == ["#1 Aktiv: drafted"] and len(seen) == 2
+    assert w.poll() == ["#1 Active: drafted"] and len(seen) == 2
 
 
 def test_new_item_already_active_triggers(vault, jobs, gh, board, tmp_path) -> None:
@@ -273,7 +299,7 @@ def test_closing_columns_close_and_reopen(vault, jobs, gh, board, tmp_path) -> N
     w = watcher(gh, board, tmp_path)
     w.poll()
     gh.drag("PI1", REJECTED)
-    assert w.poll() == ["#1 → Absage erhalten"]
+    assert w.poll() == ["#1 → Rejected"]
     assert gh.issues["I1"]["state"] == "CLOSED"
     gh.drag("PI1", SENT)
     w.poll()
@@ -320,3 +346,73 @@ def test_apply_via_api_and_filter_on_jobs_page(vault, jobs, gh, board, monkeypat
 
     applied = client.get("/api/jobsearch/postings?applied=true").json()
     assert [row["application"] for row in applied["items"]] == ["https://example.org/i/1"]
+
+
+def test_setup_board_migrates_the_german_board(gh: FakeGitHub) -> None:
+    """The first board had German names; tickets keep their column through the rename."""
+    created = gh.create_project("U_me", "Bewerbungen")
+    number = created["number"]
+    legacy = ["Neu", "Aktiv", "In Review", "Versendet"]
+    gh.create_field(created["id"], "Status", "SINGLE_SELECT", legacy)
+    gh.create_field(created["id"], "Firma", "TEXT")
+    gh.labels["bewerbung"] = "L_bewerbung"
+    gh.create_issue("R1", {"title": "X – Y"})
+    item_id = gh.add_to_project(created["id"], "I1")
+    project = gh.project("me", number)
+    gh.set_field(created["id"], item_id, project.fields["Status"], "Aktiv")
+    gh.set_field(created["id"], item_id, project.fields["Firma"], "X")
+
+    setup_board(gh, "me/board", f"me/{number}")
+    project = gh.project("me", number)
+    assert project.title == "LifeOS Applications"
+    assert list(project.fields["Status"].options) == COLUMNS
+    assert gh.items[item_id]["values"] == {"Status": ACTIVE, "Company": "X"}
+    assert "application" in gh.labels and "bewerbung" not in gh.labels
+
+
+def test_migrate_vault_moves_the_german_layout(tmp_path: Path) -> None:
+    from lifeos.modules.applications.migrate import migrate_vault
+
+    root = tmp_path / "vault"
+    old = root / "ready/knowledge/Karriere"
+    (old / "Lebenslauf").mkdir(parents=True)
+    (old / "Lebenslauf/Stammdaten.yaml").write_text("name: A\n", encoding="utf-8")
+    (old / "Lebenslauf/Lebenslauf.yaml").write_text("positions: []\n", encoding="utf-8")
+    (old / "Lebenslauf/portrait.jpg").write_bytes(b"jpg")
+    (old / "Bewerbungs-Leitfaden.md").write_text("# Leitfaden\n", encoding="utf-8")
+    (old / "Bewerbungen/Beispiele").mkdir(parents=True)
+    (old / "Bewerbungen/Beispiele/APG.md").write_text(
+        "---\nfirma: APG\nstelle: Data\n---\n\nText\n", encoding="utf-8"
+    )
+    app = old / "Bewerbungen/2026-11-17 X – Y"
+    app.mkdir()
+    (app / "Bewerbung.md").write_text(
+        "---\nfirma: X\nstelle: Y\nerstellt: '2026'\n---\n\n# Bewerbung: X – Y\n\n"
+        "Inserat: [[Inserat]]\n\n## Verlauf\n\n"
+        "- 2026-11-17: zur Bewerbung ausgewählt (Spalte Neu)\n",
+        encoding="utf-8",
+    )
+    (app / "Inserat.md").write_text(
+        "---\nfirma: X\nort: Graz\n---\n\n- Technologien: SAP\n", encoding="utf-8"
+    )
+    state = root / ".lifeos/applications"
+    state.mkdir(parents=True)
+    folder = "ready/knowledge/Karriere/Bewerbungen/2026-11-17 X – Y"
+    (state / "index.json").write_text(json.dumps({"1": {"folder": folder}}), encoding="utf-8")
+
+    moved = migrate_vault(Vault.open(root))
+    new = root / "ready/knowledge/Career"
+    assert (new / "CV/personal.yaml").read_text(encoding="utf-8") == "name: A\n"
+    assert (new / "CV/cv.yaml").is_file() and (new / "CV/portrait.jpg").is_file()
+    assert (new / "Application-Guide.md").is_file()
+    assert "company: APG" in (new / "Applications/Examples/APG.md").read_text(encoding="utf-8")
+    folder_new = new / "Applications/2026-11-17 X – Y"
+    application = (folder_new / "Application.md").read_text(encoding="utf-8")
+    assert "company: X" in application and "# Application: X – Y" in application
+    assert "Posting: [[Posting]]" in application and "selected for an application" in application
+    posting = (folder_new / "Posting.md").read_text(encoding="utf-8")
+    assert "place: Graz" in posting and "Technologies: SAP" in posting
+    index = json.loads((state / "index.json").read_text(encoding="utf-8"))
+    assert index["1"]["folder"] == "ready/knowledge/Career/Applications/2026-11-17 X – Y"
+    assert not old.exists() and moved
+    assert migrate_vault(Vault.open(root)) == []  # safe to run again

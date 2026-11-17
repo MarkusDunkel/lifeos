@@ -31,12 +31,14 @@ from lifeos.connectors.github.client import (
     split_repo,
 )
 from lifeos.connectors.github.model import (
+    PROJECT_PREFIX,
     Ticket,
     diff,
     dump,
     has_conflict_markers,
     load,
     merge,
+    parse_project_key,
     slugify,
 )
 from lifeos.core.vault import INBOX, OUTBOX, STATE, TICKETS, Vault, VaultPathError, write_atomic
@@ -83,15 +85,13 @@ class GitHubConnector:
         vault: Vault,
         api_factory: Callable[[], GitHubApi] | None,
         repos: list[str],
-        project: str | None,
+        projects: list[str],
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
-        project_view: int | None = None,
     ):
-        self.project_view = project_view
         self.vault = vault
         self._api_factory = api_factory
         self.repos = repos
-        self.project_ref = project
+        self.project_refs = list(dict.fromkeys(projects))  # first = primary project
         self._now = now
         self._lock = threading.Lock()
         (vault.root / TICKETS).mkdir(parents=True, exist_ok=True)
@@ -109,13 +109,25 @@ class GitHubConnector:
             raise SyncError("No repositories configured: set LIFEOS_GITHUB_REPOS", 400)
         return self._api_factory()
 
-    def _project(self, api: GitHubApi) -> Project | None:
-        if not self.project_ref:
-            return None
-        owner, _, number = self.project_ref.partition("/")
-        if not number.isdigit():
-            raise SyncError("LIFEOS_GITHUB_PROJECT must look like owner/number", 400)
-        return api.project(owner, int(number))
+    def _projects(self, api: GitHubApi) -> list[tuple[str, Project]]:
+        out = []
+        for ref in self.project_refs:
+            owner, _, number = ref.partition("/")
+            if not owner or not number.isdigit():
+                raise SyncError(f"projects must look like owner/number, got '{ref}'", 400)
+            project = api.project(owner, int(number))
+            if ":" in project.title:
+                raise SyncError(f"project titles must not contain ':' ({project.title})", 400)
+            out.append((ref, project))
+        return out
+
+    @property
+    def primary(self) -> str | None:
+        """Title of the primary project: what the flat ``project:`` form refers to."""
+        return self.meta().get("primary")
+
+    def load(self, text: str, repo: str) -> Ticket:
+        return load(text, repo, self.primary)
 
     def _state_file(self, name: str) -> Path:
         return self.vault.resolve(f"{STATE_DIR}/{name}")
@@ -127,19 +139,12 @@ class GitHubConnector:
         return {
             "configured": self.configured,
             "repos": self.repos,
-            "project": self.project_ref,
-            "fields": data.get("fields", {}),
+            "projects": data.get("projects", {}),  # title -> {ref, url, fields}
+            "primary": data.get("primary"),
             "labels": data.get("labels", {}),
             "assignees": data.get("assignees", {}),
             "synced_at": data.get("synced_at"),
-            "project_url": self._project_url(data.get("project_url")),
         }
-
-    def _project_url(self, url: str | None) -> str | None:
-        """Link to the board on GitHub (a specific view if configured)."""
-        if not url:
-            return None
-        return f"{url}/views/{self.project_view}" if self.project_view else url
 
     # -- files -------------------------------------------------------------------
 
@@ -179,7 +184,7 @@ class GitHubConnector:
         path = self._base_path(repo, number)
         if not path.is_file():
             return None
-        return Ticket.from_dict(json.loads(path.read_text(encoding="utf-8")))
+        return Ticket.from_dict(json.loads(path.read_text(encoding="utf-8")), self.primary)
 
     def _save_base(self, t: Ticket) -> None:
         assert t.number is not None
@@ -191,7 +196,7 @@ class GitHubConnector:
         path, repo = self.ticket_path(rel)
         if not path.is_file():
             raise FileNotFoundError(rel)
-        return load(path.read_text(encoding="utf-8"), repo)
+        return self.load(path.read_text(encoding="utf-8"), repo)
 
     def changes(self, t: Ticket) -> dict[str, tuple[Any, Any]]:
         if t.number is None:
@@ -208,15 +213,34 @@ class GitHubConnector:
     def _sync(self) -> SyncReport:
         api = self._api()
         report = SyncReport(synced_at=now_iso())
-        project = self._project(api)
-        fields = project.fields if project else {}
+        projects = self._projects(api)
         meta: dict[str, Any] = {
             "synced_at": report.synced_at,
-            "fields": {n: {"type": f.type, "options": list(f.options)} for n, f in fields.items()},
+            "primary": projects[0][1].title if projects else None,
+            "projects": {
+                p.title: {
+                    "ref": ref,
+                    "url": p.url,
+                    "fields": {
+                        n: {"type": f.type, "options": list(f.options)} for n, f in p.fields.items()
+                    },
+                }
+                for ref, p in projects
+            },
             "labels": {},
             "assignees": {},
-            "project_url": project.url if project else None,
         }
+        # Store the project list first: reading files needs to know the primary project.
+        known = self.meta()
+        write_atomic(
+            self._state_file("meta.json"),
+            json.dumps(
+                {k: known[k] for k in ("labels", "assignees", "synced_at")}
+                | {"primary": meta["primary"], "projects": meta["projects"]},
+                indent=1,
+                ensure_ascii=False,
+            ),
+        )
         for repo in self.repos:
             try:
                 repo_meta = api.repo(repo)
@@ -232,7 +256,7 @@ class GitHubConnector:
                 json.dumps(raw, indent=1, ensure_ascii=False),
             )
             for issue in raw:
-                remote = to_ticket(repo, issue, project)
+                remote = to_ticket(repo, issue, [p for _, p in projects])
                 self._merge_one(remote, report)
         report.pending += [
             rel for rel, path, repo in self.files() if rel.split("/")[-1].startswith("new-")
@@ -249,7 +273,7 @@ class GitHubConnector:
             report.created += 1
         else:
             text = path.read_text(encoding="utf-8")
-            local = load(text, remote.repo)
+            local = self.load(text, remote.repo)
             result = merge(self.base(remote.repo, remote.number), local, remote)
             new_text = dump(result.ticket)
             if new_text != text:
@@ -307,7 +331,7 @@ class GitHubConnector:
             for rel, path, repo in self.files():
                 text = path.read_text(encoding="utf-8")
                 try:
-                    t = load(text, repo)
+                    t = self.load(text, repo)
                 except ValueError as exc:
                     blockers.append(f"{rel}: {exc}")
                     continue
@@ -358,7 +382,7 @@ class GitHubConnector:
             self._validate(ops)
             plan_id = f"{self._now():%Y%m%dT%H%M%SZ}-{secrets.token_hex(2)}"
             plan_path, _ = self._plan_paths(plan_id)
-            write_atomic(plan_path, render_plan(plan_id, ops, self.project_ref))
+            write_atomic(plan_path, render_plan(plan_id, ops, list(self.meta()["projects"])))
             return self.read_plan(plan_id)
 
     def _validate(self, ops: list[dict[str, Any]]) -> None:
@@ -375,18 +399,25 @@ class GitHubConnector:
             for user in ticket.get("assignees") or []:
                 if known_users and user not in known_users:
                     problems.append(f"{op['path']}: '{user}' cannot be assigned in {op['repo']}")
-            project = dict(ticket.get("project") or {})
-            project |= {
-                k.removeprefix("project."): v for k, v in ticket.items() if k.startswith("project.")
-            }
-            for name, value in project.items():
-                f = meta["fields"].get(name)
+            for title, name, value in _project_values(op):
+                board = meta["projects"].get(title)
+                if board is None:
+                    problems.append(f"{op['path']}: '{title}' is not a configured project")
+                    continue
+                if name is None:
+                    if value is False:
+                        problems.append(
+                            f"{op['path']}: removing a ticket from {title} is not supported here; "
+                            "remove it on GitHub"
+                        )
+                    continue
+                f = board["fields"].get(name)
                 if f is None:
-                    problems.append(f"{op['path']}: the project has no field '{name}'")
+                    problems.append(f"{op['path']}: {title} has no field '{name}'")
                 elif (
                     value is not None and f["type"] == "SINGLE_SELECT" and value not in f["options"]
                 ):
-                    problems.append(f"{op['path']}: '{value}' is not an option of {name}")
+                    problems.append(f"{op['path']}: '{value}' is not an option of {title} · {name}")
         if problems:
             raise SyncError("cannot create a plan:\n" + "\n".join(problems))
 
@@ -409,18 +440,18 @@ class GitHubConnector:
                 raise SyncError("this plan was already applied")
             ops = parse_plan(plan_path.read_text(encoding="utf-8"))
             api = self._api()
-            project = self._project(api)
+            projects = {p.title: p for _, p in self._projects(api)}
             outcomes = []
             for op in ops:
                 try:
-                    outcomes.append((op, "done", self._apply_op(api, project, op)))
+                    outcomes.append((op, "done", self._apply_op(api, projects, op)))
                 except (GitHubError, SyncError) as exc:
                     outcomes.append((op, "skipped", str(exc)))
             write_atomic(result_path, render_result(plan_id, outcomes, now_iso()))
             report = self._sync()
             return {**self.read_plan(plan_id), "sync": asdict(report)}
 
-    def _apply_op(self, api: GitHubApi, project: Project | None, op: dict[str, Any]) -> str:
+    def _apply_op(self, api: GitHubApi, projects: dict[str, Project], op: dict[str, Any]) -> str:
         path, repo = self.ticket_path(op["path"])
         if not path.is_file() or sha(path.read_text(encoding="utf-8")) != op["file_sha"]:
             raise SyncError(
@@ -445,10 +476,11 @@ class GitHubConnector:
             )
             if t["state"] == "closed":
                 api.update_issue(created["id"], {"state": "CLOSED"})
-            if project:
+            for title, values in (t.get("projects") or {}).items():
+                project = _board(projects, title)
                 item_id = api.add_to_project(project.id, created["id"])
-                for name, value in (t.get("project") or {}).items():
-                    api.set_field(project.id, item_id, project.fields[name], value)
+                for name, value in values.items():
+                    api.set_field(project.id, item_id, _field(project, name), value)
             path.unlink()  # the next sync writes the canonical file for the new number
             return f"created {repo}#{created['number']}"
 
@@ -459,22 +491,50 @@ class GitHubConnector:
                 "sync, then create a new plan (the local changes are still pending)"
             )
         changes = {k: v[1] for k, v in op["changes"].items()}
-        issue_changes = {k: v for k, v in changes.items() if not k.startswith("project.")}
+        issue_changes = {k: v for k, v in changes.items() if not k.startswith(PROJECT_PREFIX)}
         if issue_changes:
             api.update_issue(issue["id"], issue_input(repo_meta, issue_changes))
-        field_changes = {
-            k.removeprefix("project."): v for k, v in changes.items() if k.startswith("project.")
-        }
-        if field_changes:
-            if project is None:
-                raise SyncError("project fields changed but LIFEOS_GITHUB_PROJECT is not set")
+        per_board: dict[str, dict[str, Any]] = {}
+        for title, name, value in _project_values(op):
+            if name is None and value is False:
+                raise SyncError(f"removing the ticket from {title} is not supported")
+            per_board.setdefault(title, {})
+            if name is not None:
+                per_board[title][name] = value
+        for title, values in per_board.items():
+            project = _board(projects, title)
             item = project_item(issue, project.id)
             item_id = item["id"] if item else api.add_to_project(project.id, issue["id"])
-            for name, value in field_changes.items():
-                if name not in project.fields:
-                    raise SyncError(f"the project has no field '{name}' (anymore)")
-                api.set_field(project.id, item_id, project.fields[name], value)
+            for name, value in values.items():
+                api.set_field(project.id, item_id, _field(project, name), value)
         return "updated " + ", ".join(op["changes"])
+
+
+def _board(projects: dict[str, Project], title: str) -> Project:
+    if title not in projects:
+        raise SyncError(f"'{title}' is not a configured project (anymore)")
+    return projects[title]
+
+
+def _field(project: Project, name: str) -> Any:
+    if name not in project.fields:
+        raise SyncError(f"{project.title} has no field '{name}' (anymore)")
+    return project.fields[name]
+
+
+def _project_values(op: dict[str, Any]) -> list[tuple[str, str | None, Any]]:
+    """(project title, field or None for membership, new value) of an operation."""
+    if op["kind"] == "create":
+        out: list[tuple[str, str | None, Any]] = []
+        for title, values in (op["ticket"].get("projects") or {}).items():
+            out.append((title, None, True))
+            out += [(title, name, value) for name, value in values.items()]
+        return out
+    return [
+        (*parse_project_key(key), new)
+        for key, (_, new) in op["changes"].items()
+        if key.startswith(PROJECT_PREFIX)
+    ]
 
 
 def issue_input(meta: Any, changes: dict[str, Any]) -> dict[str, Any]:
@@ -498,9 +558,12 @@ def issue_input(meta: Any, changes: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def to_ticket(repo: str, issue: dict[str, Any], project: Project | None) -> Ticket:
-    fields = project.fields if project else {}
-    item = project_item(issue, project.id if project else None)
+def to_ticket(repo: str, issue: dict[str, Any], projects: list[Project]) -> Ticket:
+    boards = {}
+    for project in projects:
+        item = project_item(issue, project.id)
+        if item is not None:
+            boards[project.title] = item_values(item, project.fields)
     return Ticket(
         repo=repo,
         number=issue["number"],
@@ -508,7 +571,7 @@ def to_ticket(repo: str, issue: dict[str, Any], project: Project | None) -> Tick
         state=issue["state"].lower(),
         labels=[n["name"] for n in issue["labels"]["nodes"]],
         assignees=[n["login"] for n in issue["assignees"]["nodes"]],
-        project=item_values(item, fields),
+        projects=boards,
         body=issue.get("body") or "",
         url=issue["url"],
         updated=issue["updatedAt"],
@@ -526,7 +589,7 @@ def _show(value: Any) -> str:
     return str(value)
 
 
-def render_plan(plan_id: str, ops: list[dict[str, Any]], project: str | None) -> str:
+def render_plan(plan_id: str, ops: list[dict[str, Any]], projects: list[str]) -> str:
     lines = [
         f"# GitHub write-back plan {plan_id}",
         "",
@@ -543,8 +606,10 @@ def render_plan(plan_id: str, ops: list[dict[str, Any]], project: str | None) ->
                 f"- Labels: {_show(t['labels'])}",
                 f"- Assignees: {_show(t['assignees'])}",
             ]
-            for name, value in (t.get("project") or {}).items():
-                lines.append(f"- {name}: {_show(value)}")
+            for title, values in (t.get("projects") or {}).items():
+                lines.append(f"- Project: {title}")
+                for name, value in values.items():
+                    lines.append(f"- {title} · {name}: {_show(value)}")
             if t["body"]:
                 fence = fence_for(t["body"])
                 lines += ["", f"{fence}markdown", t["body"], fence]
@@ -553,7 +618,14 @@ def render_plan(plan_id: str, ops: list[dict[str, Any]], project: str | None) ->
         for name, (old, new) in op["changes"].items():
             if name == "body":
                 continue
-            label = name.removeprefix("project.")
+            if name.startswith(PROJECT_PREFIX):
+                title, field_name = parse_project_key(name)
+                if field_name is None:
+                    lines.append(f"- {'Add to' if new else 'Remove from'} project: {title}")
+                else:
+                    lines.append(f"- {title} · {field_name}: {_show(old)} → {_show(new)}")
+                continue
+            label = name
             if isinstance(old, list) or isinstance(new, list):
                 added = sorted(set(new or []) - set(old or []))
                 removed = sorted(set(old or []) - set(new or []))
@@ -573,8 +645,8 @@ def render_plan(plan_id: str, ops: list[dict[str, Any]], project: str | None) ->
     data = json.dumps(ops, indent=1, ensure_ascii=False)
     fence = fence_for(data)
     lines += ["", "## Operations (machine-readable)", "", f"{fence}json", data, fence, ""]
-    if project:
-        lines.insert(3, f"Project: {project}.")
+    if projects:
+        lines.insert(3, f"Projects: {', '.join(projects)}.")
     return "\n".join(lines)
 
 

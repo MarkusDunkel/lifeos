@@ -52,7 +52,11 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     apps = sub.add_parser("applications", help="job applications board")
-    apps.add_argument("action", choices=["setup-board"])
+    apps.add_argument("action", choices=["setup-board", "migrate-vault"])
+    apps.add_argument("--vault", type=Path, default=None, help="default: LIFEOS_VAULT_ROOT")
+    apps.add_argument(
+        "--commit", action="store_true", help="commit and sync the moved files (server only)"
+    )
 
     sub.add_parser("moodle-sync", help="sync Moodle now (same as the button in the app)")
     sub.add_parser("worker", help="run background jobs (vault git sync)")
@@ -86,6 +90,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "jobsearch":
         return _jobsearch(args)
     if args.cmd == "applications":
+        if args.action == "migrate-vault":
+            return _applications_migrate(args)
         return _applications_setup()
     if args.cmd == "import":
         from lifeos.core.importer import import_tree
@@ -152,6 +158,31 @@ def _tasks(args) -> int:
     except TasksError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    return 0
+
+
+def _applications_migrate(args) -> int:
+    import os
+
+    from lifeos.core.vault import Vault
+    from lifeos.modules.applications.migrate import changed_paths, migrate_vault
+
+    root = args.vault or os.environ.get("LIFEOS_VAULT_ROOT")
+    if not root:
+        print("set --vault or LIFEOS_VAULT_ROOT", file=sys.stderr)
+        return 2
+    moved = migrate_vault(Vault.open(Path(root)))
+    for old, new in moved:
+        print(f"{old} -> {new}")
+    print(f"{len(moved)} item(s) moved")
+    if moved and args.commit:
+        from lifeos.core.config import get_settings
+        from lifeos.core.git_sync import git_sync_for
+
+        git = git_sync_for(get_settings())
+        message = "application: move career data to English names\n"
+        committed = git.commit_paths(changed_paths(), message)
+        print(f"committed {len(committed)} file(s); sync: {git.run().status}")
     return 0
 
 

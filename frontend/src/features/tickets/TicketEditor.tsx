@@ -7,13 +7,14 @@ import {
   deleteTicket,
   type EditableFields,
   type Meta,
+  type ProjectValues,
   resolveConflict,
   revertTicket,
   saveTicket,
   type TicketDoc,
   ticketQuery,
 } from "./api";
-import { changeName, ticketLabel, toggle } from "./board";
+import { changeName, ticketLabel, toggle } from "./list";
 
 const btn =
   "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";
@@ -27,7 +28,7 @@ const chip = (on: boolean) =>
   }`;
 
 type Draft = Required<Pick<EditableFields, "title" | "state" | "labels" | "assignees" | "body">> & {
-  project: Record<string, string | null>;
+  projects: ProjectValues;
 };
 
 const draftOf = (d: TicketDoc): Draft => ({
@@ -36,7 +37,7 @@ const draftOf = (d: TicketDoc): Draft => ({
   labels: d.labels,
   assignees: d.assignees,
   body: d.body,
-  project: { ...d.project },
+  projects: Object.fromEntries(Object.entries(d.projects).map(([k, v]) => [k, { ...v }])),
 });
 
 const same = (a: Draft, b: Draft) => JSON.stringify(a) === JSON.stringify(b);
@@ -215,31 +216,63 @@ export function TicketEditor({ path, meta, onClose }: { path: string; meta: Meta
               <option value="closed">closed</option>
             </select>
           </label>
-          {Object.entries(meta.fields).map(([name, f]) => (
-            <label key={name} className="text-xs font-medium text-slate-500">
-              {name}
-              {f.type === "SINGLE_SELECT" ? (
-                <select
-                  value={current.project[name] ?? ""}
-                  onChange={(e) => set({ project: { ...current.project, [name]: e.target.value || null } })}
-                  className={`${input} mt-1`}
-                >
-                  <option value="">(none)</option>
-                  {f.options.map((o) => (
-                    <option key={o}>{o}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type={f.type === "DATE" ? "date" : f.type === "NUMBER" ? "number" : "text"}
-                  value={current.project[name] ?? ""}
-                  onChange={(e) => set({ project: { ...current.project, [name]: e.target.value || null } })}
-                  className={`${input} mt-1`}
-                />
-              )}
-            </label>
-          ))}
         </div>
+
+        {Object.keys(current.projects)
+          .sort()
+          .map((project) => {
+            const fields = meta.projects[project]?.fields ?? {};
+            const values = current.projects[project];
+            const setValue = (name: string, value: string) =>
+              set({ projects: { ...current.projects, [project]: { ...values, [name]: value || null } } });
+            return (
+              <fieldset key={project} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <legend className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  {project}
+                  {!meta.projects[project] && <span className="ml-1 font-normal text-amber-600">(not configured)</span>}
+                </legend>
+                <div className="grid grid-cols-2 gap-3">
+                  {Object.entries(fields).map(([name, f]) => (
+                    <label key={name} className="text-xs font-medium text-slate-500">
+                      {name}
+                      {f.type === "SINGLE_SELECT" ? (
+                        <select value={values[name] ?? ""} onChange={(e) => setValue(name, e.target.value)} className={`${input} mt-1`}>
+                          <option value="">(none)</option>
+                          {f.options.map((o) => (
+                            <option key={o}>{o}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type={f.type === "DATE" ? "date" : f.type === "NUMBER" ? "number" : "text"}
+                          value={values[name] ?? ""}
+                          onChange={(e) => setValue(name, e.target.value)}
+                          className={`${input} mt-1`}
+                        />
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            );
+          })}
+        {Object.keys(meta.projects).some((p) => !(p in current.projects)) && (
+          <label className="block text-xs font-medium text-slate-500">
+            Add to project
+            <select
+              value=""
+              onChange={(e) => e.target.value && set({ projects: { ...current.projects, [e.target.value]: {} } })}
+              className={`${input} mt-1`}
+            >
+              <option value="">Choose a project…</option>
+              {Object.keys(meta.projects)
+                .filter((p) => !(p in current.projects))
+                .map((p) => (
+                  <option key={p}>{p}</option>
+                ))}
+            </select>
+          </label>
+        )}
 
         {labels.length > 0 && (
           <div>
@@ -302,7 +335,12 @@ function Conflict({
 }) {
   const remote = (() => {
     if (!doc.base) return "(unknown)";
-    if (field.startsWith("project.")) return doc.base.project[field.slice(8)] ?? "(none)";
+    if (field.startsWith("project:")) {
+      const rest = field.slice("project:".length);
+      const at = rest.indexOf(":");
+      if (at < 0) return rest in doc.base.projects ? "on the project" : "not on the project";
+      return doc.base.projects[rest.slice(0, at)]?.[rest.slice(at + 1)] ?? "(none)";
+    }
     const v = (doc.base as Record<string, unknown>)[field];
     return Array.isArray(v) ? v.join(", ") || "(none)" : String(v ?? "");
   })();

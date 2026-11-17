@@ -7,8 +7,9 @@ A ticket file is Markdown with YAML frontmatter::
     state: open
     labels: [bug]
     assignees: []
-    project:
-      Status: In Progress
+    projects:
+      LifeOS Tasks:
+        Status: In Progress
     number: 12
     repo: me/board
     url: https://github.com/me/board/issues/12
@@ -17,9 +18,17 @@ A ticket file is Markdown with YAML frontmatter::
 
     Issue body …
 
-``title``, ``state``, ``labels``, ``assignees``, ``project`` and the body are editable;
+``title``, ``state``, ``labels``, ``assignees``, ``projects`` and the body are editable;
 the rest is maintained by the sync. A file without ``number`` is a new ticket that the
 next plan creates on GitHub.
+
+``projects`` maps the title of each Projects v2 board the issue is on to that board's
+field values; an empty mapping means "on the board, no values". The older flat form
+``project: {Status: …}`` is still read and means the *primary* project (the first one
+configured), so old files and agent templates keep working.
+
+Change and conflict keys for projects: ``project:<title>`` (membership) and
+``project:<title>:<field>`` (a field value). Project titles must not contain ``:``.
 
 The *base* of a ticket is the last GitHub state the sync has seen. Local changes are
 the difference between the file and its base; that is what a plan writes back.
@@ -37,7 +46,45 @@ from typing import Any
 
 import yaml
 
-EDITABLE = ("title", "state", "labels", "assignees", "project", "body")
+EDITABLE = ("title", "state", "labels", "assignees", "projects", "body")
+PROJECT_PREFIX = "project:"
+
+
+def project_key(title: str, field_name: str | None = None) -> str:
+    return f"{PROJECT_PREFIX}{title}" + (f":{field_name}" if field_name else "")
+
+
+def parse_project_key(key: str) -> tuple[str, str | None]:
+    """``project:<title>[:<field>]`` → (title, field or None)."""
+    rest = key.removeprefix(PROJECT_PREFIX)
+    title, sep, field_name = rest.partition(":")
+    return title, (field_name if sep else None)
+
+
+Projects = dict[str, dict[str, str | None]]
+
+
+def _norm_projects(projects: Any) -> Projects:
+    out: Projects = {}
+    for title, values in sorted((projects or {}).items(), key=lambda kv: str(kv[0])):
+        values = values if isinstance(values, dict) else {}
+        out[str(title)] = {str(k): norm_value(v) for k, v in sorted(values.items())}
+    return out
+
+
+def _projects_from(meta: dict[str, Any], primary: str | None) -> Projects:
+    """``projects`` from frontmatter or base data; the flat ``project`` is the primary one."""
+    projects = dict(meta.get("projects") or {})
+    flat = meta.get("project")
+    if isinstance(flat, dict) and flat and primary:
+        projects[primary] = {**flat, **(projects.get(primary) or {})}
+    return _norm_projects(projects)
+
+
+def _without_empty(projects: Projects) -> dict[str, dict[str, str]]:
+    return {t: {k: v for k, v in f.items() if v is not None} for t, f in projects.items()}
+
+
 STATES = ("open", "closed")
 CONFLICT_MARK = "<<<<<<< "
 
@@ -67,7 +114,7 @@ class Ticket:
     state: str = "open"
     labels: list[str] = field(default_factory=list)
     assignees: list[str] = field(default_factory=list)
-    project: dict[str, str | None] = field(default_factory=dict)
+    projects: Projects = field(default_factory=dict)
     body: str = ""
     url: str | None = None
     updated: str | None = None
@@ -81,7 +128,7 @@ class Ticket:
             state=self.state if self.state in STATES else "open",
             labels=sorted(set(self.labels), key=str.casefold),
             assignees=sorted(set(self.assignees), key=str.casefold),
-            project={k: norm_value(v) for k, v in sorted(self.project.items())},
+            projects=_norm_projects(self.projects),
             body=norm_body(self.body),
             url=self.url,
             updated=self.updated,
@@ -95,7 +142,7 @@ class Ticket:
             "state": n.state,
             "labels": n.labels,
             "assignees": n.assignees,
-            "project": {k: v for k, v in n.project.items() if v is not None},
+            "projects": _without_empty(n.projects),
             "body": n.body,
         }
 
@@ -108,14 +155,14 @@ class Ticket:
             "state": n.state,
             "labels": n.labels,
             "assignees": n.assignees,
-            "project": n.project,
+            "projects": n.projects,
             "body": n.body,
             "url": n.url,
             "updated": n.updated,
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Ticket:
+    def from_dict(cls, data: dict[str, Any], primary: str | None = None) -> Ticket:
         return cls(
             repo=str(data["repo"]),
             number=data.get("number"),
@@ -123,7 +170,7 @@ class Ticket:
             state=str(data.get("state") or "open"),
             labels=[str(x) for x in data.get("labels") or []],
             assignees=[str(x) for x in data.get("assignees") or []],
-            project=dict(data.get("project") or {}),
+            projects=_projects_from(data, primary),
             body=str(data.get("body") or ""),
             url=data.get("url"),
             updated=data.get("updated"),
@@ -138,6 +185,18 @@ def slugify(title: str, max_len: int = 50) -> str:
     return slug[:max_len].rstrip("-") or "ticket"
 
 
+class _FrontDumper(yaml.SafeDumper):
+    """Lists stay compact (``labels: [bug]``), mappings are written as blocks."""
+
+
+_FrontDumper.add_representer(
+    dict,
+    lambda dumper, data: dumper.represent_mapping(
+        "tag:yaml.org,2002:map", data.items(), flow_style=False
+    ),
+)
+
+
 def dump(ticket: Ticket) -> str:
     n = ticket.normalised()
     meta: dict[str, Any] = {
@@ -145,7 +204,7 @@ def dump(ticket: Ticket) -> str:
         "state": n.state,
         "labels": n.labels,
         "assignees": n.assignees,
-        "project": {k: v for k, v in n.project.items() if v is not None},
+        "projects": _without_empty(n.projects),
     }
     if n.number is not None:
         meta |= {"number": n.number, "repo": n.repo, "url": n.url, "updated": n.updated}
@@ -153,11 +212,17 @@ def dump(ticket: Ticket) -> str:
         meta["repo"] = n.repo
     if ticket.conflicts:
         meta["conflicts"] = sorted(set(ticket.conflicts))
-    front = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=None)
+    front = yaml.dump(
+        meta,
+        Dumper=_FrontDumper,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=None,
+    )
     return f"---\n{front}---\n\n{n.body}\n" if n.body else f"---\n{front}---\n"
 
 
-def load(text: str, repo: str) -> Ticket:
+def load(text: str, repo: str, primary: str | None = None) -> Ticket:
     text = text.replace("\r\n", "\n")
     match = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.DOTALL)
     if not match:
@@ -173,7 +238,7 @@ def load(text: str, repo: str) -> Ticket:
         state=str(meta.get("state") or "open").lower(),
         labels=[str(x) for x in _as_list(meta.get("labels"))],
         assignees=[str(x) for x in _as_list(meta.get("assignees"))],
-        project=dict(meta.get("project") or {}),
+        projects=_projects_from(meta, primary),
         body=match.group(2),
         url=meta.get("url"),
         updated=_timestamp(meta.get("updated")),
@@ -268,17 +333,26 @@ def merge(base: Ticket | None, local: Ticket, remote: Ticket) -> MergeResult:
             if getattr(lo, name) != getattr(r, name):
                 conflicts.add(name)
 
-    project: dict[str, str | None] = {}
-    for key in sorted(set(lo.project) | set(r.project) | (set(b.project) if b else set())):
-        lv, rv = lo.project.get(key), r.project.get(key)
-        if b:
-            value, conflict = _pick(b.project.get(key), lv, rv)
-        else:
-            value, conflict = lv, lv != rv
-        project[key] = value
-        if conflict:
-            conflicts.add(f"project.{key}")
-    out.project = project
+    # Board membership merges like a set; field values per board like scalar fields.
+    if b:
+        titles = _merge_set(list(b.projects), list(lo.projects), list(r.projects))
+    else:
+        titles = list(lo.projects)
+        for title in set(lo.projects) ^ set(r.projects):
+            conflicts.add(project_key(title))
+    projects: Projects = {}
+    for title in titles:
+        lp, rp = lo.projects.get(title, {}), r.projects.get(title, {})
+        bp = b.projects.get(title, {}) if b else {}
+        values: dict[str, str | None] = {}
+        for key in sorted(set(lp) | set(rp) | set(bp)):
+            lv, rv = lp.get(key), rp.get(key)
+            value, conflict = _pick(bp.get(key), lv, rv) if b else (lv, lv != rv)
+            values[key] = value
+            if conflict:
+                conflicts.add(project_key(title, key))
+        projects[title] = values
+    out.projects = projects
 
     if b:
         out.body, body_conflict = merge_text(b.body, lo.body, r.body)
@@ -299,9 +373,13 @@ def diff(base: Ticket, local: Ticket) -> dict[str, tuple[Any, Any]]:
     for name in ("title", "state", "labels", "assignees", "body"):
         if getattr(b, name) != getattr(lo, name):
             changes[name] = (getattr(b, name), getattr(lo, name))
-    for key in sorted(set(b.project) | set(lo.project)):
-        if b.project.get(key) != lo.project.get(key):
-            changes[f"project.{key}"] = (b.project.get(key), lo.project.get(key))
+    for title in sorted(set(b.projects) | set(lo.projects)):
+        if (title in b.projects) != (title in lo.projects):
+            changes[project_key(title)] = (title in b.projects, title in lo.projects)
+        bp, lp = b.projects.get(title, {}), lo.projects.get(title, {})
+        for key in sorted(set(bp) | set(lp)):
+            if bp.get(key) != lp.get(key):
+                changes[project_key(title, key)] = (bp.get(key), lp.get(key))
     return changes
 
 

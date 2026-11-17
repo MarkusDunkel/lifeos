@@ -37,12 +37,16 @@ class Settings(BaseSettings):
     github_repos: str = Field(
         default="", description="Comma-separated repositories to mirror, e.g. `me/board,me/app`."
     )
-    github_project: str | None = Field(
-        default=None, description="Projects v2 board as `owner/number`, e.g. `me/3`."
+    github_projects: str = Field(
+        default="",
+        description=(
+            "Comma-separated Projects v2 boards as `owner/number` whose fields the ticket "
+            "mirror shows, e.g. `me/3,me/4`. The first is the primary project (what a flat "
+            "`project:` in a ticket file refers to). The applications board is always added."
+        ),
     )
-
-    github_project_view: int | None = Field(
-        default=None, description="View number for the Roadmap link, e.g. `3` (…/views/3)."
+    github_project: str | None = Field(
+        default=None, description="Deprecated single board; used when github_projects is empty."
     )
     state_dir: Path | None = Field(
         default=None,
@@ -131,6 +135,15 @@ class Settings(BaseSettings):
         ge=0,
         description="Seconds between board checks of `lifeos worker` for applications; 0 = off.",
     )
+
+    @property
+    def github_project_list(self) -> list[str]:
+        refs = [r.strip() for r in self.github_projects.split(",") if r.strip()]
+        if not refs and self.github_project:
+            refs = [self.github_project]
+        if self.applications_project:
+            refs.append(self.applications_project)
+        return list(dict.fromkeys(refs))
 
     @property
     def github_repo_list(self) -> list[str]:

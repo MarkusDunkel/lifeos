@@ -1,7 +1,7 @@
 """Start an application: ticket on the board, folder in the vault, link at the posting.
 
-Layout in the vault (private): ``ready/knowledge/Karriere/Bewerbungen/<date> <company> –
-<title>/`` with ``Bewerbung.md`` (links and history) and ``Inserat.md`` (a snapshot, since
+Layout in the vault (private): ``ready/knowledge/Career/Applications/<date> <company> –
+<title>/`` with ``Application.md`` (links and history) and ``Posting.md`` (a snapshot, since
 postings go offline). Which ticket belongs to which folder is kept in
 ``.lifeos/applications/index.json``.
 """
@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from lifeos.core.extract.text import dump_front
 from lifeos.core.vault import STATE, Vault, write_atomic
 from lifeos.modules.applications.board import (
+    ACTIVE,
     COMPANY_FIELD,
     LABEL,
     NEW,
@@ -28,11 +29,10 @@ from lifeos.modules.applications.board import (
     STATUS,
     split_project,
 )
-from lifeos.modules.applications.profile import CAREER
+from lifeos.modules.applications.profile import APPLICATIONS_DIR
 from lifeos.modules.jobsearch.model import Posting
 from lifeos.modules.jobsearch.store import JobStore
 
-APPLICATIONS_DIR = f"{CAREER}/Bewerbungen"
 STATE_DIR = f"{STATE}/applications"
 INDEX_FILE = f"{STATE_DIR}/index.json"
 BOARD_STATE_FILE = f"{STATE_DIR}/board.json"
@@ -55,7 +55,7 @@ class ManualPosting(BaseModel):
 
 
 def folder_name(day: str, company: str, title: str) -> str:
-    """``2026-11-20 Firma – Stelle``, safe on every file system."""
+    """``2026-11-20 Company – Position``, safe on every file system."""
     title = re.sub(r"\((?:[mwfdx]\s*/\s*){2}[mwfdx]\)|\(all genders?\)", "", title, flags=re.I)
     text = f"{day} {company.strip()} – {title.strip()}"
     text = re.sub(r'[\\/:*?"<>|#^\[\]]', " ", text)
@@ -64,21 +64,21 @@ def folder_name(day: str, company: str, title: str) -> str:
 
 def posting_markdown(posting: Posting, imported: str | None) -> str:
     front = {
-        "firma": posting.company,
-        "stelle": posting.title,
-        "ort": posting.place(),
-        "quelle": posting.url,
-        "inserat": posting.key,
-        "importiert": imported,
+        "company": posting.company,
+        "position": posting.title,
+        "place": posting.place(),
+        "source": posting.url,
+        "posting": posting.key,
+        "imported": imported,
     }
     facts = []
     if posting.salary:
-        unit = {"YEAR": "Jahr", "MONTH": "Monat", "HOUR": "Stunde"}.get(posting.salary.unit, "")
-        facts.append(f"- Gehalt: ab {posting.salary.amount:,.0f} € / {unit}".replace(",", "."))
+        unit = {"YEAR": "year", "MONTH": "month", "HOUR": "hour"}.get(posting.salary.unit, "")
+        facts.append(f"- Salary: from {posting.salary.amount:,.0f} € / {unit}")
     if posting.employment_type:
-        facts.append(f"- Anstellung: {', '.join(posting.employment_type)}")
+        facts.append(f"- Employment: {', '.join(posting.employment_type)}")
     if posting.skills:
-        facts.append(f"- Technologien: {', '.join(posting.skills)}")
+        facts.append(f"- Technologies: {', '.join(posting.skills)}")
     if posting.benefits:
         facts.append(f"- Benefits: {', '.join(posting.benefits)}")
     body = [f"# {posting.title} – {posting.company}", ""]
@@ -92,16 +92,16 @@ def issue_body(posting: Posting, folder: str) -> str:
     lines = [
         f"**{posting.company}** – {posting.title}",
         "",
-        f"- Ort: {posting.place() or '–'}",
-        f"- Inserat: {posting.url}" if posting.url else "- Inserat: (manuell erfasst)",
+        f"- Place: {posting.place() or '–'}",
+        f"- Posting: {posting.url}" if posting.url else "- Posting: (entered by hand)",
     ]
     if posting.skills:
-        lines.append(f"- Technologien: {', '.join(posting.skills)}")
+        lines.append(f"- Technologies: {', '.join(posting.skills)}")
     lines += [
         "",
-        f"Unterlagen im Vault: `{folder}`",
+        f"Documents in the vault: `{folder}`",
         "",
-        "Ziehe das Ticket auf **Aktiv**, damit LifeOS Anschreiben und Lebenslauf entwirft.",
+        f"Move the ticket to **{ACTIVE}** and LifeOS drafts the cover letter and CV.",
     ]
     return "\n".join(lines)
 
@@ -183,21 +183,21 @@ class Applications:
 
             created = datetime.now(UTC).isoformat(timespec="seconds")
             write_atomic(
-                self.vault.resolve(f"{folder}/Inserat.md"), posting_markdown(posting, imported)
+                self.vault.resolve(f"{folder}/Posting.md"), posting_markdown(posting, imported)
             )
             front = {
-                "firma": posting.company,
-                "stelle": posting.title,
+                "company": posting.company,
+                "position": posting.title,
                 "ticket": issue["url"],
-                "inserat": posting.key,
-                "erstellt": created,
+                "posting": posting.key,
+                "created": created,
             }
             text = (
-                f"# Bewerbung: {posting.company} – {posting.title}\n\n"
-                f"Ticket: {issue['url']}\n\nInserat: [[Inserat]]\n\n## Verlauf\n\n"
-                f"- {day}: zur Bewerbung ausgewählt (Spalte {NEW})\n"
+                f"# Application: {posting.company} – {posting.title}\n\n"
+                f"Ticket: {issue['url']}\n\nPosting: [[Posting]]\n\n## History\n\n"
+                f"- {day}: selected for an application (column {NEW})\n"
             )
-            summary = self.vault.resolve(f"{folder}/Bewerbung.md")
+            summary = self.vault.resolve(f"{folder}/Application.md")
             write_atomic(summary, dump_front(front) + "\n" + text)
 
             index = self.index()
@@ -217,7 +217,8 @@ class Applications:
             if posting_key is not None:
                 self.jobs.mark(posting_key, application=issue["url"])
             if self.committer:
-                self.committer([folder], f"bewerbung: neu – {posting.company}, {posting.title}\n")
+                message = f"application: new – {posting.company}, {posting.title}\n"
+                self.committer([folder], message)
             return {"issue": issue["number"], "url": issue["url"], "folder": folder}
 
     def _create_ticket(self, posting: Posting, folder: str) -> dict[str, Any]:

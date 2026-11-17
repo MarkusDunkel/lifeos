@@ -6,7 +6,13 @@ import secrets
 from typing import Any, Literal
 
 from lifeos.connectors.github.client import split_repo
-from lifeos.connectors.github.model import Ticket, dump, has_conflict_markers, load, slugify
+from lifeos.connectors.github.model import (
+    Ticket,
+    dump,
+    has_conflict_markers,
+    parse_project_key,
+    slugify,
+)
 from lifeos.connectors.github.sync import GitHubConnector, SyncError
 from lifeos.core.vault import TICKETS, revision_of, write_checked
 
@@ -20,7 +26,10 @@ def _summary(rel: str, t: Ticket, changes: dict[str, Any]) -> dict[str, Any]:
         "state": t.state,
         "labels": t.labels,
         "assignees": t.assignees,
-        "project": {k: v for k, v in t.project.items() if v is not None},
+        "projects": {
+            title: {k: v for k, v in values.items() if v is not None}
+            for title, values in t.projects.items()
+        },
         "url": t.url,
         "updated": t.updated,
         "conflicts": t.conflicts,
@@ -37,7 +46,7 @@ class TicketService:
         tickets, broken = [], []
         for rel, path, repo in self.gh.files():
             try:
-                t = load(path.read_text(encoding="utf-8"), repo)
+                t = self.gh.load(path.read_text(encoding="utf-8"), repo)
             except (ValueError, OSError) as exc:
                 broken.append({"path": rel, "error": str(exc)})
                 continue
@@ -70,7 +79,7 @@ class TicketService:
             state=str(fields.get("state", current.state)),
             labels=list(fields.get("labels", current.labels)),
             assignees=list(fields.get("assignees", current.assignees)),
-            project=dict(fields.get("project", current.project)),
+            projects=dict(fields.get("projects", current.projects)),
             body=str(fields.get("body", current.body)),
             url=current.url,
             updated=current.updated,
@@ -123,10 +132,15 @@ class TicketService:
             base = self.gh.base(t.repo, t.number) if t.number is not None else None
             if base is None:
                 raise SyncError("no GitHub version is known for this ticket; run a sync", 400)
-            if field.startswith("project."):
-                t.project[field.removeprefix("project.")] = base.project.get(
-                    field.removeprefix("project.")
-                )
+            if field.startswith("project:"):
+                title, name = parse_project_key(field)
+                if name is None:  # membership: take GitHub's
+                    if title in base.projects:
+                        t.projects.setdefault(title, dict(base.projects[title]))
+                    else:
+                        t.projects.pop(title, None)
+                else:
+                    t.projects.setdefault(title, {})[name] = base.projects.get(title, {}).get(name)
             else:
                 setattr(t, field, getattr(base, field))
         elif field == "body" and has_conflict_markers(t.body):

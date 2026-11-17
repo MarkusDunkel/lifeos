@@ -122,8 +122,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         vault,
         (lambda: GitHubClient(token)) if token else None,
         settings.github_repo_list,
-        settings.github_project,
-        project_view=settings.github_project_view,
+        settings.github_project_list,
     )
     app.include_router(tickets_router(TicketService(github)))
     app.include_router(_presentations(settings, vault))
