@@ -190,7 +190,8 @@ function SyncNotice({ report, onClose }: { report: SyncReport | { error: string 
     "error" in report
       ? report.error
       : [
-          `${report.created} new, ${report.updated} updated, ${report.unchanged} unchanged.`,
+          `${report.created} new, ${report.updated} updated, ${report.unchanged} unchanged` +
+            (report.removed.length ? `, ${report.removed.length} removed (gone on GitHub).` : "."),
           report.pending.length
             ? `${report.pending.length} local change(s) kept — not on GitHub yet (see “Changes”, or revert them).`
             : "",

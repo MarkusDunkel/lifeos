@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import lifeos.main
-from lifeos.connectors.github.client import Project, ProjectField, RepoMeta
+from lifeos.connectors.github.client import GitHubError, Project, ProjectField, RepoMeta
 from lifeos.core.auth import hash_password
 from lifeos.core.config import Settings
 from lifeos.core.vault import Vault
@@ -123,6 +123,12 @@ class FakeGitHub:
         issue = {"id": f"I{number}", "number": number, "url": f"https://example.org/i/{number}"}
         self.issues[issue["id"]] = issue | changes | {"state": "OPEN"}
         return issue
+
+    def issue(self, repo: str, number: int) -> dict[str, Any]:
+        found = next((i for i in self.issues.values() if i["number"] == number), None)
+        if found is None:
+            raise GitHubError(f"{repo}#{number} not found")
+        return found
 
     def update_issue(self, issue_id: str, changes: dict[str, Any]) -> None:
         self.issues[issue_id].update(changes)
@@ -416,3 +422,20 @@ def test_migrate_vault_moves_the_german_layout(tmp_path: Path) -> None:
     assert index["1"]["folder"] == "ready/knowledge/Career/Applications/2026-11-17 X – Y"
     assert not old.exists() and moved
     assert migrate_vault(Vault.open(root)) == []  # safe to run again
+
+
+def test_deleted_ticket_releases_the_posting(vault, jobs, gh, board) -> None:
+    apps = service(vault, jobs, gh, board)
+    result = apps.start("devjobs:" + "a" * 32)
+    key = "devjobs:" + "a" * 32
+
+    assert apps.reconcile({"PI1"}) == []  # still on the board: nothing to do
+    del gh.items["PI1"]  # taken off the board, issue still exists: left alone
+    assert apps.reconcile(set()) == [] and apps.list()
+
+    del gh.issues["I1"]  # deleted on GitHub
+    assert apps.reconcile(set()) == ["#1 deleted on GitHub: posting released"]
+    assert apps.list() == [] and not jobs.index()[key].get("application")
+    history = vault.resolve(result["folder"] + "/Application.md").read_text(encoding="utf-8")
+    assert "ticket #1 was deleted on GitHub" in history
+    assert apps.start(key)["url"]  # the posting can be applied to again

@@ -454,3 +454,24 @@ def test_revert_needs_a_synced_ticket(api: TestClient) -> None:
     r = api.post("/api/tickets/revert", json={"path": new["path"], "revision": new["revision"]})
     assert r.status_code == 400
     assert sync(api)["pending"] == [new["path"]]
+
+
+def test_deleted_issue_removes_the_file(api: TestClient, gh: FakeGitHub, vault_root: Path) -> None:
+    sync(api)
+    del gh.issues_by_number[2]  # deleted on GitHub
+    report = sync(api)
+    assert report["removed"] == ["me/board/2-second.md"] and report["errors"] == []
+    assert not list((vault_root / TICKETS).glob("2-*.md"))
+    assert not (vault_root / ".lifeos/github/base/me/board/2.json").exists()
+
+
+def test_deleted_issue_with_local_changes_is_kept(api: TestClient, gh: FakeGitHub) -> None:
+    sync(api)
+    rel = "me/board/1-first.md"
+    edit(api, rel, title="Mine")
+    del gh.issues_by_number[1]
+    report = sync(api)
+    assert report["removed"] == [] and "#1 is gone on GitHub" in report["errors"][0]
+    doc = api.get("/api/tickets/file", params={"path": rel}).json()
+    api.post("/api/tickets/revert", json={"path": rel, "revision": doc["revision"]})
+    assert sync(api)["removed"] == [rel]  # after reverting, the next sync cleans up

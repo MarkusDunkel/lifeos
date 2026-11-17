@@ -168,6 +168,7 @@ class BoardWatcher:
         self.state_file = state_file
         self.handlers = handlers or {}
         self.trigger_on_first_sight = trigger_on_first_sight
+        self.items: list[BoardItem] = []  # what the last poll saw
 
     def _load(self) -> dict[str, dict[str, Any]]:
         try:
@@ -180,6 +181,7 @@ class BoardWatcher:
         state = self._load()
         events: list[str] = []
         items = board_items(self.gh.project_items(self.project.id), self.project.fields)
+        self.items = items
         for item in items:
             seen = state.get(item.item_id)
             if seen is not None and seen.get("status") == item.status:

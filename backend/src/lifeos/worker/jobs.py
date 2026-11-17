@@ -115,13 +115,25 @@ def moodle_job(moodle: MoodleSync, missing: list[str], git: GitSync) -> Callable
     return run
 
 
-def applications_board_job(settings: Settings) -> Callable[[], JobResult]:
-    """Poll the applications board and run the handler of each column change once."""
+def applications_board_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]:
+    """Poll the applications board and run the handler of each column change once;
+    release the postings of applications whose ticket was deleted."""
     from lifeos.connectors.github.client import GitHubClient, GitHubError
+    from lifeos.core.git_sync import background_committer
     from lifeos.modules.applications.board import BoardError, BoardWatcher, split_project
-    from lifeos.modules.applications.service import BOARD_STATE_FILE
+    from lifeos.modules.applications.service import BOARD_STATE_FILE, Applications
+    from lifeos.modules.jobsearch.store import JobStore
 
     vault = Vault.open(settings.vault_root)
+    applications = Applications(
+        vault,
+        JobStore(vault),
+        (lambda: GitHubClient(settings.github_token)) if settings.github_token else None,
+        settings.applications_repo or next(iter(settings.github_repo_list), None),
+        settings.applications_project,
+        committer=background_committer(git),
+        timezone=settings.timezone,
+    )
 
     def run() -> JobResult:
         if not settings.github_token or not settings.applications_project:
@@ -131,6 +143,7 @@ def applications_board_job(settings: Settings) -> Callable[[], JobResult]:
             owner, number = split_project(settings.applications_project)
             watcher = BoardWatcher(gh, gh.project(owner, number), vault.resolve(BOARD_STATE_FILE))
             events = watcher.poll()
+            events += applications.reconcile({item.item_id for item in watcher.items})
         except (GitHubError, BoardError) as exc:
             return JobResult("error", f"applications board: {exc}")
         return JobResult("ok", "; ".join(events) if events else "no changes")
@@ -154,7 +167,7 @@ def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
             Job(
                 "applications-board",
                 Every(settings.applications_interval),
-                applications_board_job(settings),
+                applications_board_job(settings, git),
             )
         )
     if settings.git_sync_interval > 0:

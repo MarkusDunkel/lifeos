@@ -67,6 +67,7 @@ class SyncReport:
     unchanged: int = 0
     conflicts: list[str] = field(default_factory=list)
     pending: list[str] = field(default_factory=list)  # local changes kept for write-back
+    removed: list[str] = field(default_factory=list)  # issue deleted or moved away on GitHub
     errors: list[str] = field(default_factory=list)
     synced_at: str = ""
 
@@ -258,11 +259,38 @@ class GitHubConnector:
             for issue in raw:
                 remote = to_ticket(repo, issue, [p for _, p in projects])
                 self._merge_one(remote, report)
+            self._drop_vanished(repo, {issue["number"] for issue in raw}, report)
         report.pending += [
             rel for rel, path, repo in self.files() if rel.split("/")[-1].startswith("new-")
         ]
         write_atomic(self._state_file("meta.json"), json.dumps(meta, indent=1, ensure_ascii=False))
         return report
+
+    def _drop_vanished(self, repo: str, numbers: set[int], report: SyncReport) -> None:
+        """Remove files of issues GitHub no longer lists (deleted or transferred).
+
+        A file with local changes or conflicts is kept and reported instead: nothing the
+        user wrote disappears without notice.
+        """
+        for rel, path, file_repo in self.files():
+            if file_repo != repo:
+                continue
+            try:
+                local = self.load(path.read_text(encoding="utf-8"), repo)
+            except ValueError:
+                continue
+            if local.number is None or local.number in numbers:
+                continue
+            base = self.base(repo, local.number)
+            if local.conflicts or base is None or diff(base, local):
+                report.errors.append(
+                    f"{rel}: {repo}#{local.number} is gone on GitHub, but the file has local "
+                    "changes (revert them and sync again to remove the file)"
+                )
+                continue
+            path.unlink()
+            self._base_path(repo, local.number).unlink(missing_ok=True)
+            report.removed.append(rel)
 
     def _merge_one(self, remote: Ticket, report: SyncReport) -> None:
         assert remote.number is not None

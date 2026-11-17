@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 
+from lifeos.connectors.github.client import GitHubError
 from lifeos.core.extract.text import dump_front
 from lifeos.core.vault import STATE, Vault, write_atomic
 from lifeos.modules.applications.board import (
@@ -220,6 +221,56 @@ class Applications:
                 message = f"application: new – {posting.company}, {posting.title}\n"
                 self.committer([folder], message)
             return {"issue": issue["number"], "url": issue["url"], "folder": folder}
+
+    def reconcile(self, on_board: set[str]) -> list[str]:
+        """Applications whose board item is gone: if the issue was deleted, forget them.
+
+        An issue that still exists but was only taken off the board is the user's choice
+        and stays as it is.
+        """
+        if self.github is None or not self.repo:
+            return []
+        gh = None
+        events = []
+        for number, entry in self.index().items():
+            if entry.get("item_id") in on_board:
+                continue
+            gh = gh or self.github()
+            try:
+                gh.issue(self.repo, int(number))
+            except GitHubError as exc:
+                message = str(exc).lower()
+                gone = "not found" in message or "could not resolve" in message
+                if gone and self.forget(int(number), "was deleted on GitHub"):
+                    events.append(f"#{number} deleted on GitHub: posting released")
+        return events
+
+    def forget(self, number: int, reason: str) -> bool:
+        """The ticket is gone (deleted on GitHub): unlink it, keep the documents.
+
+        The posting loses its "in application" mark so it can be applied to again; the
+        folder stays and gets a line in its history.
+        """
+        with self._lock:
+            index = self.index()
+            entry = index.pop(str(number), None)
+            if entry is None:
+                return False
+            posting = entry.get("posting")
+            if posting and posting in self.jobs.index():
+                self.jobs.mark(posting, application=None)
+            folder = entry.get("folder")
+            summary = self.vault.resolve(f"{folder}/Application.md") if folder else None
+            if summary is not None and summary.is_file():
+                day = datetime.now(self.tz).date().isoformat()
+                text = summary.read_text(encoding="utf-8").rstrip("\n")
+                write_atomic(summary, f"{text}\n- {day}: ticket #{number} {reason}\n")
+            write_atomic(
+                self.vault.resolve(INDEX_FILE), json.dumps(index, ensure_ascii=False, indent=1)
+            )
+            if self.committer and folder:
+                self.committer([folder], f"application: ticket #{number} {reason}\n")
+            return True
 
     def _create_ticket(self, posting: Posting, folder: str) -> dict[str, Any]:
         assert self.github is not None and self.repo and self.project_ref

@@ -56,6 +56,7 @@ export type SyncReport = {
   unchanged: number;
   conflicts: string[];
   pending: string[];
+  removed: string[];
   errors: string[];
   synced_at: string;
 };
