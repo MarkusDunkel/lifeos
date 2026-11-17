@@ -109,7 +109,7 @@ and a restarting server (502–504) are retried with growing pauses; a refusal i
 `(m/w/d)` or `:in`, punctuation). A new posting that matches an active one in a shared city
 gets `duplicateOf` (the earliest active posting of the job); one that matches only offline
 postings gets `repostOf`. When the first posting of a job goes offline, its earliest
-duplicate takes over. Postings offline for 90 days are deleted at the end of an import.
+duplicate takes over. Postings offline for a year (365 days) are deleted at the end of an import.
 
 **Daily run on the PC.** `lifeos jobsearch install-autostart --env-file <deploy/.env>`
 registers a Windows scheduled task (logon, wake from sleep, hourly; current user, no admin,

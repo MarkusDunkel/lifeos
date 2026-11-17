@@ -54,7 +54,7 @@ export function JobsPage() {
       <p className="text-sm text-slate-500">
         Job postings imported from devjobs.at. The import runs on your PC (devjobs.at blocks servers): once a day it asks
         whether to import, or run <code className="text-xs">lifeos jobsearch import</code> there. Postings for the same
-        job are grouped; postings that went offline are kept for 90 days.
+        job are grouped; postings that went offline are kept for a year.
       </p>
       <StatusCard />
       <section className="space-y-3">
@@ -144,7 +144,7 @@ function RunLine({ run }: { run: ImportRun }) {
   const parts = [`${run.new} new`];
   if (run.duplicates) parts.push(`${run.duplicates} duplicates`);
   if (run.failed) parts.push(`${run.failed} failed`);
-  if (run.pruned) parts.push(`${run.pruned} deleted after 90 days offline`);
+  if (run.pruned) parts.push(`${run.pruned} deleted after a year offline`);
   return (
     <p className="text-slate-500">
       {new Date(run.at).toLocaleString()} · {run.listed} listed on {run.source} · {parts.join(", ")}

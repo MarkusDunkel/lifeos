@@ -139,7 +139,7 @@ def test_prune_deletes_postings_offline_for_long(store: JobStore) -> None:
     store.diff("devjobs", ["a2"])
     index_file = store.vault.resolve(f"{ROOT}/index.json")
     index = json.loads(index_file.read_text(encoding="utf-8"))
-    index["devjobs:a1"]["goneAt"] = (datetime.now(UTC) - timedelta(days=91)).isoformat()
+    index["devjobs:a1"]["goneAt"] = (datetime.now(UTC) - timedelta(days=366)).isoformat()
     index_file.write_text(json.dumps(index), encoding="utf-8")
 
     record = store.finish({"source": "devjobs"})

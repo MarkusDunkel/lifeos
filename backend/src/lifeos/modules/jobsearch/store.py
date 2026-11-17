@@ -32,7 +32,7 @@ from lifeos.modules.jobsearch.model import Posting
 
 ROOT = f"{STATE}/jobsearch"
 MAX_RUNS = 50
-RETENTION_DAYS = 90
+RETENTION_DAYS = 365
 
 Index = dict[str, dict[str, Any]]
 
