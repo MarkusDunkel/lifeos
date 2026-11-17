@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { Briefcase, ChevronDown, ChevronRight, Copy, ExternalLink, Search } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Briefcase, ChevronDown, ChevronRight, Copy, ExternalLink, Search, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -11,6 +11,7 @@ import {
   type PostingsFilter,
   postingQuery,
   postingsQuery,
+  startApplication,
 } from "./api";
 import { ago, formatEmployment, formatSalary } from "./format";
 
@@ -29,7 +30,13 @@ const PERIODS: [string, number | null][] = [
 
 export function JobsPage() {
   const [text, setText] = useState("");
-  const [filter, setFilter] = useState<PostingsFilter>({ q: "", duplicates: false, gone: false, days: null });
+  const [filter, setFilter] = useState<PostingsFilter>({
+    q: "",
+    duplicates: false,
+    gone: false,
+    applied: false,
+    days: null,
+  });
   const [pages, setPages] = useState(1);
 
   // Search after a short pause in typing; any filter change starts at the first page.
@@ -75,6 +82,10 @@ export function JobsPage() {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={filter.applied} onChange={(e) => setFilter({ ...filter, applied: e.target.checked })} />
+            In application
           </label>
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={filter.duplicates} onChange={(e) => setFilter({ ...filter, duplicates: e.target.checked })} />
@@ -237,12 +248,27 @@ function Badges({ row }: { row: PostingRow }) {
         </span>
       )}
       {row.repostOf && <span className={`${badge} bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300`}>republished</span>}
+      {row.application && (
+        <a
+          href={row.application}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${badge} bg-emerald-100 text-emerald-700 hover:underline dark:bg-emerald-950 dark:text-emerald-300`}
+        >
+          in application
+        </a>
+      )}
     </>
   );
 }
 
 function PostingDetails({ postingKey }: { postingKey: string }) {
   const detail = useQuery(postingQuery(postingKey));
+  const queryClient = useQueryClient();
+  const apply = useMutation({
+    mutationFn: () => startApplication(postingKey),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["jobsearch"] }),
+  });
   const d = detail.data;
   if (!d) return <p className="mt-2 pl-6 text-slate-400">{detail.error ? detail.error.message : "Loading…"}</p>;
   const dates = [
@@ -253,6 +279,29 @@ function PostingDetails({ postingKey }: { postingKey: string }) {
   ].filter(Boolean);
   return (
     <div className="mt-3 space-y-3 pl-6">
+      <div className="flex flex-wrap items-center gap-3">
+        {d.application ? (
+          <a href={d.application} target="_blank" rel="noopener noreferrer" className="text-sm text-emerald-700 hover:underline dark:text-emerald-400">
+            In application – open the ticket
+          </a>
+        ) : (
+          <button
+            className={btn}
+            disabled={apply.isPending || !!d.goneAt}
+            onClick={() => {
+              if (window.confirm(`Apply to "${d.title}" at ${d.company}? This creates a ticket in column "Neu".`)) apply.mutate();
+            }}
+          >
+            <Send className="size-4" /> {apply.isPending ? "Creating ticket…" : "Apply"}
+          </button>
+        )}
+        {apply.error && <span className="text-sm text-red-600">{apply.error.message}</span>}
+        {apply.data && (
+          <a href={apply.data.url} target="_blank" rel="noopener noreferrer" className="text-sm text-sky-600 hover:underline">
+            Ticket #{apply.data.issue} created
+          </a>
+        )}
+      </div>
       <p className="text-xs text-slate-500">
         {dates.join(" · ")}
         {d.industry && ` · ${d.industry}`}

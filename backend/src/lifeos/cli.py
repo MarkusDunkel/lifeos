@@ -51,6 +51,9 @@ def main(argv: list[str] | None = None) -> int:
         "--env-file", type=Path, default=None, help="file with LIFEOS_JOBSEARCH_* settings"
     )
 
+    apps = sub.add_parser("applications", help="job applications board")
+    apps.add_argument("action", choices=["setup-board"])
+
     sub.add_parser("moodle-sync", help="sync Moodle now (same as the button in the app)")
     sub.add_parser("worker", help="run background jobs (vault git sync)")
     sub.add_parser("git-sync", help="sync the vault with its git remote once")
@@ -82,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
         return _moodle_sync()
     if args.cmd == "jobsearch":
         return _jobsearch(args)
+    if args.cmd == "applications":
+        return _applications_setup()
     if args.cmd == "import":
         from lifeos.core.importer import import_tree
 
@@ -147,6 +152,27 @@ def _tasks(args) -> int:
     except TasksError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    return 0
+
+
+def _applications_setup() -> int:
+    from lifeos.connectors.github.client import GitHubClient, GitHubError
+    from lifeos.core.config import get_settings
+    from lifeos.modules.applications.board import BoardError, setup_board
+
+    settings = get_settings()
+    repo = settings.applications_repo or next(iter(settings.github_repo_list), None)
+    if not settings.github_token or not repo:
+        print("set LIFEOS_GITHUB_TOKEN and LIFEOS_APPLICATIONS_REPO", file=sys.stderr)
+        return 2
+    try:
+        ref = setup_board(GitHubClient(settings.github_token), repo, settings.applications_project)
+    except (GitHubError, BoardError) as exc:
+        print(f"setup failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"board ready: LIFEOS_APPLICATIONS_PROJECT={ref}")
+    if not settings.applications_project:
+        print("add that line to deploy/.env, plus LIFEOS_APPLICATIONS_INTERVAL=120 for the worker")
     return 0
 
 

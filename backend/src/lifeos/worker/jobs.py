@@ -115,6 +115,29 @@ def moodle_job(moodle: MoodleSync, missing: list[str], git: GitSync) -> Callable
     return run
 
 
+def applications_board_job(settings: Settings) -> Callable[[], JobResult]:
+    """Poll the applications board and run the handler of each column change once."""
+    from lifeos.connectors.github.client import GitHubClient, GitHubError
+    from lifeos.modules.applications.board import BoardError, BoardWatcher, split_project
+    from lifeos.modules.applications.service import BOARD_STATE_FILE
+
+    vault = Vault.open(settings.vault_root)
+
+    def run() -> JobResult:
+        if not settings.github_token or not settings.applications_project:
+            return JobResult("skipped", "LIFEOS_GITHUB_TOKEN / LIFEOS_APPLICATIONS_PROJECT not set")
+        try:
+            gh = GitHubClient(settings.github_token)
+            owner, number = split_project(settings.applications_project)
+            watcher = BoardWatcher(gh, gh.project(owner, number), vault.resolve(BOARD_STATE_FILE))
+            events = watcher.poll()
+        except (GitHubError, BoardError) as exc:
+            return JobResult("error", f"applications board: {exc}")
+        return JobResult("ok", "; ".join(events) if events else "no changes")
+
+    return run
+
+
 def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
     jobs: list[Job] = []
     if settings.moodle_sync_at:
@@ -124,6 +147,14 @@ def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
                 "moodle-sync",
                 Daily(parse_time(settings.moodle_sync_at), ZoneInfo(settings.timezone)),
                 moodle_job(moodle, missing, git),
+            )
+        )
+    if settings.applications_interval > 0:
+        jobs.append(
+            Job(
+                "applications-board",
+                Every(settings.applications_interval),
+                applications_board_job(settings),
             )
         )
     if settings.git_sync_interval > 0:

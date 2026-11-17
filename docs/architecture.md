@@ -122,6 +122,27 @@ result. If devjobs.at refuses the importer it stops for the day. Log and state l
 The **Jobs** page of the web app shows the import status and the postings (search, new
 since, duplicates and offline postings on request, details with the full text).
 
+## Applications
+
+A job application is a ticket on its own Projects v2 board (`LIFEOS_APPLICATIONS_PROJECT`,
+created by `lifeos applications setup-board`): issues in the private board repository with
+the label `bewerbung`, a single-select `Status` with the user's columns (suggestion, new,
+active, in review, sent, interviews, offer, outcomes) and the fields `Gesprächsrunde`,
+`Firma`, `Inserat`. **Apply** on the Jobs page (`POST /api/applications`) creates the ticket in
+the first working column, a folder `ready/knowledge/Karriere/Bewerbungen/<date> <company> –
+<title>/` with `Bewerbung.md` and an `Inserat.md` snapshot, and marks the posting.
+
+The worker job `applications-board` (`LIFEOS_APPLICATIONS_INTERVAL`) polls the board and runs
+the handler of a column once when a ticket arrives there (state in
+`.lifeos/applications/board.json`; a failing handler comments on the ticket and is not retried
+until the ticket moves again). Outcome columns close the issue; moving it back reopens it.
+
+Documents are rendered with Typst (`typst` Python package) from `templates/typst/` and the
+bundled XCharter font; the master CV (`Karriere/Lebenslauf/Lebenslauf.yaml`) and personal
+data (`Stammdaten.yaml`) live in the vault. A draft may only select master entries and
+bullets by id and titles from the allowed variants; companies and periods always come from
+the master. The cover letter must fit one page, the CV two.
+
 ## Backend layout (`backend/src/lifeos`)
 
 | Module | Responsibility |

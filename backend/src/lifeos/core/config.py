@@ -115,6 +115,23 @@ class Settings(BaseSettings):
         ),
     )
 
+    applications_project: str | None = Field(
+        default=None,
+        description=(
+            "Projects v2 board for job applications as `owner/number` "
+            "(`lifeos applications setup-board` creates it)."
+        ),
+    )
+    applications_repo: str | None = Field(
+        default=None,
+        description="Private repository for application issues; default: first of github_repos.",
+    )
+    applications_interval: int = Field(
+        default=0,
+        ge=0,
+        description="Seconds between board checks of `lifeos worker` for applications; 0 = off.",
+    )
+
     @property
     def github_repo_list(self) -> list[str]:
         return [r.strip() for r in self.github_repos.split(",") if r.strip()]

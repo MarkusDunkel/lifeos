@@ -25,6 +25,8 @@ from lifeos.core.git_sync import background_committer, git_sync_for
 from lifeos.core.vault import RevisionConflict, Vault, VaultPathError
 from lifeos.mcp_server.http import mount_mcp
 from lifeos.mcp_server.server import build_mcp
+from lifeos.modules.applications.router import build_router as applications_router
+from lifeos.modules.applications.service import ApplicationError, Applications
 from lifeos.modules.jobsearch.router import build_router as jobsearch_router
 from lifeos.modules.jobsearch.store import JobStore
 from lifeos.modules.knowledge.index import KnowledgeIndex
@@ -96,6 +98,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def _onedrive(_: Request, exc: OneDriveError) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=exc.status)
 
+    @app.exception_handler(ApplicationError)
+    async def _application(_: Request, exc: ApplicationError) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=exc.status)
+
     @app.exception_handler(MoodleError)
     async def _moodle(_: Request, exc: MoodleError) -> JSONResponse:
         return JSONResponse({"detail": f"Moodle: {exc}"}, status_code=exc.status)
@@ -125,7 +131,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     jobs_file = settings.state_dir / "jobs.json" if settings.state_dir else None
     app.include_router(vault_sync_router(git, settings.git_sync_interval, jobs_file))
     app.include_router(study_router(study))
-    app.include_router(jobsearch_router(JobStore(vault), settings.timezone))
+    jobs = JobStore(vault)
+    app.include_router(jobsearch_router(jobs, settings.timezone))
+    applications = Applications(
+        vault,
+        jobs,
+        (lambda: GitHubClient(token)) if token else None,
+        settings.applications_repo or next(iter(settings.github_repo_list), None),
+        settings.applications_project,
+        committer=background_committer(git),
+        timezone=settings.timezone,
+    )
+    app.include_router(applications_router(applications))
 
     if mcp is not None and settings.mcp_path_token:
         mount_mcp(app, mcp, settings.mcp_path_token)

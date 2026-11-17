@@ -43,6 +43,7 @@ export type PostingRow = {
   goneAt: string | null;
   duplicateOf: string | null;
   repostOf: string | null;
+  application: string | null;
   duplicateCount?: number;
 };
 
@@ -50,7 +51,13 @@ export type PostingDetail = PostingRow & { description: string; benefits: string
 
 export type PostingsPage = { total: number; offset: number; items: PostingRow[] };
 
-export type PostingsFilter = { q: string; duplicates: boolean; gone: boolean; days: number | null };
+export type PostingsFilter = {
+  q: string;
+  duplicates: boolean;
+  gone: boolean;
+  applied: boolean;
+  days: number | null;
+};
 
 export const PAGE_SIZE = 50;
 
@@ -67,11 +74,17 @@ export const postingsQuery = (filter: PostingsFilter, offset: number) =>
       if (filter.q.trim()) params.q = filter.q.trim();
       if (filter.duplicates) params.duplicates = "true";
       if (filter.gone) params.gone = "true";
+      if (filter.applied) params.applied = "true";
       if (filter.days) params.days = String(filter.days);
       return api<PostingsPage>(`/api/jobsearch/postings?${qs(params)}`);
     },
     placeholderData: keepPreviousData,
   });
+
+export type ApplicationStarted = { issue: number; url: string; folder: string };
+
+export const startApplication = (posting: string) =>
+  api<ApplicationStarted>("/api/applications", { method: "POST", json: { posting } });
 
 export const postingQuery = (key: string) => {
   const [source, id] = key.split(":");

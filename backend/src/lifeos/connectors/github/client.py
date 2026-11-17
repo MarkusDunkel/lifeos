@@ -208,6 +208,77 @@ class GitHubClient:
             "id"
         ]
 
+    # -- boards: setup, items, comments ----------------------------------------------
+
+    def owner_id(self, login: str) -> str:
+        for kind in ("user", "organization"):
+            q = f"query($login: String!) {{ {kind}(login: $login) {{ id }} }}"
+            try:
+                node = self.graphql(q, {"login": login}).get(kind)
+            except GitHubError:
+                node = None
+            if node:
+                return node["id"]
+        raise GitHubError(f"GitHub user or organisation {login} not found")
+
+    def create_project(self, owner_id: str, title: str) -> dict[str, Any]:
+        q = """mutation($o: ID!, $t: String!) {
+          createProjectV2(input: {ownerId: $o, title: $t}) { projectV2 { id number url } } }"""
+        return self.graphql(q, {"o": owner_id, "t": title})["createProjectV2"]["projectV2"]
+
+    def link_repository(self, project_id: str, repo_id: str) -> None:
+        q = """mutation($p: ID!, $r: ID!) {
+          linkProjectV2ToRepository(input: {projectId: $p, repositoryId: $r}) {
+            clientMutationId } }"""
+        self.graphql(q, {"p": project_id, "r": repo_id})
+
+    def create_field(
+        self, project_id: str, name: str, data_type: str, options: list[str] | None = None
+    ) -> None:
+        q = """mutation($input: CreateProjectV2FieldInput!) {
+          createProjectV2Field(input: $input) { clientMutationId } }"""
+        payload: dict[str, Any] = {"projectId": project_id, "name": name, "dataType": data_type}
+        if options is not None:
+            payload["singleSelectOptions"] = _option_inputs(options)
+        self.graphql(q, {"input": payload})
+
+    def set_options(self, field_id: str, options: list[str]) -> None:
+        """Replace the options of a single-select field (e.g. the built-in Status)."""
+        q = """mutation($input: UpdateProjectV2FieldInput!) {
+          updateProjectV2Field(input: $input) { clientMutationId } }"""
+        payload = {"fieldId": field_id, "singleSelectOptions": _option_inputs(options)}
+        self.graphql(q, {"input": payload})
+
+    def create_label(self, repo_id: str, name: str, color: str = "0e8a16") -> str:
+        q = """mutation($r: ID!, $n: String!, $c: String!) {
+          createLabel(input: {repositoryId: $r, name: $n, color: $c}) { label { id } } }"""
+        return self.graphql(q, {"r": repo_id, "n": name, "c": color})["createLabel"]["label"]["id"]
+
+    def project_items(self, project_id: str) -> list[dict[str, Any]]:
+        """All items of a board with their field values and the issue behind them."""
+        q = f"""query($id: ID!, $cursor: String) {{ node(id: $id) {{ ... on ProjectV2 {{
+          items(first: 100, after: $cursor) {{ pageInfo {{ hasNextPage endCursor }}
+            nodes {{ id updatedAt {FIELD_VALUES}
+              content {{ __typename ... on Issue {{ id number title url state body
+                repository {{ nameWithOwner }} labels(first: 30) {{ nodes {{ name }} }} }} }}
+            }} }} }} }} }}"""
+        out: list[dict[str, Any]] = []
+        cursor = None
+        while True:
+            node = self.graphql(q, {"id": project_id, "cursor": cursor})["node"]
+            if node is None:
+                raise GitHubError("project not found")
+            page = node["items"]
+            out += page["nodes"]
+            if not page["pageInfo"]["hasNextPage"]:
+                return out
+            cursor = page["pageInfo"]["endCursor"]
+
+    def add_comment(self, subject_id: str, body: str) -> None:
+        q = """mutation($s: ID!, $b: String!) {
+          addComment(input: {subjectId: $s, body: $b}) { clientMutationId } }"""
+        self.graphql(q, {"s": subject_id, "b": body})
+
     def set_field(self, project_id: str, item_id: str, f: ProjectField, value: str | None) -> None:
         ids = {"p": project_id, "i": item_id, "f": f.id}
         if value is None:
@@ -219,6 +290,10 @@ class GitHubClient:
           updateProjectV2ItemFieldValue(input: {projectId: $p, itemId: $i, fieldId: $f, value: $v})
           { projectV2Item { id } } }"""
         self.graphql(q, {**ids, "v": field_value(f, value)})
+
+
+def _option_inputs(options: list[str]) -> list[dict[str, str]]:
+    return [{"name": name, "color": "GRAY", "description": ""} for name in options]
 
 
 def field_value(f: ProjectField, value: str) -> dict[str, Any]:

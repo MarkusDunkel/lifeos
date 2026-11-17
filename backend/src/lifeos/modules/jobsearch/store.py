@@ -199,6 +199,14 @@ class JobStore:
             return None
         return Posting.model_validate_json(path.read_text(encoding="utf-8"))
 
+    def mark(self, key: str, **fields: Any) -> None:
+        """Attach extra fields to a posting's entry (e.g. ``application``)."""
+        with self._locked():
+            index: Index = self._read("index.json", {})
+            if key in index:
+                index[key].update(fields)
+                self._write("index.json", index)
+
     def counts(self) -> dict[str, int]:
         index = self.index()
         active = [e for e in index.values() if is_active(e)]

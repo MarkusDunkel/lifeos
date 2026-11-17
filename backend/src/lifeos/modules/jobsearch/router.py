@@ -102,6 +102,7 @@ def build_router(store: JobStore, timezone: str) -> APIRouter:
         q: str = "",
         duplicates: bool = False,
         gone: bool = False,
+        applied: bool = False,
         days: int | None = Query(default=None, ge=1),
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=50, ge=1, le=200),
@@ -122,6 +123,8 @@ def build_router(store: JobStore, timezone: str) -> APIRouter:
             if entry.get("duplicateOf") and not duplicates:
                 continue
             if since and entry.get("firstSeen", "") < since:
+                continue
+            if applied and not entry.get("application"):
                 continue
             if words:
                 text = " ".join(
@@ -174,4 +177,5 @@ def _row(key: str, entry: dict[str, Any], posting: Posting) -> dict[str, Any]:
         "goneAt": entry.get("goneAt"),
         "duplicateOf": entry.get("duplicateOf"),
         "repostOf": entry.get("repostOf"),
+        "application": entry.get("application"),
     }
