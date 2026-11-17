@@ -436,6 +436,11 @@ def test_deleted_ticket_releases_the_posting(vault, jobs, gh, board) -> None:
     del gh.issues["I1"]  # deleted on GitHub
     assert apps.reconcile(set()) == ["#1 deleted on GitHub: posting released"]
     assert apps.list() == [] and not jobs.index()[key].get("application")
-    history = vault.resolve(result["folder"] + "/Application.md").read_text(encoding="utf-8")
-    assert "ticket #1 was deleted on GitHub" in history
+    assert not vault.resolve(result["folder"]).exists()
+    name = vault.resolve(result["folder"]).name
+    archived = vault.resolve(f"ready/knowledge/Career/Applications/Archive/{name}/Application.md")
+    text = archived.read_text(encoding="utf-8")
+    assert "status: abandoned" in text and "Do not use them as an example" in text
+    assert "ticket #1 was deleted on GitHub; archived" in text
+    assert text.index("Abandoned, never sent") < text.index("## History")
     assert apps.start(key)["url"]  # the posting can be applied to again

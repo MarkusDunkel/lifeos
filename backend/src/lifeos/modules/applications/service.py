@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field
 
 from lifeos.connectors.github.client import GitHubError
-from lifeos.core.extract.text import dump_front
+from lifeos.core.extract.text import dump_front, front_matter
 from lifeos.core.vault import STATE, Vault, write_atomic
 from lifeos.modules.applications.board import (
     ACTIVE,
@@ -34,6 +34,7 @@ from lifeos.modules.applications.profile import APPLICATIONS_DIR
 from lifeos.modules.jobsearch.model import Posting
 from lifeos.modules.jobsearch.store import JobStore
 
+ARCHIVE_DIR = f"{APPLICATIONS_DIR}/Archive"
 STATE_DIR = f"{STATE}/applications"
 INDEX_FILE = f"{STATE_DIR}/index.json"
 BOARD_STATE_FILE = f"{STATE_DIR}/board.json"
@@ -246,10 +247,11 @@ class Applications:
         return events
 
     def forget(self, number: int, reason: str) -> bool:
-        """The ticket is gone (deleted on GitHub): unlink it, keep the documents.
+        """The ticket is gone (deleted on GitHub): roll the application back.
 
-        The posting loses its "in application" mark so it can be applied to again; the
-        folder stays and gets a line in its history.
+        The posting loses its "in application" mark so it can be applied to again, and the
+        folder moves to ``Applications/Archive/`` marked as abandoned, so its drafts are
+        never taken as examples (only ``Applications/Examples/`` is).
         """
         with self._lock:
             index = self.index()
@@ -260,17 +262,43 @@ class Applications:
             if posting and posting in self.jobs.index():
                 self.jobs.mark(posting, application=None)
             folder = entry.get("folder")
-            summary = self.vault.resolve(f"{folder}/Application.md") if folder else None
-            if summary is not None and summary.is_file():
-                day = datetime.now(self.tz).date().isoformat()
-                text = summary.read_text(encoding="utf-8").rstrip("\n")
-                write_atomic(summary, f"{text}\n- {day}: ticket #{number} {reason}\n")
+            archived = self.archive(folder, f"ticket #{number} {reason}") if folder else None
             write_atomic(
                 self.vault.resolve(INDEX_FILE), json.dumps(index, ensure_ascii=False, indent=1)
             )
             if self.committer and folder:
-                self.committer([folder], f"application: ticket #{number} {reason}\n")
+                paths = [folder] + ([archived] if archived else [])
+                self.committer(paths, f"application: abandoned – ticket #{number} {reason}\n")
             return True
+
+    def archive(self, folder: str, reason: str) -> str | None:
+        """Move an application folder to the archive and mark it as never sent."""
+        source = self.vault.resolve(folder)
+        if not source.is_dir():
+            return None
+        name = source.name
+        target_rel = f"{ARCHIVE_DIR}/{name}"
+        n = 2
+        while self.vault.resolve(target_rel).exists():
+            target_rel, n = f"{ARCHIVE_DIR}/{name} ({n})", n + 1
+        target = self.vault.resolve(target_rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source.rename(target)
+        summary = target / "Application.md"
+        day = datetime.now(self.tz).date().isoformat()
+        if summary.is_file():
+            text = summary.read_text(encoding="utf-8")
+            front = front_matter(text)
+            body = text[text.find("\n---\n", 4) + 5 :] if front else text
+            front |= {"status": "abandoned", "abandoned": day, "reason": reason}
+            title, _, rest = body.lstrip("\n").partition("\n")
+            notice = (
+                "> **Abandoned, never sent.** The drafts in this folder did not pass a final "
+                "review. Do not use them as an example or template."
+            )
+            body = f"{title}\n\n{notice}\n{rest.rstrip()}\n- {day}: {reason}; archived\n"
+            write_atomic(summary, dump_front(front) + "\n" + body)
+        return target_rel
 
     def _create_ticket(self, posting: Posting, folder: str) -> dict[str, Any]:
         assert self.github is not None and self.repo and self.project_ref

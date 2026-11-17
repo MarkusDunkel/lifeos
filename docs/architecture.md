@@ -168,6 +168,13 @@ suggestions will first appear in LifeOS and become a ticket only when the user a
 `lifeos applications migrate-vault [--commit]` moves the first, German layout
 (`Karriere/…`) to the English one.
 
+Deleting an application's issue on GitHub rolls the application back (worker job
+`applications-board`): the posting is released for a new application, and the folder moves
+to `Career/Applications/Archive/` with `status: abandoned` and a notice in `Application.md`.
+Only `Career/Applications/Examples/` serves as examples for new cover letters; a letter gets
+there when its ticket reaches **Sent**, i.e. after the user's last review. Archived drafts
+never do. Issues that are only taken off the board are left alone.
+
 The worker job `applications-board` (`LIFEOS_APPLICATIONS_INTERVAL`) polls the board and runs
 the handler of a column once when a ticket arrives there (state in
 `.lifeos/applications/board.json`; a failing handler comments on the ticket and is not retried
