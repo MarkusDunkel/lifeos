@@ -120,9 +120,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(knowledge_router(knowledge, KnowledgeIndex(knowledge.root)))
     app.include_router(notes_router(NotesStore(vault)))
     app.include_router(workspaces_router(WorkspaceService(vault)))
-    app.include_router(reviews_router(ReviewService(vault)))
-
     token = settings.github_token
+    app.include_router(reviews_router(ReviewService(
+        vault,
+        github=(lambda: GitHubClient(token)) if token else None,
+        committer=background_committer(git),
+        public_url=settings.public_url,
+    )))  # fmt: skip
+
     github = GitHubConnector(
         vault,
         (lambda: GitHubClient(token)) if token else None,

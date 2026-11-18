@@ -19,6 +19,8 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import yaml
+
 from lifeos.core.vault import FEEDBACK, Vault, VaultPathError, write_atomic
 from lifeos.modules.workspaces.feedback import HANDOFF_PROMPT, Item, Round, Scope, parse, render
 
@@ -236,6 +238,40 @@ class FeedbackRounds:
                 "prompt": HANDOFF_PROMPT.format(feedback_file=feedback_file),
             }
 
+    # -- answers of the agent that implemented a sealed round ----------------------------
+
+    def sealed(self, source: str, round_id: str) -> Round:
+        file = self.round_file(source, round_id)
+        if not file.is_file():
+            raise FileNotFoundError(f"round {round_id}")
+        r = parse(file.read_text(encoding="utf-8"))
+        if r.state != "sealed":
+            raise FeedbackError(f"round {round_id} is not sealed")
+        return r
+
+    def response_file(self, source: str, round_id: str) -> Path:
+        return self.round_file(source, round_id).with_name(RESPONSE_FILE)
+
+    def respond(self, source: str, round_id: str, agent: str, answers: list[Answer]) -> str:
+        """Write the agent's answer per feedback item next to the sealed round.
+
+        md4h forbids changing ``feedback.md`` once sealed, so answers live in their own
+        ``response.md`` in the round folder (replaced when the round is answered again).
+        Returns the vault-relative path.
+        """
+        r = self.sealed(source, round_id)
+        known = {i.id for i in r.items}
+        file = self.response_file(source, round_id)
+        write_atomic(file, render_response(r, agent, _iso_ms(self._now()),
+                                           [a for a in answers if a.id in known]))  # fmt: skip
+        return self.vault.relative(file)
+
+    def response(self, source: str, round_id: str) -> list[Answer]:
+        file = self.response_file(source, round_id)
+        if not file.is_file():
+            return []
+        return parse_response(file.read_text(encoding="utf-8"))
+
     def discard(self, source: str, round_id: str) -> None:
         """Delete a LifeOS draft (also allowed when stale). Sealed rounds are never deleted."""
         with self._lock:
@@ -248,6 +284,49 @@ class FeedbackRounds:
             file.unlink()
             if not any(file.parent.iterdir()):
                 file.parent.rmdir()
+
+
+RESPONSE_FILE = "response.md"
+RESPONSE_SCHEMA = "lifeos-feedback-response/v1"
+ANSWER_STATES = ("done", "declined")
+ANSWER_RE = re.compile(r"^## (F\d+) · (done|declined)\s*$")
+
+
+@dataclass
+class Answer:
+    id: str  # feedback item, e.g. "F2"
+    status: str  # "done" | "declined"
+    text: str  # what was changed, or why not
+
+
+def render_response(r: Round, agent: str, answered_at: str, answers: list[Answer]) -> str:
+    head = {
+        "schema": RESPONSE_SCHEMA,
+        "round": r.round,
+        "source": r.source,
+        "source_sha256": r.source_sha256,
+        "agent": agent,
+        "answered_at": answered_at,
+    }
+    front = yaml.safe_dump(head, sort_keys=False, allow_unicode=True).strip()
+    lines = ["---", front, "---", "", f"# Answers to feedback round {r.round}", ""]
+    for a in answers:
+        status = a.status if a.status in ANSWER_STATES else "declined"
+        lines += [f"## {a.id} · {status}", "", a.text.strip() or "-", ""]
+    return "\n".join(lines)
+
+
+def parse_response(text: str) -> list[Answer]:
+    out: list[Answer] = []
+    for line in text.replace("\r\n", "\n").split("\n"):
+        match = ANSWER_RE.match(line)
+        if match:
+            out.append(Answer(match.group(1), match.group(2), ""))
+        elif out:
+            out[-1].text += line + "\n"
+    for a in out:
+        a.text = a.text.strip()
+    return out
 
 
 def _ours(text: str) -> bool:

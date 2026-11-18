@@ -11,8 +11,11 @@ from lifeos.modules.reviews.service import ReviewService, ViewError
 from lifeos.modules.workspaces.feedback import Scope
 
 
-class DocRef(BaseModel):
+class PackageRef(BaseModel):
     path: str
+
+
+class DocRef(PackageRef):
     doc: int
 
 
@@ -90,6 +93,10 @@ def build_router(service: ReviewService) -> APIRouter:
     @router.post("/rounds/seal")
     def seal(body: RoundRef) -> dict:
         return guarded(lambda: service.seal(body.path, body.doc, body.round))
+
+    @router.post("/send")
+    def send(body: PackageRef) -> dict:
+        return guarded(lambda: service.send(body.path))
 
     @router.post("/rounds/discard")
     def discard(body: RoundRef) -> dict:

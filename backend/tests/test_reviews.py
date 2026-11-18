@@ -6,9 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from lifeos.agents import comments
+from lifeos.connectors.github.client import GitHubError
 from lifeos.core.vault import Vault
+from lifeos.modules.reviews import handoff
 from lifeos.modules.reviews.package import PackageError, parse_package
 from lifeos.modules.reviews.service import ReviewService, ViewError
+from lifeos.modules.workspaces.rounds import Answer, FeedbackError
 
 PKG = "ready/knowledge/Career/Applications/2026-01-01 Beispiel AG"
 REVIEW = """\
@@ -121,3 +125,96 @@ def test_feedback_round_on_a_document(client, vault_root, package) -> None:
         client.get("/api/reviews/package", params={"path": PKG}).json()["documents"][1]["rounds"]
         == []
     )
+
+
+class TicketGitHub:
+    """Just enough GitHub for "Send feedback": find the issue, add a comment."""
+
+    def __init__(self, fail: bool = False) -> None:
+        self.comments: list[tuple[str, str]] = []
+        self.fail = fail
+
+    def issue(self, repo: str, number: int) -> dict:
+        return {"id": f"I{number}", "url": f"https://github.com/{repo}/issues/{number}"}
+
+    def add_comment(self, subject_id: str, body: str) -> None:
+        if self.fail:
+            raise GitHubError("boom")
+        self.comments.append((subject_id, body))
+
+
+def sending(vault_root: Path, gh: TicketGitHub, commits: list | None = None) -> ReviewService:
+    return ReviewService(
+        Vault.open(vault_root), generators={}, github=lambda: gh,
+        committer=(lambda paths, msg: commits.append((paths, msg))) if commits is not None
+        else None, public_url="https://lifeos.example/",
+    )  # fmt: skip
+
+
+def comment(service: ReviewService, doc: int, line: int, text: str) -> str:
+    rid = service.start(PKG, doc)["round"]
+    service.add_item(PKG, doc, rid, start_line=line, end_line=line, scope="blocks", feedback=text)
+    return rid
+
+
+def test_send_feedback_posts_to_the_ticket_and_seals(vault_root, package) -> None:
+    gh, commits = TicketGitHub(), []
+    service = sending(vault_root, gh, commits)
+    letter = comment(service, 0, 3, "Zu allgemein.\nKonkreter werden.")
+    notes = comment(service, 1, 3, "Stimmt nicht.")
+    assert service.start(PKG, 2)["round"] == notes  # same file as "Notizen": same round, once
+
+    result = service.send(PKG)
+
+    assert result["comments"] == 2 and result["url"].endswith("/board/issues/7")
+    [(issue, body)] = gh.comments
+    assert issue == "I7" and comments.agent_of(body) is None  # the owner's feedback
+    assert "**Anschreiben**" in body and "F1 · “Erster Absatz.”" in body
+    assert "→ Zu allgemein.\n  Konkreter werden." in body
+    assert "https://lifeos.example/reviews/ready/knowledge/Career/" in body
+    payload = handoff.parse_marker(body)
+    assert payload is not None and payload["package"] == PKG
+    sent = handoff.load_sent(Vault.open(vault_root), payload)
+    assert [(s.label, s.round.round, s.round.state) for s in sent] == [
+        ("Anschreiben", letter, "sealed"), ("Notizen", notes, "sealed")]  # fmt: skip
+    assert sent[0].round.items[0].quote == "Erster Absatz."
+    [(paths, message)] = commits
+    assert len(paths) == 2 and all(p.startswith(".md4h/feedback/") for p in paths)
+    assert "Bewerbung – Beispiel AG" in message
+    with pytest.raises(FeedbackError, match="no comments"):
+        service.send(PKG)  # nothing new
+
+
+def test_send_feedback_keeps_drafts_when_github_fails(vault_root, package) -> None:
+    service = sending(vault_root, TicketGitHub(fail=True))
+    rid = comment(service, 0, 3, "Zu allgemein.")
+    with pytest.raises(GitHubError):
+        service.send(PKG)
+    assert service.round(PKG, 0, rid)["state"] == "draft"  # try again later
+
+
+def test_send_feedback_needs_a_ticket_and_github(client, vault_root, package) -> None:
+    rid = client.post("/api/reviews/rounds", json={"path": PKG, "doc": 0}).json()["round"]
+    item = {"path": PKG, "doc": 0, "round": rid, "start_line": 3, "end_line": 3,
+            "scope": "blocks", "feedback": "x"}  # fmt: skip
+    client.post("/api/reviews/rounds/items", json=item)
+    assert client.post("/api/reviews/send", json={"path": PKG}).status_code == 503  # no token
+    (package / "review.yaml").write_text(REVIEW.replace("ticket: someone/board#7\n", ""), "utf-8")
+    response = client.post("/api/reviews/send", json={"path": PKG})
+    assert response.status_code == 400 and "no ticket" in response.json()["detail"]
+
+
+def test_agent_answers_are_stored_next_to_the_sealed_round(vault_root, package) -> None:
+    service = sending(vault_root, TicketGitHub())
+    rid = comment(service, 0, 3, "Zu allgemein.")
+    source = f"{PKG}/Anschreiben.md"
+    with pytest.raises(FeedbackError, match="not sealed"):
+        service.feedback.respond(source, rid, "writer", [])
+    service.send(PKG)
+    answers = [Answer("F1", "done", "Konkreter:\n\nzwei Absätze."), Answer("F9", "done", "x")]
+    rel = service.feedback.respond(source, rid, "writer", answers)
+    assert rel.endswith(f"Anschreiben.md--{rid}/response.md")
+    assert service.feedback.response(source, rid) == [answers[0]]  # unknown ids dropped
+    text = (vault_root / rel).read_text(encoding="utf-8")
+    assert "schema: lifeos-feedback-response/v1" in text and "## F1 · done" in text
+    assert service.round(PKG, 0, rid)["state"] == "sealed"  # feedback.md untouched

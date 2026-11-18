@@ -102,6 +102,15 @@ DEFAULT_TEXTS: dict[str, str] = {
     "report_review_link": "👀 **[Open in review]({url})** – comment on the content and the layout",
     "review_notes": "Notes",
     "review_research": "Research",
+    # "Send feedback" on the review page: the comment posted on the ticket (by the owner)
+    "review_sent_title": "📝 **Feedback from the review** ({count} comment(s))",
+    "review_sent_document": "**{label}**",
+    "review_sent_item": "- {id} · “{quote}”\n  → {feedback}",
+    "review_sent_link": "[Open the review]({url})",
+    # the agent's answer per review comment in its report
+    "report_review_answers": "**Your review comments**",
+    "report_review_done": "- {label} {id} “{quote}” → ✅ done: {answer}",
+    "report_review_declined": "- {label} {id} “{quote}” → ↩️ not done: {answer}",
     "report_comments": "**Your comments, as I read them**",
     "report_comment_this": "- “{comment}” → for this ticket: {understood}",
     "report_comment_general": "- “{comment}” → general: {understood}",

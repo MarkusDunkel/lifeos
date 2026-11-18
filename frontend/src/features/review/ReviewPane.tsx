@@ -21,7 +21,7 @@ export type RoundsApi = {
   add: (round: string, item: NewItem) => Promise<RoundData>;
   update: (round: string, id: string, feedback: string) => Promise<RoundData>;
   remove: (round: string, id: string) => Promise<RoundData>;
-  seal: (round: string) => Promise<Sealed>;
+  seal?: (round: string) => Promise<Sealed>; // without it, rounds are finished elsewhere (e.g. "Send feedback")
   discard: (round: string) => Promise<unknown>;
 };
 
@@ -42,7 +42,7 @@ const elementOf = (node: Node | null): Element | null =>
 
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-function errorText(e: unknown): string {
+export function errorText(e: unknown): string {
   return e instanceof ApiError || e instanceof Error ? e.message : String(e);
 }
 
@@ -103,7 +103,7 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
 
   const finish = () =>
     run(async () => {
-      if (!round.data) return;
+      if (!round.data || !api.seal) return;
       const result = await api.seal(round.data.round);
       setSealed(result);
       setRoundId(result.round);
@@ -204,14 +204,16 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
         {reviewing && round.data && (
           <>
             <span className="text-xs text-slate-400">{plural(round.data.items.length, "comment")}</span>
-            <button
-              onClick={finish}
-              disabled={round.data.items.length === 0}
-              className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}
-              title="Seal this round"
-            >
-              <Check className="size-4" /> Finish
-            </button>
+            {api.seal && (
+              <button
+                onClick={finish}
+                disabled={round.data.items.length === 0}
+                className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}
+                title="Seal this round"
+              >
+                <Check className="size-4" /> Finish
+              </button>
+            )}
             <button
               onClick={() => discard(round.data!.round)}
               className={`${btn} text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950`}

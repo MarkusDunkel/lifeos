@@ -43,6 +43,7 @@ from lifeos.agents.runlog import RunRecord, append_run
 from lifeos.agents.spend import Spend
 from lifeos.connectors.github.client import Project, item_values
 from lifeos.core.vault import Vault, write_atomic
+from lifeos.modules.reviews import handoff
 
 log = logging.getLogger("lifeos.agents")
 
@@ -149,7 +150,7 @@ class RunContext:
         log.info("%s #%s: %s", self.agent.name, self.ticket.number, text)
         self.steps.append(text)
 
-    def owner_feedback(self) -> list[str]:
+    def _owner_comments(self) -> list[str]:
         """The owner's comments since this agent last wrote on the ticket before this run.
 
         Comments with an agent marker are not the owner's; the start comment of the
@@ -164,6 +165,19 @@ class RunContext:
             for c in notes[since + 1 :]
             if comments.agent_of(c["body"]) is None and c["body"].strip()
         ]
+
+    def owner_feedback(self) -> list[str]:
+        """The owner's plain comments (without those sent from the review page)."""
+        return [c for c in self._owner_comments() if handoff.parse_marker(c) is None]
+
+    def review_rounds(self) -> list[handoff.SentRound]:
+        """The sealed rounds the owner sent from the review page since the last run."""
+        out: list[handoff.SentRound] = []
+        for c in self._owner_comments():
+            payload = handoff.parse_marker(c)
+            if payload is not None:
+                out += handoff.load_sent(self.vault, payload)
+        return out
 
 
 Workflow = Callable[[RunContext], RunResult]

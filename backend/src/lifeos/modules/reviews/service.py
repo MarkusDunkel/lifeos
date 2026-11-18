@@ -8,19 +8,25 @@ and are cached in memory by the content of their input; nothing is written to th
 from __future__ import annotations
 
 import hashlib
+import re
 import threading
 from collections import OrderedDict
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
+from lifeos.agents.comments import Texts
 from lifeos.core.vault import FEEDBACK, READY, Vault, VaultPathError
+from lifeos.modules.reviews import handoff
 from lifeos.modules.reviews.package import PACKAGE_FILE, Document, Package, parse_package
-from lifeos.modules.workspaces.feedback import Scope
+from lifeos.modules.workspaces.feedback import Scope, parse
 from lifeos.modules.workspaces.rounds import FeedbackError, FeedbackRounds, sha256_of
 
 Generator = Callable[[Vault, Path], bytes]  # (vault, input file) -> PDF
+Committer = Callable[[list[str], str], None]  # (vault paths, message), e.g. in the background
+TICKET_RE = re.compile(r"^([\w.-]+/[\w.-]+)#(\d+)$")
 CACHE_SIZE = 16
 
 
@@ -56,8 +62,14 @@ class ReviewService:
         vault: Vault,
         rounds: FeedbackRounds | None = None,
         generators: dict[str, Generator] | None = None,
+        github: Callable[[], Any] | None = None,
+        committer: Committer | None = None,
+        public_url: str = "",
     ) -> None:
         self.vault = vault
+        self.github = github  # a GitHub client factory; None without a token
+        self.committer = committer
+        self.public_url = public_url.rstrip("/")
         self.feedback = rounds or FeedbackRounds(vault)
         self.generators = generators if generators is not None else application_generators()
         self._cache: OrderedDict[tuple[str, str], bytes] = OrderedDict()
@@ -199,3 +211,56 @@ class ReviewService:
 
     def discard(self, path: str, doc: int, round_id: str) -> None:
         self.feedback.discard(self._source(path, doc), round_id)
+
+    # -- send feedback to the ticket --------------------------------------------------------
+
+    def pending(self, package: Package) -> list[handoff.SentRound]:
+        """The open LifeOS drafts with comments, one per source file at most."""
+        out: list[handoff.SentRound] = []
+        for d in package.documents:
+            rel = package.rel(d.source)
+            if not self.vault.resolve(rel).is_file() or any(s.source == rel for s in out):
+                continue
+            for info in self.feedback.rounds(rel):
+                if info.editable and info.items:
+                    text = self.feedback.round_file(rel, info.round).read_text(encoding="utf-8")
+                    out.append(handoff.SentRound(d.label, rel, parse(text)))
+                    break
+        return out
+
+    def send(self, path: str) -> dict[str, Any]:
+        """Post the open comments of all documents to the ticket, then seal their rounds.
+
+        The ticket is not moved: the owner moves it back to the agent when it should rework.
+        The comment is posted first, so a failure leaves the drafts open for another try.
+        """
+        package, _ = self._package(path)
+        match = TICKET_RE.match(package.ticket or "")
+        if not match:
+            raise FeedbackError("this package names no ticket (owner/repo#number)", 400)
+        if self.github is None:
+            raise FeedbackError("GitHub is not configured (LIFEOS_GITHUB_TOKEN)", 503)
+        rounds = self.pending(package)
+        if not rounds:
+            raise FeedbackError("there are no comments to send", 400)
+
+        url = f"{self.public_url}/reviews/{quote(package.path)}" if self.public_url else None
+        refs = [{"label": s.label, "source": s.source, "round": s.round.round} for s in rounds]
+        body = "\n".join([handoff.marker(package.path, refs),
+                          handoff.summary(Texts.load(self.vault), rounds, url)])  # fmt: skip
+        gh = self.github()
+        issue = gh.issue(match.group(1), int(match.group(2)))
+        gh.add_comment(issue["id"], body)
+
+        paths = []
+        for s in rounds:
+            self.feedback.seal(s.source, s.round.round)
+            paths.append(self.feedback.feedback_rel(s.source, s.round.round))
+        if self.committer:
+            self.committer(paths, f"review: feedback on {package.title} ({package.ticket})")
+        return {
+            "ticket": package.ticket,
+            "url": issue.get("url"),
+            "comments": sum(len(s.round.items) for s in rounds),
+            "rounds": refs,
+        }

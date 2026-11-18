@@ -1,13 +1,23 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, ExternalLink, FileText, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, FileText, Send, TriangleAlert, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { treeQuery } from "../knowledge/api";
 import { flattenFiles } from "../knowledge/links";
 import { MarkdownView } from "../knowledge/MarkdownView";
 import { formatTime } from "../workspaces/review";
-import { btn, plural, PromptNote, ReviewPane } from "../review/ReviewPane";
-import { packageQuery, packagesQuery, type ReviewDocument, roundsApi, ticketUrl, viewUrl } from "./api";
+import { btn, errorText, plural, ReviewPane } from "../review/ReviewPane";
+import {
+  packageQuery,
+  packagesQuery,
+  pendingComments,
+  type ReviewDocument,
+  roundsApi,
+  type SendResult,
+  sendFeedback,
+  ticketUrl,
+  viewUrl,
+} from "./api";
 
 export function PackageList() {
   const { data, isError } = useQuery(packagesQuery);
@@ -47,12 +57,27 @@ export function PackageList() {
 
 export function ReviewPage({ path }: { path: string }) {
   const pkg = useQuery(packageQuery(path));
+  const queryClient = useQueryClient();
   const [active, setActive] = useState(0);
+  const [sent, setSent] = useState<SendResult | null>(null);
+  const send = useMutation({
+    mutationFn: () => sendFeedback(path),
+    onSuccess: (result) => setSent(result),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["reviews"] }),
+  });
   if (pkg.isError) return <p className="p-6 text-slate-500">This review package does not exist (anymore).</p>;
   if (!pkg.data) return <p className="p-6 text-slate-400">Loading…</p>;
   const docs = pkg.data.documents;
   const doc = docs[Math.min(active, docs.length - 1)];
   const ticket = pkg.data.ticket ? ticketUrl(pkg.data.ticket) : null;
+  const pending = pendingComments(docs);
+  const confirmSend = () => {
+    const text =
+      `Send ${plural(pending, "comment")} to ${pkg.data.ticket}?\n\n` +
+      "The drafts are sealed and can no longer change. The ticket stays where it is: " +
+      "move it back to the agent's column when it should rework the documents.";
+    if (window.confirm(text)) send.mutate();
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -65,6 +90,36 @@ export function ReviewPage({ path }: { path: string }) {
           <a href={ticket} target="_blank" rel="noreferrer" className={`${btn} text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800`}>
             {pkg.data.ticket} <ExternalLink className="size-3.5" />
           </a>
+        )}
+        {pkg.data.ticket && (
+          <button
+            onClick={confirmSend}
+            disabled={pending === 0 || send.isPending}
+            className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}
+            title={pending === 0 ? "Add comments to the documents first" : "Post all comments to the ticket"}
+          >
+            <Send className="size-4" /> {send.isPending ? "Sending…" : `Send feedback${pending ? ` (${pending})` : ""}`}
+          </button>
+        )}
+        {send.isError && <p className="w-full text-sm text-red-600">Could not send: {errorText(send.error)}</p>}
+        {sent && (
+          <div className="flex w-full items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+            <Check className="size-4 shrink-0" />
+            <span className="flex-1">
+              Sent {plural(sent.comments, "comment")} to{" "}
+              {sent.url ? (
+                <a href={sent.url} target="_blank" rel="noreferrer" className="underline">
+                  {sent.ticket}
+                </a>
+              ) : (
+                sent.ticket
+              )}
+              . Move the ticket back to the agent when it should rework the documents.
+            </span>
+            <button onClick={() => setSent(null)} aria-label="Close">
+              <X className="size-4" />
+            </button>
+          </div>
         )}
         <nav className="flex w-full gap-1 overflow-x-auto" role="tablist">
           {docs.map((d) => (
@@ -104,7 +159,6 @@ function DocumentReview({ path, doc }: { path: string; doc: ReviewDocument }) {
       canReview
       title={<span className="text-xs">{doc.source}</span>}
       preview={<Preview path={path} doc={doc} />}
-      sealedNote={(result) => <PromptNote prompt={result.prompt} />}
     />
   );
 }

@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { api, qs } from "../../lib/api";
-import type { RoundData, RoundInfo, Sealed } from "../workspaces/api";
+import type { RoundData, RoundInfo } from "../workspaces/api";
 import type { NewItem, RoundsApi } from "../review/ReviewPane";
 
 export type ViewType = "markdown" | "pdf" | "pdf-generated" | "none";
@@ -62,7 +62,25 @@ export function roundsApi(path: string, doc: number): RoundsApi {
     add: (round, item: NewItem) => post<RoundData>("/api/reviews/rounds/items", { ...ref, round, ...item }),
     update: (round, id, feedback) => post<RoundData>("/api/reviews/rounds/items", { ...ref, round, id, feedback }, "PUT"),
     remove: (round, id) => post<RoundData>("/api/reviews/rounds/items/delete", { ...ref, round, id }),
-    seal: (round) => post<Sealed>("/api/reviews/rounds/seal", { ...ref, round }),
+    // no `seal`: rounds of a package are sealed together by "Send feedback"
     discard: (round) => post("/api/reviews/rounds/discard", { ...ref, round }),
   };
+}
+
+export type SendResult = { ticket: string; url: string | null; comments: number };
+
+/** Post the open comments of all documents to the package's ticket and seal their rounds. */
+export const sendFeedback = (path: string) => post<SendResult>("/api/reviews/send", { path });
+
+/** Comments in open drafts, counted once per file (two documents may share a source). */
+export function pendingComments(docs: ReviewDocument[]): number {
+  const seen = new Set<string>();
+  let count = 0;
+  for (const d of docs) {
+    const draft = d.rounds.find((r) => r.editable);
+    if (!draft || seen.has(d.source)) continue;
+    seen.add(d.source);
+    count += draft.items;
+  }
+  return count;
 }

@@ -207,9 +207,10 @@ def test_feedback_is_reported_as_read_and_general_points_become_proposals(gh, va
     gh.add_comment("I1", "Und generell: nie das Gehalt nennen.")
     gh.values(item)["Status"] = "Active"
     read = [
-        FeedbackItem(comment="Einleitung kürzer", understood="Gekürzt.", general=False,
-                     proposal_title="", proposal_body=""),
-        FeedbackItem(comment="nie das Gehalt nennen", understood="Gilt künftig immer.",
+        FeedbackItem(number=1, comment="Einleitung kürzer", applied=True, understood="Gekürzt.",
+                     general=False, proposal_title="", proposal_body=""),
+        FeedbackItem(number=2, comment="nie das Gehalt nennen", applied=True,
+                     understood="Gilt künftig immer.",
                      general=True, proposal_title="Writer: never name a salary",
                      proposal_body="Occasion: comment on #1."),
     ]  # fmt: skip
@@ -280,3 +281,50 @@ def test_writer_leaves_a_review_package(gh, vault) -> None:
     assert letter["source"].endswith("/Cover-Letter.md") and letter["view"] == "pdf-generated"
     assert letter["content"].startswith("# ") and "Mit freundlichen Grüßen" in letter["content"]
     assert cv["content"].startswith("# ") and "## Experience" in cv["content"]
+
+
+def test_review_feedback_is_read_from_the_rounds_and_answered(gh, vault) -> None:
+    from lifeos.modules.reviews.service import ReviewService
+    from lifeos.modules.workspaces.rounds import FeedbackRounds
+
+    mirrored(gh, vault)
+    item = gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    run(gh, vault, FakeLlm([output(), review()]))
+    gh.issue = lambda repo, number: {"id": "I1", "url": "https://github.com/x/issues/1"}
+    service = ReviewService(vault, generators={}, github=lambda: gh)
+    rid = service.start(FOLDER, 0)["round"]
+    service.add_item(FOLDER, 0, rid, start_line=1, end_line=1, scope="blocks",
+                     feedback="Betreff zu lang.")  # fmt: skip
+    rid2 = service.start(FOLDER, 1)["round"]
+    service.add_item(FOLDER, 1, rid2, start_line=1, end_line=1, scope="blocks",
+                     feedback="Titel passt nicht.")  # fmt: skip
+    service.send(FOLDER)
+    assert gh.values(item)["Status"] == "In Review"  # sending does not move the ticket
+    gh.add_comment("I1", "Und kürzer bitte.")  # a plain comment as well
+    gh.values(item)["Status"] = "Active"
+
+    read = [
+        FeedbackItem(number=1, comment="kürzer", applied=True, understood="Gekürzt.",
+                     general=False, proposal_title="", proposal_body=""),
+        FeedbackItem(number=2, comment="Betreff", applied=True, understood="Betreff gekürzt.",
+                     general=False, proposal_title="", proposal_body=""),
+        FeedbackItem(number=3, comment="Titel", applied=False,
+                     understood="Der Titel steht so im Master-Lebenslauf.",
+                     general=False, proposal_title="", proposal_body=""),
+    ]  # fmt: skip
+    llm = FakeLlm([output(feedback=read), review()])
+    run(gh, vault, llm)
+
+    prompt = llm.calls[0][2]
+    assert "Comment 1:\nUnd kürzer bitte." in prompt
+    assert "Comment 2 (review page, Cover letter, Cover-Letter.md lines 1-1)" in prompt
+    assert "Betreff zu lang." in prompt and "Comment 3 (review page, CV," in prompt
+    assert "Feedback from the review" not in prompt  # the summary is not read twice
+    report = gh.comments[-1][1]
+    assert "“kürzer” → for this ticket: Gekürzt." in report
+    assert "Cover letter F1" in report and "✅ done: Betreff gekürzt." in report
+    assert "↩️ not done: Der Titel steht so im Master-Lebenslauf." in report
+    rounds = FeedbackRounds(vault)
+    answers = rounds.response(f"{FOLDER}/Cover-Letter.md", rid)
+    assert [(a.id, a.status, a.text) for a in answers] == [("F1", "done", "Betreff gekürzt.")]
+    assert rounds.response(f"{FOLDER}/CV.md", rid2)[0].status == "declined"
