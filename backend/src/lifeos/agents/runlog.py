@@ -21,6 +21,9 @@ class RunRecord:
     cost_eur: float
     steps: list[str] = field(default_factory=list)
     result: str = ""
+    billing: str = "api"
+    tokens: int = 0  # subscription only
+    list_eur: float = 0.0  # subscription only: the API price of the same calls
 
 
 def runlog_path(agent: str) -> str:
@@ -36,6 +39,11 @@ def append_run(vault: Vault, agent: str, title: str, record: RunRecord, t: Texts
         text = f"{t('runlog_title', agent=title)}\n\n{t('runlog_intro')}\n"
     key = f"outcome_{record.outcome}"
     outcome = t(key) if key in t.texts else record.outcome
+    if record.billing == "subscription":
+        tokens, list_cost = round(record.tokens / 1000), f"{record.list_eur:.2f}"
+        cost = t("runlog_subscription", tokens=tokens, list_cost=list_cost)
+    else:
+        cost = f"{t('runlog_cost')}: {record.cost_eur:.2f} €"
     lines = [
         "",
         f"## {record.started} · {record.ticket} · {outcome}",
@@ -44,7 +52,7 @@ def append_run(vault: Vault, agent: str, title: str, record: RunRecord, t: Texts
         f"- {t('runlog_board')}: {record.board}",
         f"- {t('runlog_instructions')} `{record.instructions or '–'}`",
         f"- {t('runlog_duration')}: {record.seconds // 60} min {record.seconds % 60} s",
-        f"- {t('runlog_cost')}: {record.cost_eur:.2f} €",
+        f"- {cost}",
     ]
     if record.steps:
         lines += [f"- {t('runlog_steps')}:"] + [f"  - {s}" for s in record.steps]

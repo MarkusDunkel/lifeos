@@ -115,7 +115,7 @@ def gh() -> CommentingGitHub:
 
 
 def run(gh, vault, llm) -> list[str]:
-    workflow = make_application_writer(llm_factory=lambda model: llm)
+    workflow = make_application_writer(llm_factory=lambda agent: llm)
     return team(gh, vault, "apps", {"application-writer": workflow}, git=FakeGit()).poll()
 
 
@@ -220,3 +220,23 @@ def test_usage_cost() -> None:
     used = usage_usd("claude-opus-5-5", U)
     assert used.searches == 3
     assert round(used.usd, 2) == round(4 + 2 + 0.2 + 0.03, 2)
+
+
+def test_billing_selects_the_model_access(monkeypatch) -> None:
+    from lifeos.agents.config import parse_agent
+    from lifeos.modules.applications.writer import (
+        AnthropicLlm,
+        ClaudeCodeLlm,
+        Settings,
+        default_llm,
+    )
+
+    head = "---\nname: w\nmodel: claude-opus-5-5\n"
+    sub = parse_agent(head + "billing: subscription\n---\nbody", "agents/w.md")
+    llm = default_llm(sub, Settings(claude_command="/opt/claude --debug", claude_timeout=60))
+    assert isinstance(llm, ClaudeCodeLlm)
+    assert llm.cli.command == ["/opt/claude", "--debug"] and llm.cli.timeout == 60
+    assert llm.model == "claude-opus-5-5"
+    api = parse_agent(head + "---\nbody", "agents/w.md")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")  # the client needs one to start
+    assert isinstance(default_llm(api, Settings()), AnthropicLlm)

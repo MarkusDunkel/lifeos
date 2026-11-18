@@ -152,6 +152,20 @@ class Settings(BaseSettings):
         description="Exchange rate for the cost shown in agent reports (API prices are in USD).",
     )
 
+    claude_command: str = Field(
+        default="claude",
+        description=(
+            "Command that starts Claude Code, for agents with `billing: subscription` (they "
+            "run `claude -p` with CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`)."
+        ),
+    )
+
+    claude_timeout: int = Field(
+        default=900,
+        gt=0,
+        description="Seconds one Claude Code call of an agent may take before it is stopped.",
+    )
+
     @property
     def github_project_list(self) -> list[str]:
         refs = [r.strip() for r in self.github_projects.split(",") if r.strip()]

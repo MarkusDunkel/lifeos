@@ -21,6 +21,10 @@ def build_workflows(settings: Settings) -> dict[str, Workflow]:
 
     return {
         "application-writer": writer.make_application_writer(
-            writer.Settings(eur_per_usd=settings.agents_eur_per_usd)
+            writer.Settings(
+                eur_per_usd=settings.agents_eur_per_usd,
+                claude_command=settings.claude_command,
+                claude_timeout=settings.claude_timeout,
+            )
         ),
     }

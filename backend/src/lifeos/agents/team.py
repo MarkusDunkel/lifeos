@@ -39,6 +39,7 @@ from lifeos.agents.config import (
 )
 from lifeos.agents.mirror import STATUS, split_project
 from lifeos.agents.runlog import RunRecord, append_run
+from lifeos.agents.spend import Spend
 from lifeos.connectors.github.client import Project, item_values
 from lifeos.core.vault import Vault, write_atomic
 
@@ -119,7 +120,15 @@ class RunContext:
     texts: Texts = field(default_factory=Texts)
     vault_web_url: str | None = None  # https://github.com/<owner>/<vault repo>
     steps: list[str] = field(default_factory=list)
-    cost_eur: float = 0.0
+    spend: Spend = field(default_factory=Spend)
+
+    @property
+    def cost_eur(self) -> float:
+        return self.spend.cost_eur
+
+    @cost_eur.setter
+    def cost_eur(self, value: float) -> None:
+        self.spend.cost_eur = value
 
     def step(self, text: str) -> None:
         """Record a step for the run log (what happened, in plain words)."""
@@ -291,6 +300,7 @@ class Team:
                 column.description if column else "",
                 comments.numbered_steps(agent.section(self.t("workflow_heading"))),
                 instructions,
+                comments.billing_line(self.t, agent.billing),
             ),
         )
 
@@ -311,8 +321,10 @@ class Team:
             outcome, message = "error", f"{type(exc).__name__}: {exc}"
 
         seconds = int(time.monotonic() - t0)
-        cost = result.cost_eur if result else ctx.cost_eur
-        footer = comments.footer(self.t, revision, seconds, cost)
+        spend = ctx.spend
+        if result is not None and result.cost_eur:
+            spend.cost_eur = max(spend.cost_eur, result.cost_eur)
+        footer = comments.footer(self.t, revision, seconds, spend, agent.billing, self.clock())
         if outcome == "done" and result is not None:
             body = comments.report_comment(self.t, agent.name, result.report, footer)
             self.gh.add_comment(ticket.issue_id, body)
@@ -341,9 +353,12 @@ class Team:
             outcome=outcome,
             instructions=revision or "",
             seconds=seconds,
-            cost_eur=cost,
+            cost_eur=spend.cost_eur,
             steps=ctx.steps,
             result=summary,
+            billing=agent.billing,
+            tokens=spend.tokens,
+            list_eur=spend.list_eur,
         )
         paths = [append_run(self.vault, agent.name, agent.title, record, self.t)]
         paths += result.paths if result else []

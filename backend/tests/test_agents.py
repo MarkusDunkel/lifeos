@@ -464,3 +464,55 @@ def test_github_web_url() -> None:
 def test_numbered_steps_joins_wrapped_lines() -> None:
     section = "1. First step\n   continues here.\n2. Second.\n\nAfter the list."
     assert comments.numbered_steps(section) == "1. First step continues here.\n2. Second."
+
+
+# -- billing: API or subscription ------------------------------------------------------------
+
+
+def test_billing_defaults_to_api_and_is_validated(vault) -> None:
+    assert load_config(vault).agents["writer"].billing == "api"
+    path = vault.resolve("agents/writer.md")
+    path.write_text(WRITER.replace("board: apps", "board: apps\nbilling: subscription"),
+                    encoding="utf-8")  # fmt: skip
+    assert load_config(vault).agents["writer"].billing == "subscription"
+    path.write_text(WRITER.replace("board: apps", "board: apps\nbilling: free"), encoding="utf-8")
+    cfg = load_config(vault)
+    assert "writer" not in cfg.agents
+    assert any("billing must be one of api, subscription" in e for e in cfg.errors)
+
+
+def test_subscription_run_shows_tokens_usage_and_token_expiry(gh, vault) -> None:
+    vault.resolve("agents/writer.md").write_text(
+        WRITER.replace("board: apps", "board: apps\nbilling: subscription"), encoding="utf-8"
+    )
+    mirrored(gh, vault)
+    gh.ticket(4, "Company – Role", Status="Active")
+    now = datetime(2026, 12, 1, 9, 0, tzinfo=UTC)
+
+    def write(ctx: RunContext) -> RunResult:
+        ctx.spend.tokens = 212_400
+        ctx.spend.list_eur = 0.71
+        ctx.spend.limits = {"five_hour": 0.43, "seven_day": 0.271}
+        ctx.spend.credential_expires_at = "2026-12-10T08:00:00Z"
+        return RunResult(report="ok", summary="Company")
+
+    team(gh, vault, "apps", {"write": write}, clock=lambda: now).poll()
+    start, report = (body for _, body in gh.comments)
+    assert "💳 Paid via: Claude subscription" in start
+    assert "212k tokens (API price 0.71 €)" in report
+    assert "usage 43 % (5 h), 27 % (week)" in report
+    assert "expires on 2026-12-10" in report and "claude setup-token" in report
+    assert " · 0.00 €" not in report
+    log = vault.resolve("agents/writer/runs.md").read_text(encoding="utf-8")
+    assert "Subscription: 212k tokens (API price 0.71 €)" in log
+
+
+def test_api_footer_keeps_the_cost() -> None:
+    from lifeos.agents.spend import Spend
+
+    text = comments.footer(comments.Texts(), "abc", 75, Spend(cost_eur=0.42))
+    assert text == "<sub>Instructions `abc` · 1 min 15 s · 0.42 €</sub>"
+    far = Spend(tokens=1000, credential_expires_at="2027-06-01T00:00:00Z")
+    sub = comments.footer(comments.Texts(), "abc", 5, far, "subscription",
+                          datetime(2026, 12, 1, tzinfo=UTC))  # fmt: skip
+    assert "1k tokens" in sub and "expires" not in sub and "usage" not in sub

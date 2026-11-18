@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import json
 import logging
+import shlex
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Protocol
 from urllib.parse import quote
@@ -31,12 +32,14 @@ from urllib.parse import quote
 from pydantic import BaseModel, Field, ValidationError
 
 from lifeos.agents.claude_code import (
+    DEFAULT_TIMEOUT,
     WEB_TOOLS,
     CallResult,
     ClaudeCode,
     Refused,
     SubscriptionLimit,
 )
+from lifeos.agents.config import AgentDef
 from lifeos.agents.team import AgentBlocked, RunContext, RunResult
 from lifeos.core.vault import write_atomic
 from lifeos.modules.applications.model import Draft, DraftError, resolve_cv
@@ -108,6 +111,8 @@ class Usage:
     searches: int = 0
     tokens: int = 0  # subscription only: tokens processed
     list_usd: float = 0.0  # subscription only: the API list price of the same calls
+    limits: dict[str, float] = field(default_factory=dict)  # subscription utilisation, latest
+    credential_expires_at: str | None = None  # subscription token, latest
 
     def __add__(self, other: Usage) -> Usage:
         return Usage(
@@ -115,6 +120,8 @@ class Usage:
             self.searches + other.searches,
             self.tokens + other.tokens,
             self.list_usd + other.list_usd,
+            other.limits or self.limits,
+            other.credential_expires_at or self.credential_expires_at,
         )
 
 
@@ -234,7 +241,14 @@ class ClaudeCodeLlm:
 
     @staticmethod
     def _usage(result: CallResult) -> Usage:
-        return Usage(0.0, result.searches, result.tokens, result.list_usd)
+        return Usage(
+            0.0,
+            result.searches,
+            result.tokens,
+            result.list_usd,
+            dict(result.rate_limit.utilization) if result.rate_limit else {},
+            result.credential_expires_at,
+        )
 
     def research(
         self, system: str, prompt: str, max_searches: int, effort: str
@@ -348,6 +362,17 @@ def tag(name: str, text: str) -> str:
 @dataclass
 class Settings:
     eur_per_usd: float = 0.9
+    claude_command: str = "claude"  # Claude Code, for billing: subscription
+    claude_timeout: int = DEFAULT_TIMEOUT
+
+
+def default_llm(agent: AgentDef, settings: Settings) -> Llm:
+    """The model access the agent file asks for (``billing:``)."""
+    if agent.billing == "subscription":
+        cli = ClaudeCode(command=shlex.split(settings.claude_command),
+                         timeout=settings.claude_timeout)  # fmt: skip
+        return ClaudeCodeLlm(agent.model, cli)
+    return AnthropicLlm(agent.model)
 
 
 def application_folder(ctx: RunContext) -> str:
@@ -389,9 +414,10 @@ def validate(output: WriterOutput, profile: Any) -> tuple[Any | None, list[str]]
 
 def make_application_writer(
     settings: Settings | None = None,
-    llm_factory: Callable[[str], Llm] = AnthropicLlm,
+    llm_factory: Callable[[AgentDef], Llm] | None = None,
 ) -> Callable[[RunContext], RunResult]:
     settings = settings or Settings()
+    make_llm = llm_factory or (lambda agent: default_llm(agent, settings))
 
     def run(ctx: RunContext) -> RunResult:
         agent = ctx.agent
@@ -408,7 +434,11 @@ def make_application_writer(
         def charge(used: Usage) -> None:
             nonlocal spent
             spent += used
-            ctx.cost_eur = spent.usd * settings.eur_per_usd
+            ctx.spend.cost_eur = spent.usd * settings.eur_per_usd
+            ctx.spend.tokens = spent.tokens
+            ctx.spend.list_eur = spent.list_usd * settings.eur_per_usd
+            ctx.spend.limits = dict(spent.limits)
+            ctx.spend.credential_expires_at = spent.credential_expires_at
 
         folder = application_folder(ctx)
         posting = read_text(ctx, f"{folder}/Posting.md")
@@ -418,7 +448,7 @@ def make_application_writer(
             profile = load_profile(ctx.vault)
         except ProfileError as exc:
             raise AgentBlocked(f"The master CV cannot be read: {exc}") from exc
-        llm = llm_factory(agent.model)
+        llm = make_llm(agent)
         guide = read_text(ctx, GUIDE_FILE)
         master = read_text(ctx, MASTER_FILE)
         feedback = ctx.owner_feedback()

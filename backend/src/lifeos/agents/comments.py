@@ -11,11 +11,13 @@ defaults here are English.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 import yaml
 
 from lifeos.agents.config import AGENTS_DIR
+from lifeos.agents.spend import Spend
 from lifeos.core.vault import Vault
 
 TEXTS_FILE = f"{AGENTS_DIR}/texts.yaml"
@@ -44,6 +46,21 @@ DEFAULT_TEXTS: dict[str, str] = {
         "cannot work on this ticket."
     ),
     "footer": "<sub>Instructions `{revision}` · {minutes} min {seconds} s · {cost} €</sub>",
+    "footer_subscription": (
+        "<sub>Instructions `{revision}` · {minutes} min {seconds} s · subscription: "
+        "{tokens}k tokens (API price {list_cost} €){limits}</sub>"
+    ),
+    "limits": " · usage {windows}",
+    "window": "{percent} % ({name})",
+    "window_five_hour": "5 h",
+    "window_seven_day": "week",
+    "credential_expiring": (
+        "⚠️ The Claude subscription token expires on {date}. Create a new one with "
+        "`claude setup-token` and replace it on the server."
+    ),
+    "billing_line": "💳 Paid via: {way}",
+    "billing_api": "API (pay per use)",
+    "billing_subscription": "Claude subscription",
     "workflow_heading": "Workflow",
     "drift_title": "Board “{title}” differs from the vault",
     "drift_body": (
@@ -60,6 +77,7 @@ DEFAULT_TEXTS: dict[str, str] = {
     "runlog_instructions": "Instructions: revision",
     "runlog_duration": "Duration",
     "runlog_cost": "Cost",
+    "runlog_subscription": "Subscription: {tokens}k tokens (API price {list_cost} €)",
     "runlog_steps": "Steps",
     "runlog_result": "Result",
     "outcome_done": "done",
@@ -142,6 +160,7 @@ def start_comment(
     description: str,
     steps: str,
     instructions: str,
+    billing: str = "",
 ) -> str:
     parts = [
         marker(agent),
@@ -152,6 +171,8 @@ def start_comment(
     if steps:
         parts += ["", t("what_i_do"), steps]
     parts += ["", instructions]
+    if billing:
+        parts.append(billing)
     return "\n".join(parts)
 
 
@@ -179,11 +200,41 @@ def interrupted_comment(t: Texts, agent: str, minutes: int) -> str:
     )  # fmt: skip
 
 
-def footer(t: Texts, revision: str | None, seconds: int, cost_eur: float) -> str:
-    return t(
-        "footer",
-        revision=revision or "–",
-        minutes=seconds // 60,
-        seconds=seconds % 60,
-        cost=f"{cost_eur:.2f}",
+def billing_line(t: Texts, billing: str) -> str:
+    return t("billing_line", way=t(f"billing_{billing}"))
+
+
+def kilo(tokens: int) -> str:
+    return str(round(tokens / 1000))
+
+
+def footer(
+    t: Texts,
+    revision: str | None,
+    seconds: int,
+    spend: Spend,
+    billing: str = "api",
+    now: datetime | None = None,
+) -> str:
+    common = {"revision": revision or "–", "minutes": seconds // 60, "seconds": seconds % 60}
+    if billing != "subscription":
+        return t("footer", cost=f"{spend.cost_eur:.2f}", **common)
+    windows = [
+        t(
+            "window",
+            percent=round(share * 100),
+            name=t(f"window_{name}") if f"window_{name}" in t.texts else name,
+        )  # fmt: skip
+        for name, share in spend.limits.items()
+    ]
+    text = t(
+        "footer_subscription",
+        tokens=kilo(spend.tokens),
+        list_cost=f"{spend.list_eur:.2f}",
+        limits=t("limits", windows=", ".join(windows)) if windows else "",
+        **common,
     )
+    expires = spend.expires_soon(now or datetime.now(UTC))
+    if expires is not None:
+        text = t("credential_expiring", date=expires.strftime("%Y-%m-%d")) + "\n\n" + text
+    return text

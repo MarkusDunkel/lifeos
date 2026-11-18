@@ -20,6 +20,7 @@ NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 AI_FIELD = "AI"
 RUNNING = "running"
 BLOCKED = "blocked"
+BILLING = ("api", "subscription")  # how an agent's model calls are paid
 AI_OPTIONS = [RUNNING, BLOCKED]
 OWNER_AI = "ai"
 README_HEADING = re.compile(r"^##\s+README\b.*$", re.M)
@@ -90,6 +91,7 @@ class AgentDef:
     model: str
     raw: dict[str, Any]
     body: str
+    billing: str = "api"  # api (pay per token) | subscription (Claude Code, owner's plan)
 
     @property
     def responsible_option(self) -> str:
@@ -191,6 +193,9 @@ def parse_agent(text: str, path: str) -> AgentDef:
         raise ConfigError(f"{path}: agent name must be lower-case letters, digits and '-'")
     if path.rsplit("/", 1)[-1] != f"{name}.md":
         raise ConfigError(f"{path}: file name must be {name}.md")
+    billing = str(front.get("billing", "api"))
+    if billing not in BILLING:
+        raise ConfigError(f"{path}: billing must be one of {', '.join(BILLING)}")
     return AgentDef(
         name=name,
         title=str(front.get("title") or name),
@@ -201,6 +206,7 @@ def parse_agent(text: str, path: str) -> AgentDef:
         model=str(front.get("model", "claude-opus-5-5")),
         raw=front,
         body=body,
+        billing=billing,
     )
 
 
