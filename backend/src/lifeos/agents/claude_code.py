@@ -29,6 +29,7 @@ KEEP_ENV = ("CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR")
 SUBSCRIPTION_SOURCE = "none"  # init event `apiKeySource` when no API key is in use
 WEB_TOOLS = ("WebSearch", "WebFetch")
 FILE_TOOLS = ("Read", "Edit", "Write", "Glob", "Grep")  # no Bash: the code applies changes
+ALL_TOOLS = ("default",)  # every built-in tool, incl. the shell and the web
 DEFAULT_TIMEOUT = 15 * 60
 
 
@@ -64,6 +65,7 @@ class CallResult:
     searches: int = 0
     rate_limit: RateLimit | None = None
     credential_expires_at: str | None = None
+    tool_uses: list[dict[str, Any]] = field(default_factory=list)  # {"name", "input"} in order
 
 
 def clean_env(env: dict[str, str] | None = None) -> dict[str, str]:
@@ -100,10 +102,12 @@ class ClaudeCode:
         schema: dict[str, Any] | None = None,
         max_turns: int | None = None,
         workdir: Path | None = None,
+        unrestricted: bool = False,
     ) -> CallResult:
         """One call. ``workdir`` is where file tools work (default: an empty directory);
         Claude Code does not edit files outside its working directory without a prompt,
-        which a non-interactive call never answers."""
+        which a non-interactive call never answers. ``unrestricted`` skips all permission
+        prompts (``bypassPermissions``): every given tool may do anything the process may."""
         with tempfile.TemporaryDirectory(
             prefix="lifeos-claude-", ignore_cleanup_errors=True
         ) as tmp:
@@ -125,7 +129,9 @@ class ClaudeCode:
                 "--system-prompt-file", str(system_file),
                 "--tools", ",".join(tools),
             ]  # fmt: skip
-            if tools:
+            if unrestricted:
+                args += ["--permission-mode", "bypassPermissions"]
+            elif tools:
                 args += ["--allowedTools", ",".join(tools)]
             if schema is not None:
                 args += ["--json-schema", json.dumps(schema)]
@@ -204,7 +210,10 @@ class ClaudeCode:
                 out.rate_limit = _rate_limit(event.get("rate_limit_info") or {})
             elif kind == "assistant":
                 for block in (event.get("message") or {}).get("content") or []:
-                    if block.get("type") == "tool_use" and block.get("name") == "WebSearch":
+                    if block.get("type") != "tool_use":
+                        continue
+                    out.tool_uses.append({"name": block.get("name"), "input": block.get("input")})
+                    if block.get("name") == "WebSearch":
                         out.searches += 1
             elif kind == "result":
                 return _finish(out, event)

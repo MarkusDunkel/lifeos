@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,8 @@ class FakeClaude:
         self.result = result
         self.calls: list[dict[str, Any]] = []
 
-    def __call__(self, settings):  # used as the factory
+    def __call__(self, settings, timeout):  # used as the factory
+        self.timeout = timeout
         return self
 
     def call(self, **kw: Any) -> CallResult:
@@ -180,3 +182,87 @@ def test_api_billing_cannot_work_on_tickets(gh, vault) -> None:
     approved(gh, vault)
     events = run(gh, vault, FakeClaude(lambda work: None, task()))
     assert "blocked" in events[0] and "billing: subscription" in gh.comments[-1][1]
+
+
+# -- access: full ---------------------------------------------------------------------------
+
+
+def set_access(vault: Vault, access: str) -> None:
+    path = vault.resolve("agents/assistant.md")
+    billing = "billing: subscription"
+    text = path.read_text(encoding="utf-8").replace(billing, f"{billing}\naccess: {access}")
+    path.write_text(text, encoding="utf-8")
+
+
+def full_access(vault: Vault) -> None:
+    set_access(vault, "full")
+    root = vault.root
+    for args in (
+        ["init", "-q"],
+        ["add", "-A"],
+        ["-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qm", "x"],
+    ):
+        subprocess.run(["git", "-C", str(root), *args], check=True)  # fmt: skip
+
+
+def test_full_access_works_in_the_vault_and_logs_every_step(gh, vault, monkeypatch) -> None:
+    full_access(vault)
+    monkeypatch.setenv("LIFEOS_GITHUB_TOKEN", "ghp_secret_value_123")
+    vault.resolve("ready/knowledge/Draft.md").write_text("owner's pending edit\n", encoding="utf-8")
+    item = approved(gh, vault)
+
+    def edit(work: Path) -> None:
+        assert work == vault.root  # no copy: the real vault
+        (work / "CLAUDE.md").write_text("# changed rules\n", encoding="utf-8")
+        (work / "ready/knowledge/Note.md").unlink()
+        (work / "ready/knowledge/New.md").write_text("# New\n", encoding="utf-8")
+
+    claude = FakeClaude(edit, task())
+    uses = [{"name": "Bash", "input": {"command": "echo ghp_secret_value_123 && ls"}},
+            {"name": "Edit", "input": {"file_path": "CLAUDE.md", "old_string": "x"}}]  # fmt: skip
+    original = claude.call
+
+    def call(**kw: Any) -> CallResult:
+        result = original(**kw)
+        result.tool_uses = uses
+        return result
+
+    claude.call = call  # type: ignore[method-assign]
+    git = FakeGit()
+    events = run(gh, vault, claude, git)
+    assert events == ["#1 assistant: done – Regel ergänzt"]
+    kw = claude.calls[0]
+    assert kw["tools"] == ("default",) and kw["unrestricted"] is True
+    assert kw["max_turns"] == 150 and claude.timeout == 45 * 60
+    assert "Do not commit or push the vault" in kw["system"]
+
+    committed = git.commits[0][0]
+    assert {"CLAUDE.md", "ready/knowledge/Note.md", "ready/knowledge/New.md"} <= set(committed)
+    assert "ready/knowledge/Draft.md" not in committed  # pending before the run: not ours
+    log_rel = next(p for p in committed if p.startswith("agents/assistant/logs/"))
+    log = vault.resolve(log_rel).read_text(encoding="utf-8")
+    assert "1. **Bash** – `echo *** && ls`" in log and "ghp_secret_value_123" not in log
+    assert "2. **Edit** – `CLAUDE.md`" in log
+    report = gh.comments[-1][1]
+    assert "**Every step of this run:**" in report and log_rel in report
+    assert gh.values(item)["Status"] == "Review"
+
+
+def test_full_access_question_lists_files_already_changed(gh, vault) -> None:
+    full_access(vault)
+    approved(gh, vault)
+
+    def edit(work: Path) -> None:
+        (work / "ready/knowledge/Note.md").write_text("half\n", encoding="utf-8")
+
+    run(gh, vault, FakeClaude(edit, task(question="Welche Version?")))
+    question = gh.comments[-1][1]
+    assert "Welche Version?" in question
+    assert "already changed these files" in question and "`ready/knowledge/Note.md`" in question
+
+
+def test_unknown_access_blocks(gh, vault) -> None:
+    set_access(vault, "root")
+    approved(gh, vault)
+    events = run(gh, vault, FakeClaude(lambda work: None, task()))
+    assert "blocked" in events[0] and "must be one of sandbox, full" in gh.comments[-1][1]

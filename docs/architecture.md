@@ -283,6 +283,16 @@ below `ready/knowledge/` – and never deletions or files that changed in the va
 meanwhile; everything else is listed in the report. A question blocks the ticket and
 applies nothing. The app's code is out of reach on purpose.
 
+With `access: full` in the definition the assistant instead gets every tool (shell, web,
+files) without permission prompts and works directly in the vault, inside the worker
+container: no root, no Docker, no host – but everything the worker can reach, including
+its environment with the user's tokens (a deliberate, temporary choice of the user). The
+code finds the changed files with `git status` (files pending before the run are left
+alone), commits them and writes a log of every tool call to
+`agents/<name>/logs/<date>-<ticket>.md` (values of secret-looking environment variables
+redacted). App code changes are asked for as a branch and pull request, never a push to the
+main or deployed branch.
+
 ## Backend layout (`backend/src/lifeos`)
 
 | Module | Responsibility |

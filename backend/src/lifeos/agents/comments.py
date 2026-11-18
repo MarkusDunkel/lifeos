@@ -124,6 +124,12 @@ DEFAULT_TEXTS: dict[str, str] = {
     "task_changes": "**What changed**",
     "task_rejected": "**Not applied** (outside what I may change, or invalid)",
     "task_nothing": "No file was changed.",
+    "task_log": "**Every step of this run:** {link}",
+    "task_changed_before_question": (
+        "\n\nBefore asking I had already changed these files (not committed yet):{files}"
+    ),
+    "tool_log_title": "# Steps: {ticket}",
+    "tool_log_intro": "{count} tool calls of the assistant on {url}, in order. Secrets redacted.",
     # heading of the human summary in agents/<name>.md (shown to the assistant)
     "summary_heading": "Summary",
 }
