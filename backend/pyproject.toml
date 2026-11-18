@@ -19,6 +19,7 @@ dependencies = [
     "tzdata>=2024.1",
     "mcp>=2.3",
     "typst>=0.15",
+    "anthropic>=2.10.0",
 ]
 
 [project.optional-dependencies]

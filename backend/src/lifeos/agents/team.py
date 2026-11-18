@@ -116,6 +116,8 @@ class RunContext:
     gh: Any
     project: Project
     instructions_revision: str | None
+    texts: Texts = field(default_factory=Texts)
+    vault_web_url: str | None = None  # https://github.com/<owner>/<vault repo>
     steps: list[str] = field(default_factory=list)
     cost_eur: float = 0.0
 
@@ -123,6 +125,22 @@ class RunContext:
         """Record a step for the run log (what happened, in plain words)."""
         log.info("%s #%s: %s", self.agent.name, self.ticket.number, text)
         self.steps.append(text)
+
+    def owner_feedback(self) -> list[str]:
+        """The owner's comments since this agent last wrote on the ticket before this run.
+
+        Comments with an agent marker are not the owner's; the start comment of the
+        current run is the agent's last comment, so feedback lies between the one before
+        it and now.
+        """
+        notes = self.gh.issue_comments(self.ticket.issue_id)
+        mine = [i for i, c in enumerate(notes) if comments.agent_of(c["body"]) == self.agent.name]
+        since = mine[-2] if len(mine) >= 2 else -1
+        return [
+            c["body"].strip()
+            for c in notes[since + 1 :]
+            if comments.agent_of(c["body"]) is None and c["body"].strip()
+        ]
 
 
 Workflow = Callable[[RunContext], RunResult]
@@ -276,7 +294,10 @@ class Team:
             ),
         )
 
-        ctx = RunContext(agent, self.contract, ticket, self.vault, self.gh, project, revision)
+        ctx = RunContext(
+            agent, self.contract, ticket, self.vault, self.gh, project, revision,
+            texts=self.t, vault_web_url=self.git.web_url() if self.git else None,
+        )  # fmt: skip
         outcome, result, message = "done", None, ""
         workflow = self.workflows.get(agent.workflow or "") if agent.runner == "workflow" else None
         try:

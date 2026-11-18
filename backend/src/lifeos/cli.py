@@ -198,7 +198,7 @@ def _applications_migrate(args) -> int:
 
 def _agents(args) -> int:
     from lifeos.agents.service import run_round
-    from lifeos.agents.workflows import WORKFLOWS
+    from lifeos.agents.workflows import build_workflows
     from lifeos.connectors.github.client import GitHubClient
     from lifeos.core.config import get_settings
     from lifeos.core.git_sync import git_sync_for
@@ -211,7 +211,7 @@ def _agents(args) -> int:
     events, failed = run_round(
         GitHubClient(settings.github_token),
         Vault.open(settings.vault_root),
-        WORKFLOWS,
+        build_workflows(settings),
         next(iter(settings.github_repo_list), None),
         git=git_sync_for(settings),
         timezone=settings.timezone,

@@ -223,6 +223,18 @@ agent). A round of the `agents` job (`LIFEOS_AGENTS_INTERVAL`, also `lifeos agen
    user clears the field,
 5. append to the run log and commit `agent(<name>): #N <outcome> – …` with `Refs`.
 
+**The application writer** (`modules/applications/writer.py`, workflow
+`application-writer`) is a fixed sequence of Messages API calls with Claude: research the
+company with server-side web search (capped by `max_searches`, reused on a revision),
+write a `Draft` plus notes as structured output, check it (ids against the master CV and
+page limits via Typst, then a separate reviewer call that answers the agent's checklist),
+revise at most `max_revisions` times (no further round once `budget_eur` is spent), and
+write the PDFs, `draft.json`, research and notes into the application folder. On a
+revision it reads the owner's comments since its last run and the previous draft. The
+model never acts: board writes, files and commits are done by the code. Requests use
+prompt caching and server-side refusal fallbacks; the worker needs `ANTHROPIC_API_KEY`
+(from `deploy/agents.env`).
+
 A ticket left at `running` for 30 minutes (worker restarted mid-run) becomes `blocked`.
 Agents write with the user's token, so every agent comment starts with an invisible
 marker (`<!-- lifeos-agent: <name> -->`); comments without it are the user's and are the

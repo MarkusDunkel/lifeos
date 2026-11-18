@@ -322,6 +322,15 @@ class GitHubClient:
                 return out
             cursor = page["pageInfo"]["endCursor"]
 
+    def issue_comments(self, issue_id: str) -> list[dict[str, Any]]:
+        """The last 100 comments of an issue, oldest first: ``id, body, createdAt``."""
+        q = """query($id: ID!) { node(id: $id) { ... on Issue {
+          comments(last: 100) { nodes { id body createdAt } } } } }"""
+        node = self.graphql(q, {"id": issue_id})["node"]
+        if node is None:
+            raise GitHubError("issue not found")
+        return node["comments"]["nodes"]
+
     def add_comment(self, subject_id: str, body: str) -> None:
         q = """mutation($s: ID!, $b: String!) {
           addComment(input: {subjectId: $s, body: $b}) { clientMutationId } }"""

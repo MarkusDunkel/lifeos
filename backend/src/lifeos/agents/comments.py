@@ -65,6 +65,19 @@ DEFAULT_TEXTS: dict[str, str] = {
     "outcome_done": "done",
     "outcome_blocked": "blocked (question)",
     "outcome_error": "error",
+    # report of the application writer
+    "report_files": "**Files:** {links}",
+    "report_letter": "Cover letter",
+    "report_cv": "CV",
+    "report_folder": "Folder",
+    "report_decisions": "**Key decisions**",
+    "report_uncertain": "**Uncertain about**",
+    "report_check": "**Please check**",
+    "report_review": "**Review:** {passed} of {total} checks passed",
+    "report_fixed": "**Fixed after review**",
+    "report_open": "**Still open after review**",
+    "report_research": "**Research:** {searches} web searches – {link}",
+    "report_feedback": "**Your feedback applied:** {count} comment(s)",
 }
 
 

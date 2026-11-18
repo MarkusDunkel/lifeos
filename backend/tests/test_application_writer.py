@@ -1,0 +1,222 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+from test_agents import APPS, FakeGit, FakeGitHub, mirrored, team
+from test_applications_render import MASTER, PERSONAL, draft
+
+from lifeos.agents import comments
+from lifeos.core.vault import Vault
+from lifeos.modules.applications.model import ChosenBullet
+from lifeos.modules.applications.profile import GUIDE_FILE, MASTER_FILE, PERSONAL_FILE
+from lifeos.modules.applications.service import INDEX_FILE
+from lifeos.modules.applications.writer import (
+    Check,
+    Notes,
+    Review,
+    Usage,
+    WriterOutput,
+    make_application_writer,
+    usage_usd,
+)
+
+FOLDER = "ready/knowledge/Career/Applications/2026-01-01 Beispiel AG – Data Engineer"
+WRITER = """---
+name: writer
+title: Writer
+runner: workflow
+workflow: application-writer
+board: apps
+max_searches: 3
+max_revisions: 2
+budget_eur: 5
+files: {letter: Letter.pdf, cv: Resume.pdf}
+---
+
+## Workflow
+
+1. Research, write, review.
+
+## Review checklist
+
+1. Facts from the master CV?
+2. Concrete company reference?
+"""
+
+
+class FakeLlm:
+    """Scripted model: research text, then writer outputs and reviews in order."""
+
+    def __init__(self, outputs: list[Any]) -> None:
+        self.outputs = outputs
+        self.calls: list[tuple[str, str, str]] = []  # (kind, system, prompt)
+
+    def research(self, system, prompt, max_searches, effort):
+        self.calls.append(("research", system, prompt))
+        return "Beispiel AG builds data platforms.\n\nSources: https://example.org", Usage(0.05, 2)
+
+    def parse(self, system, prompt, schema, effort):
+        self.calls.append((schema.__name__, system, prompt))
+        out = self.outputs.pop(0)
+        assert isinstance(out, schema), (schema, out)
+        return out, Usage(0.10, 0)
+
+
+def output(bullet: str = "acme-sql") -> WriterOutput:
+    return WriterOutput(
+        draft=draft(bullet=bullet),
+        notes=Notes(decisions=["SQL betont"], uncertain=["Ansprechperson geraten"],
+                    please_check=["Gehalt weggelassen"]),
+    )  # fmt: skip
+
+
+def review(*failed: int, fixes: list[str] | None = None) -> Review:
+    return Review(
+        checks=[Check(number=n, passed=n not in failed, reason="") for n in (1, 2)],
+        fixes=fixes or [],
+    )
+
+
+@pytest.fixture
+def vault(tmp_path: Path) -> Vault:
+    root = tmp_path / "vault"
+    files = {
+        "boards/apps.md": APPS.replace("agent: writer", "agent: writer"),
+        "agents/writer.md": WRITER,
+        PERSONAL_FILE: PERSONAL,
+        MASTER_FILE: MASTER,
+        GUIDE_FILE: "# Guide\n\n- Write concretely.\n",
+        f"{FOLDER}/Posting.md": "# Data Engineer – Beispiel AG\n\nWe need SQL.\n",
+    }
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+    index = {"1": {"folder": FOLDER, "title": "Data Engineer", "company": "Beispiel AG"}}
+    (root / INDEX_FILE).parent.mkdir(parents=True, exist_ok=True)
+    (root / INDEX_FILE).write_text(json.dumps(index), encoding="utf-8")
+    return Vault.open(root)
+
+
+class CommentingGitHub(FakeGitHub):
+    def issue_comments(self, issue_id: str) -> list[dict[str, Any]]:
+        mine = [body for subject, body in self.comments if subject == issue_id]
+        return [{"id": str(i), "body": body, "createdAt": ""} for i, body in enumerate(mine)]
+
+
+@pytest.fixture
+def gh() -> CommentingGitHub:
+    fake = CommentingGitHub()
+    fake.add_project(4, ["New", "Active", "In Review"])
+    fake.add_project(3, ["Todo"])
+    return fake
+
+
+def run(gh, vault, llm) -> list[str]:
+    workflow = make_application_writer(llm_factory=lambda model: llm)
+    return team(gh, vault, "apps", {"application-writer": workflow}, git=FakeGit()).poll()
+
+
+def test_writes_documents_and_reports(gh, vault) -> None:
+    mirrored(gh, vault)
+    item = gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    llm = FakeLlm([output(), review()])
+    events = run(gh, vault, llm)
+
+    assert events == ["#1 writer: done – Beispiel AG"]
+    assert gh.values(item) == {"Status": "In Review"}
+    assert [c[0] for c in llm.calls] == ["research", "WriterOutput", "Review"]
+    kind, system, prompt = llm.calls[1]
+    assert "<master_cv>" in system and "acme-sql" in system and "Write concretely." in system
+    assert "<posting>" in prompt and "We need SQL." in prompt
+    assert "Beispiel AG builds data platforms." in prompt  # research goes to the writer
+    assert "<owner_feedback>" not in prompt
+
+    folder = vault.resolve(FOLDER)
+    assert (folder / "Letter.pdf").read_bytes().startswith(b"%PDF")
+    assert (folder / "Resume.pdf").read_bytes().startswith(b"%PDF")
+    assert json.loads((folder / "draft.json").read_text(encoding="utf-8"))["letter"]
+    assert "data platforms" in (folder / "Research.md").read_text(encoding="utf-8")
+
+    report = gh.comments[-1][1]
+    assert "SQL betont" in report and "Ansprechperson geraten" in report
+    assert "Gehalt weggelassen" in report and "2 of 2 checks passed" in report
+    assert "https://github.com/someone/vault/blob/main/" in report and "Letter.pdf" in report
+    assert "0.25 €" not in report  # cost is in the footer, in EUR
+    assert "0.23 €" in report  # (0.05 + 0.10 + 0.10) USD × 0.9
+
+
+def test_review_findings_lead_to_a_revision(gh, vault) -> None:
+    mirrored(gh, vault)
+    gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    llm = FakeLlm([output(), review(2, fixes=["Firmenbezug konkretisieren"]), output(), review()])
+    run(gh, vault, llm)
+    assert [c[0] for c in llm.calls] == ["research", "WriterOutput", "Review", "WriterOutput",
+                                         "Review"]  # fmt: skip
+    assert "Firmenbezug konkretisieren" in llm.calls[3][2]
+    report = gh.comments[-1][1]
+    assert "Firmenbezug konkretisieren" in report and "2 of 2 checks passed" in report
+
+
+def test_invented_bullet_is_caught_before_review(gh, vault) -> None:
+    mirrored(gh, vault)
+    gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    bad = output()
+    bad.draft.cv.positions[0].bullets.append(ChosenBullet(base="made-up", text="Erfunden"))
+    llm = FakeLlm([bad, output(), review()])
+    run(gh, vault, llm)
+    assert [c[0] for c in llm.calls] == ["research", "WriterOutput", "WriterOutput", "Review"]
+    assert "made-up" in llm.calls[2][2]
+
+
+def test_still_invalid_after_revisions_blocks(gh, vault) -> None:
+    mirrored(gh, vault)
+    item = gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    bad = output()
+    bad.draft.cv.positions[0].bullets.append(ChosenBullet(base="made-up", text="Erfunden"))
+    llm = FakeLlm([bad, bad, bad])
+    assert "error" in run(gh, vault, llm)[0]
+    assert gh.values(item)["AI"] == "blocked"
+    assert "made-up" in gh.comments[-1][1]
+
+
+def test_revision_uses_owner_feedback_and_reuses_research(gh, vault) -> None:
+    mirrored(gh, vault)
+    item = gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    run(gh, vault, FakeLlm([output(), review()]))
+    gh.add_comment("I1", "Bitte die Einleitung kürzer.")  # the owner, no marker
+    gh.values(item)["Status"] = "Active"
+    llm = FakeLlm([output(), review()])
+    run(gh, vault, llm)
+    assert [c[0] for c in llm.calls] == ["WriterOutput", "Review"]  # research reused
+    prompt = llm.calls[0][2]
+    assert "<owner_feedback>" in prompt and "Einleitung kürzer" in prompt
+    assert "<previous_draft>" in prompt
+    assert "Übernommen" not in prompt and comments.marker("writer") not in prompt
+
+
+def test_unknown_folder_asks(gh, vault) -> None:
+    mirrored(gh, vault)
+    gh.ticket(4, "Other – Role", Status="Active")
+    gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")  # issue #2, not in index
+    vault.resolve(INDEX_FILE).write_text("{}", encoding="utf-8")
+    events = run(gh, vault, FakeLlm([]))
+    assert all("blocked" in e for e in events)
+    assert "folder" in gh.comments[-1][1]
+
+
+def test_usage_cost() -> None:
+    class U:
+        input_tokens = 1_000_000
+        output_tokens = 100_000
+        cache_creation_input_tokens = 0
+        cache_read_input_tokens = 1_000_000
+
+        class server_tool_use:  # noqa: N801
+            web_search_requests = 3
+
+    used = usage_usd("claude-opus-5-5", U)
+    assert used.searches == 3
+    assert round(used.usd, 2) == round(4 + 2 + 0.2 + 0.03, 2)

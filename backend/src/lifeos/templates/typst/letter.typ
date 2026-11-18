@@ -5,9 +5,9 @@
 #let l = d.letter
 
 #set document(title: p.name + " – " + l.subject, author: p.name)
-#set page(paper: "a4", margin: 2cm)
+#set page(paper: "a4", margin: (x: 2cm, y: 1.7cm))
 #set text(font: "XCharter", size: 10pt, lang: "de")
-#set par(justify: true, leading: 0.78em, spacing: 1.1em)
+#set par(justify: true, leading: 0.74em, spacing: 0.95em)
 
 #grid(
   columns: (1fr, 1fr),
@@ -25,11 +25,11 @@
   }),
 )
 
-#v(1.2cm)
+#v(1cm)
 #align(right, d.date)
-#v(1.5cm)
+#v(0.8cm)
 #text(weight: "bold", l.subject)
-#v(2.5cm)
+#v(0.9cm)
 #l.salutation
 #v(0.4cm)
 

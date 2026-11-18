@@ -33,6 +33,11 @@ services:
     <<: *lifeos
     profiles: [worker]
     command: ["lifeos", "worker"]
+    # agents.env: secrets only the worker needs (ANTHROPIC_API_KEY for the AI teammates).
+    env_file:
+      - ${LIFEOS_ENV_FILE:-../deploy/.env}
+      - path: ${LIFEOS_AGENTS_ENV_FILE:-../deploy/agents.env}
+        required: false
     environment:
       LIFEOS_STATE_DIR: /state
       # Deploy key with write access to the private vault repository only.

@@ -146,6 +146,12 @@ class Settings(BaseSettings):
         ),
     )
 
+    agents_eur_per_usd: float = Field(
+        default=0.9,
+        gt=0,
+        description="Exchange rate for the cost shown in agent reports (API prices are in USD).",
+    )
+
     @property
     def github_project_list(self) -> list[str]:
         refs = [r.strip() for r in self.github_projects.split(",") if r.strip()]
