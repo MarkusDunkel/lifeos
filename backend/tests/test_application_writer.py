@@ -137,15 +137,15 @@ def test_writes_documents_and_reports(gh, vault) -> None:
     assert "<owner_feedback>" not in prompt
 
     folder = vault.resolve(FOLDER)
-    assert (folder / "Letter.pdf").read_bytes().startswith(b"%PDF")
-    assert (folder / "Resume.pdf").read_bytes().startswith(b"%PDF")
+    assert not (folder / "Letter.pdf").exists() and not (folder / "Resume.pdf").exists()
+    assert (folder / "Cover-Letter.md").is_file() and (folder / "CV.md").is_file()
     assert json.loads((folder / "draft.json").read_text(encoding="utf-8"))["letter"]
     assert "data platforms" in (folder / "Research.md").read_text(encoding="utf-8")
 
     report = gh.comments[-1][1]
     assert "SQL betont" in report and "Ansprechperson geraten" in report
     assert "Gehalt weggelassen" in report and "2 of 2 checks passed" in report
-    assert "https://github.com/someone/vault/blob/main/" in report and "Letter.pdf" in report
+    assert "https://github.com/someone/vault/blob/main/" in report and "Cover-Letter.md" in report
     assert "0.25 €" not in report  # cost is in the footer, in EUR
     assert "0.23 €" in report  # (0.05 + 0.10 + 0.10) USD × 0.9
 
@@ -341,3 +341,60 @@ def test_area_comment_prompt_names_page_and_area() -> None:
     prompt = Reviewed(4, sent, item).prompt()
     assert prompt.startswith("Comment 4 (review page, Cover letter, on the rendered PDF: page 1 ·")
     assert "(no text)" in prompt and "Logo kleiner." in prompt
+
+
+def test_pdfs_of_earlier_runs_are_removed_and_sent_applications_are_not_rewritten(
+    gh, vault
+) -> None:
+    from lifeos.modules.reviews.service import ReviewService
+
+    mirrored(gh, vault)
+    item = gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    folder = vault.resolve(FOLDER)
+    (folder / "Letter.pdf").write_bytes(b"%PDF old")  # from the time PDFs were stored
+    run(gh, vault, FakeLlm([output(), review()]))
+    assert not (folder / "Letter.pdf").exists()
+
+    fake = {
+        "application-letter": lambda v, p: b"%PDF letter",
+        "application-cv": lambda v, p: b"%PDF cv",
+    }
+    ReviewService(vault, generators=fake).freeze(FOLDER, "2026-02-01")
+    gh.values(item)["Status"] = "Active"
+    llm = FakeLlm([])
+    [event] = run(gh, vault, llm)
+    assert event.startswith("#1 writer: blocked – This application was sent on 2026-02-01")
+    assert "start a new application" in gh.comments[-1][1]
+    assert llm.calls == [] and (folder / "Cover-Letter.pdf").read_bytes() == b"%PDF letter"
+
+
+def test_sent_freezes_the_pdfs_and_keeps_the_letter_as_an_example(gh, vault) -> None:
+    from types import SimpleNamespace
+
+    from lifeos.modules.applications.profile import EXAMPLES_DIR
+    from lifeos.modules.applications.service import Applications
+    from lifeos.modules.jobsearch.store import JobStore
+
+    mirrored(gh, vault)
+    gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    run(gh, vault, FakeLlm([output(), review()]))
+    folder = vault.resolve(FOLDER)
+    (folder / "Application.md").write_text("# Application\n\n## History\n\n- 2026-01-01: new\n",
+                                           encoding="utf-8")  # fmt: skip
+    commits: list = []
+    apps = Applications(vault, JobStore(vault), None, None, None,
+                        committer=lambda paths, msg: commits.append((paths, msg)))  # fmt: skip
+
+    note = apps.sent(SimpleNamespace(number=1))
+
+    assert note == "frozen: Cover-Letter.pdf, CV.pdf"
+    assert (folder / "Cover-Letter.pdf").read_bytes().startswith(b"%PDF")
+    assert (folder / "CV.pdf").read_bytes().startswith(b"%PDF")
+    example = vault.resolve(f"{EXAMPLES_DIR}/{folder.name}.md").read_text(encoding="utf-8")
+    assert "company: Beispiel AG" in example and "Mit freundlichen Grüßen" in example
+    history = (folder / "Application.md").read_text(encoding="utf-8")
+    assert "sent; frozen: Cover-Letter.pdf, CV.pdf" in history
+    [(paths, message)] = commits
+    assert f"{FOLDER}/review.yaml" in paths and message.startswith("application: sent – ")
+    assert apps.sent(SimpleNamespace(number=1)) == "already frozen"
+    assert apps.sent(SimpleNamespace(number=9)) == "no review package, nothing frozen"

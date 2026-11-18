@@ -30,7 +30,7 @@ from lifeos.modules.applications.board import (
     STATUS,
     split_project,
 )
-from lifeos.modules.applications.profile import APPLICATIONS_DIR
+from lifeos.modules.applications.profile import APPLICATIONS_DIR, EXAMPLES_DIR
 from lifeos.modules.jobsearch.model import Posting
 from lifeos.modules.jobsearch.store import JobStore
 
@@ -38,6 +38,7 @@ ARCHIVE_DIR = f"{APPLICATIONS_DIR}/Archive"
 STATE_DIR = f"{STATE}/applications"
 INDEX_FILE = f"{STATE_DIR}/index.json"
 BOARD_STATE_FILE = f"{STATE_DIR}/board.json"
+LETTER_GENERATOR = "application-letter"  # the view of the letter in the review package
 
 
 class ApplicationError(Exception):
@@ -270,6 +271,57 @@ class Applications:
                 paths = [folder] + ([archived] if archived else [])
                 self.committer(paths, f"application: abandoned – ticket #{number} {reason}\n")
             return True
+
+    def sent(self, item: Any) -> str | None:
+        """Board handler for "Sent": freeze the PDFs and keep the letter as an example.
+
+        The review package of the application is frozen (the generated PDFs are stored
+        once, dated today), the letter is copied to ``Applications/Examples/`` for future
+        letters, and ``Application.md`` records the date. ``draft.json`` stays in the
+        folder as the structured record of what was sent.
+        """
+        from lifeos.modules.reviews.package import PACKAGE_FILE
+        from lifeos.modules.reviews.service import ReviewService
+
+        entry = self.index().get(str(item.number)) or {}
+        folder = entry.get("folder")
+        if not folder or not self.vault.resolve(f"{folder}/{PACKAGE_FILE}").is_file():
+            return "no review package, nothing frozen"
+        reviews = ReviewService(self.vault)
+        package = reviews.load(folder)
+        letter = next((d for d in package.documents if d.view.generator == LETTER_GENERATOR),
+                      None)  # fmt: skip
+        day = datetime.now(self.tz).date().isoformat()
+        with self._lock:
+            paths = reviews.freeze(folder, day)
+            if not paths:
+                return "already frozen"
+            if letter is not None:
+                paths.append(self._example(folder, package.rel(letter.source), entry, day))
+            summary = self.vault.resolve(f"{folder}/Application.md")
+            if summary.is_file():
+                text = summary.read_text(encoding="utf-8").rstrip("\n")
+                files = ", ".join(p.rsplit("/", 1)[-1] for p in paths if p.endswith(".pdf"))
+                write_atomic(summary, f"{text}\n- {day}: sent; frozen: {files}\n")
+                paths.append(f"{folder}/Application.md")
+        if self.committer:
+            name = folder.rsplit("/", 1)[-1]
+            self.committer(paths, f"application: sent – {name}\n")
+        return "frozen: " + ", ".join(p.rsplit("/", 1)[-1] for p in paths if p.endswith(".pdf"))
+
+    def _example(self, folder: str, letter: str, entry: dict[str, Any], day: str) -> str:
+        """The sent letter in ``Examples/``: the writer reads the newest ones as models."""
+        name = folder.rsplit("/", 1)[-1]
+        rel = f"{EXAMPLES_DIR}/{name}.md"
+        front = {
+            "company": entry.get("company", ""),
+            "position": entry.get("title", ""),
+            "date": day,
+            "source": f"LifeOS, sent application ({folder}/draft.json)",
+        }
+        body = self.vault.resolve(letter).read_text(encoding="utf-8")
+        write_atomic(self.vault.resolve(rel), dump_front(front) + "\n" + body)
+        return rel
 
     def archive(self, folder: str, reason: str) -> str | None:
         """Move an application folder to the archive and mark it as never sent."""

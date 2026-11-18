@@ -11,7 +11,10 @@ subscription (:class:`ClaudeCodeLlm`); the workflow is the same:
 3. **check** – deterministic checks (ids against the master CV, page limits via Typst)
    and a separate reviewer call that answers the agent's checklist,
 4. **revise** – only when something failed, at most ``max_revisions`` rounds,
-5. **files** – PDFs, ``draft.json``, research and notes in the application folder.
+5. **files** – letter and CV as Markdown, ``draft.json``, research, notes and
+   ``review.yaml`` in the application folder. The PDFs are generated on the review page;
+   they are stored only when the application is sent (the package is frozen then, and a
+   frozen application is never rewritten).
 
 The model only returns content; the team (``lifeos.agents.team``) does the board writes,
 the run log and the commit. Posting texts and web pages are data, never instructions;
@@ -55,7 +58,7 @@ from lifeos.modules.applications.render import RenderError, render
 from lifeos.modules.applications.review import cv_markdown, letter_markdown, package_yaml
 from lifeos.modules.applications.service import INDEX_FILE
 from lifeos.modules.reviews.handoff import SentRound, where
-from lifeos.modules.reviews.package import PACKAGE_FILE
+from lifeos.modules.reviews.package import PACKAGE_FILE, parse_package
 from lifeos.modules.workspaces.feedback import Item
 from lifeos.modules.workspaces.rounds import Answer, FeedbackRounds
 
@@ -275,6 +278,12 @@ def make_application_writer(
             ctx.spend.credential_expires_at = spent.credential_expires_at
 
         folder = application_folder(ctx)
+        frozen = sent_on(ctx, folder)
+        if frozen:
+            raise AgentBlocked(
+                f"This application was sent on {frozen}; its documents are frozen and I do "
+                "not rewrite them. Move the ticket back to its column, or start a new application."
+            )
         posting = read_text(ctx, f"{folder}/Posting.md")
         if not posting:
             raise AgentBlocked(f"`{folder}/Posting.md` is missing.")
@@ -367,15 +376,16 @@ def make_application_writer(
         if rendered is None:
             raise RuntimeError("the draft still fails the checks: " + "; ".join(problems))
 
-        # 5. files
+        # 5. files: the PDFs are made on request on the review page and stored only when
+        # the application is sent (the review package is frozen then)
         out = {
-            "letter": f"{folder}/{files['letter']}",
-            "cv": f"{folder}/{files['cv']}",
+            "letter": f"{folder}/{files['letter_text']}",
+            "cv": f"{folder}/{files['cv_text']}",
             "draft": f"{folder}/{files['draft']}",
             "notes": f"{folder}/{files['notes']}",
         }
-        write_atomic(ctx.vault.resolve(out["letter"]), rendered.letter)
-        write_atomic(ctx.vault.resolve(out["cv"]), rendered.cv)
+        for stale in (files["letter"], files["cv"]):  # PDFs of earlier runs would mislead
+            ctx.vault.resolve(f"{folder}/{stale}").unlink(missing_ok=True)
         write_atomic(ctx.vault.resolve(out["draft"]), output.draft.model_dump_json(indent=1) + "\n")
         write_review_package(ctx, folder, files, output.draft, profile)
         answers = {item.number: item for item in read_as}
@@ -464,6 +474,17 @@ def review_answers(
         lines.append(t(key, label=r.sent.label, id=r.item.id, quote=where(t, r.item),
                        answer=a.understood if a else "-"))  # fmt: skip
     return "\n".join(lines)
+
+
+def sent_on(ctx: RunContext, folder: str) -> str | None:
+    """The date the application's review package was frozen (sent), if it was."""
+    path = ctx.vault.resolve(f"{folder}/{PACKAGE_FILE}")
+    if not path.is_file():
+        return None
+    try:
+        return parse_package(path.read_text(encoding="utf-8"), folder).frozen
+    except ValueError:
+        return None
 
 
 def write_review_package(

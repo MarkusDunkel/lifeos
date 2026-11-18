@@ -45,7 +45,11 @@ export function PackageList() {
               <span className="min-w-0">
                 <span className="block truncate font-medium">{p.title}</span>
                 <span className="block text-xs text-slate-500">
-                  {p.error ? p.error : `${plural(p.documents, "document")} · ${formatTime(p.modified)}`}
+                  {p.error
+                    ? p.error
+                    : p.frozen
+                      ? `Sent ${p.frozen} · ${plural(p.documents, "document")}`
+                      : `${plural(p.documents, "document")} · ${formatTime(p.modified)}`}
                 </span>
               </span>
             </Link>
@@ -92,7 +96,15 @@ export function ReviewPage({ path }: { path: string }) {
             {pkg.data.ticket} <ExternalLink className="size-3.5" />
           </a>
         )}
-        {pkg.data.ticket && (
+        {pkg.data.frozen && (
+          <span
+            className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+            title="The PDFs were stored when this was sent; agents no longer rewrite it."
+          >
+            Sent {pkg.data.frozen} · frozen
+          </span>
+        )}
+        {pkg.data.ticket && !pkg.data.frozen && (
           <button
             onClick={confirmSend}
             disabled={pending === 0 || send.isPending}

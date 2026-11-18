@@ -13,12 +13,14 @@ import threading
 from collections import OrderedDict
 from collections.abc import Callable
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import quote
 
+import yaml
+
 from lifeos.agents.comments import Texts
-from lifeos.core.vault import FEEDBACK, READY, Vault, VaultPathError
+from lifeos.core.vault import FEEDBACK, READY, Vault, VaultPathError, write_atomic
 from lifeos.modules.reviews import handoff
 from lifeos.modules.reviews.package import PACKAGE_FILE, Document, Package, parse_package
 from lifeos.modules.workspaces.feedback import Region, Scope, parse
@@ -87,6 +89,9 @@ class ReviewService:
             raise FileNotFoundError(f"{path}/{PACKAGE_FILE}")
         return parse_package(file.read_text(encoding="utf-8"), path), folder
 
+    def load(self, path: str) -> Package:
+        return self._package(path)[0]
+
     def _document(self, path: str, doc: int) -> tuple[Package, Document, Path]:
         package, folder = self._package(path)
         if not 0 <= doc < len(package.documents):
@@ -114,6 +119,7 @@ class ReviewService:
                 "path": path,
                 "title": package.title,
                 "ticket": package.ticket,
+                "frozen": package.frozen,
                 "documents": len(package.documents),
                 "modified": _utc(file.stat().st_mtime),
             })  # fmt: skip
@@ -140,7 +146,7 @@ class ReviewService:
                 "rounds": [r.__dict__ for r in self.feedback.rounds(rel, sha)] if exists else [],
             })  # fmt: skip
         return {"path": package.path, "title": package.title, "ticket": package.ticket,
-                "documents": documents}  # fmt: skip
+                "frozen": package.frozen, "documents": documents}  # fmt: skip
 
     # -- the rendered view --------------------------------------------------------------
 
@@ -176,6 +182,35 @@ class ReviewService:
             while len(self._cache) > CACHE_SIZE:
                 self._cache.popitem(last=False)
         return pdf
+
+    # -- freezing: the generated views become files ----------------------------------------
+
+    def freeze(self, path: str, day: str) -> list[str]:
+        """Store every generated view as a PDF beside its source and record the date.
+
+        ``Anschreiben.md`` with a generated view gets ``Anschreiben.pdf``; ``review.yaml``
+        then points at that file (view ``pdf``) and says ``frozen: <day>``. Returns the
+        written vault paths; empty if the package was frozen before. Nothing is written
+        when a view cannot be generated.
+        """
+        package, folder = self._package(path)
+        if package.frozen:
+            return []
+        pdfs: list[tuple[int, str, bytes]] = []
+        for i, d in enumerate(package.documents):
+            if d.view.type == "pdf-generated":
+                name = PurePosixPath(d.source).with_suffix(".pdf").as_posix()
+                pdfs.append((i, name, self.view(path, i)))  # all first: no half-frozen package
+        file = folder / PACKAGE_FILE
+        data = yaml.safe_load(file.read_text(encoding="utf-8"))
+        written = []
+        for i, name, pdf in pdfs:
+            write_atomic(self._inside(folder, name), pdf)
+            data["documents"][i]["view"] = {"type": "pdf", "file": name}
+            written.append(package.rel(name))
+        data["frozen"] = day
+        write_atomic(file, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
+        return [*written, package.rel(PACKAGE_FILE)]
 
     # -- feedback rounds on a document ----------------------------------------------------
 

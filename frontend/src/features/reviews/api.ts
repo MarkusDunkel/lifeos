@@ -9,6 +9,7 @@ export type PackageInfo = {
   path: string;
   title: string;
   ticket?: string | null;
+  frozen?: string | null; // date the package was frozen (e.g. an application sent)
   documents: number;
   modified: string;
   error?: string;
@@ -25,7 +26,13 @@ export type ReviewDocument = {
   rounds: RoundInfo[];
 };
 
-export type ReviewPackage = { path: string; title: string; ticket: string | null; documents: ReviewDocument[] };
+export type ReviewPackage = {
+  path: string;
+  title: string;
+  ticket: string | null;
+  frozen: string | null;
+  documents: ReviewDocument[];
+};
 
 export const packagesQuery = queryOptions({
   queryKey: ["reviews", "list"],

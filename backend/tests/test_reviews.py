@@ -266,3 +266,27 @@ def test_area_comments_in_the_ticket_summary(vault_root, package) -> None:
     assert "- F1 · “area on page 1”\n  → Logo zu groß." in body
     [sent] = handoff.load_sent(Vault.open(vault_root), handoff.parse_marker(body) or {})
     assert sent.round.items[0].region == Region(1, 0.0, 0.0, 30.0, 10.0)
+
+
+def test_freeze_stores_the_generated_views_once(vault_root, package) -> None:
+    service = ReviewService(
+        Vault.open(vault_root), generators={"fake-letter": lambda v, p: b"%PDF x"}
+    )
+    written = service.freeze(PKG, "2026-02-01")
+    assert written == [f"{PKG}/Anschreiben.pdf", f"{PKG}/review.yaml"]
+    assert (package / "Anschreiben.pdf").read_bytes() == b"%PDF x"
+    frozen = service.package(PKG)
+    assert frozen["frozen"] == "2026-02-01" and frozen["documents"][0]["view"] == "pdf"
+    assert service.view(PKG, 0) == b"%PDF x"  # from the file now
+    assert service.list()[0]["frozen"] == "2026-02-01"
+    assert service.freeze(PKG, "2026-03-01") == []  # once only
+
+
+def test_freeze_writes_nothing_when_a_view_fails(vault_root, package) -> None:
+    def broken(vault: Vault, source: Path) -> bytes:
+        raise RuntimeError("2 pages")
+
+    with pytest.raises(ViewError):
+        ReviewService(Vault.open(vault_root), generators={"fake-letter": broken}).freeze(PKG, "x")
+    assert not (package / "Anschreiben.pdf").exists()
+    assert "frozen" not in (package / "review.yaml").read_text(encoding="utf-8")

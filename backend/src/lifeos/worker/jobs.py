@@ -120,7 +120,7 @@ def applications_board_job(settings: Settings, git: GitSync) -> Callable[[], Job
     release the postings of applications whose ticket was deleted."""
     from lifeos.connectors.github.client import GitHubClient, GitHubError
     from lifeos.core.git_sync import background_committer
-    from lifeos.modules.applications.board import BoardError, BoardWatcher, split_project
+    from lifeos.modules.applications.board import SENT, BoardError, BoardWatcher, split_project
     from lifeos.modules.applications.service import BOARD_STATE_FILE, Applications
     from lifeos.modules.jobsearch.store import JobStore
 
@@ -141,7 +141,10 @@ def applications_board_job(settings: Settings, git: GitSync) -> Callable[[], Job
         try:
             gh = GitHubClient(settings.github_token)
             owner, number = split_project(settings.applications_project)
-            watcher = BoardWatcher(gh, gh.project(owner, number), vault.resolve(BOARD_STATE_FILE))
+            watcher = BoardWatcher(
+                gh, gh.project(owner, number), vault.resolve(BOARD_STATE_FILE),
+                handlers={SENT: applications.sent},  # freeze the PDFs of what went out
+            )  # fmt: skip
             events = watcher.poll()
             events += applications.reconcile({item.item_id for item in watcher.items})
         except (GitHubError, BoardError) as exc:

@@ -15,6 +15,11 @@ A package is a folder below ``ready/`` with a ``review.yaml``::
         source: Notizen.md
         view: {type: markdown}
 
+When the documents go out (e.g. an application is sent), the package is **frozen**: every
+``pdf-generated`` view is stored once as a PDF next to its source and becomes a ``pdf``
+view, and ``frozen: <date>`` records when. A frozen package is a record; agents do not
+rewrite it.
+
 View types: ``markdown`` (the source, rendered), ``pdf`` (a PDF file of the package,
 ``file:``), ``pdf-generated`` (made on request by a registered generator from ``input:``,
 never stored) and ``none``. Paths are relative to the package folder and stay inside it.
@@ -58,6 +63,7 @@ class Package:
     title: str
     ticket: str | None
     documents: list[Document] = field(default_factory=list)
+    frozen: str | None = None  # date the generated views were stored as files
 
     def rel(self, inner: str) -> str:
         return f"{self.path}/{inner}"
@@ -102,5 +108,6 @@ def parse_package(text: str, path: str) -> Package:
         raise PackageError(f"{path}/{PACKAGE_FILE}: no documents")
     title = str(data.get("title") or PurePosixPath(path).name)
     ticket = data.get("ticket")
+    frozen = data.get("frozen")
     return Package(path=path, title=title, ticket=str(ticket) if ticket else None,
-                   documents=documents)  # fmt: skip
+                   documents=documents, frozen=str(frozen) if frozen else None)  # fmt: skip
