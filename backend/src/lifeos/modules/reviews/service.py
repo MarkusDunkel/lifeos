@@ -21,7 +21,7 @@ from lifeos.agents.comments import Texts
 from lifeos.core.vault import FEEDBACK, READY, Vault, VaultPathError
 from lifeos.modules.reviews import handoff
 from lifeos.modules.reviews.package import PACKAGE_FILE, Document, Package, parse_package
-from lifeos.modules.workspaces.feedback import Scope, parse
+from lifeos.modules.workspaces.feedback import Region, Scope, parse
 from lifeos.modules.workspaces.rounds import FeedbackError, FeedbackRounds, sha256_of
 
 Generator = Callable[[Vault, Path], bytes]  # (vault, input file) -> PDF
@@ -195,10 +195,15 @@ class ReviewService:
         return self.feedback.start(self._source(path, doc))
 
     def add_item(self, path: str, doc: int, round_id: str, *, start_line: int, end_line: int,
-                 scope: Scope, feedback: str, quote: str | None = None) -> dict:  # fmt: skip
+                 scope: Scope, feedback: str, quote: str | None = None,
+                 region: Region | None = None) -> dict:  # fmt: skip
+        if scope == "rendered-region":
+            _, d, _ = self._document(path, doc)
+            if d.view.type not in ("pdf", "pdf-generated"):
+                raise FeedbackError("areas can only be marked in a PDF view", 400)
         return self.feedback.add_item(self._source(path, doc), round_id, start_line=start_line,
                                       end_line=end_line, scope=scope, feedback=feedback,
-                                      quote=quote)  # fmt: skip
+                                      quote=quote, region=region)  # fmt: skip
 
     def update_item(self, path: str, doc: int, round_id: str, item_id: str, text: str) -> dict:
         return self.feedback.update_item(self._source(path, doc), round_id, item_id, text)

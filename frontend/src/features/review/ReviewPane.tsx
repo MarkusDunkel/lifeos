@@ -7,10 +7,27 @@ import { ApiError } from "../../lib/api";
 import { treeQuery } from "../knowledge/api";
 import { flattenFiles } from "../knowledge/links";
 import { MarkdownView } from "../knowledge/MarkdownView";
-import type { FeedbackItem, RoundData, RoundInfo, Scope, Sealed } from "../workspaces/api";
+import type { FeedbackItem, Region, RoundData, RoundInfo, Scope, Sealed } from "../workspaces/api";
 import { formatTime, itemsAt, type LineRange, merge, rangeLabel, shorten, sourceSlice } from "../workspaces/review";
+import { regionLabel } from "./regions";
 
-export type NewItem = { start_line: number; end_line: number; scope: Scope; feedback: string; quote?: string };
+export type NewItem = {
+  start_line: number;
+  end_line: number;
+  scope: Scope;
+  feedback: string;
+  quote?: string;
+  region?: Region; // "rendered-region": an area of the rendered view
+};
+
+/** What a preview gets to show comments on areas and to add new ones. */
+export type PreviewContext = {
+  items: FeedbackItem[];
+  reviewing: boolean;
+  focus: string | null;
+  onRegion: (region: Region, text: string) => void;
+  onPick: (id: string) => void;
+};
 
 /** Where the rounds of one document live. */
 export type RoundsApi = {
@@ -29,7 +46,7 @@ export const btn =
   "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";
 const TOP_BLOCK = "article > [data-ls]";
 
-type Target = { scope: Scope; range: LineRange; quote: string };
+type Target = { scope: Scope; range: LineRange; quote: string; region?: Region };
 type Selection = { text: string; range: LineRange; block: LineRange; top: number; left: number };
 
 const lines = (el: Element): LineRange => ({
@@ -54,7 +71,7 @@ type Props = {
   canReview: boolean; // e.g. archived reports cannot get feedback
   title: ReactNode; // left part of the toolbar
   actions?: ReactNode; // extra buttons in the toolbar
-  preview?: ReactNode; // the rendered view, shown beside the content
+  preview?: ReactNode | ((ctx: PreviewContext) => ReactNode); // the rendered view, beside the content
   sealedNote?: (result: Sealed) => ReactNode; // what to show after finishing a round
 };
 
@@ -75,7 +92,9 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
   const [hovered, setHovered] = useState<{ range: LineRange; top: number } | null>(null);
   const [sealed, setSealed] = useState<Sealed | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [focus, setFocus] = useState<string | null>(null); // a comment picked in the list or the view
   const boxRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   const refresh = async (data?: RoundData) => {
     if (data) queryClient.setQueryData(api.round(data.round).queryKey, data);
@@ -183,6 +202,8 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
   };
 
   const scrollTo = (item: FeedbackItem) => {
+    setFocus(item.id);
+    if (item.region) return; // the preview scrolls to its area
     const block = [...(boxRef.current?.querySelectorAll(TOP_BLOCK) ?? [])].find(
       (el) => lines(el).end >= item.start_line,
     );
@@ -190,6 +211,22 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
   };
 
   const showPanel = canReview && (round.data !== undefined || rounds.length > 0);
+  const previewContent =
+    typeof preview === "function"
+      ? preview({
+          items: round.data?.items ?? [],
+          reviewing,
+          focus,
+          onRegion: (region, text) => {
+            setTarget({ scope: "rendered-region", range: { start: 0, end: 0 }, quote: text, region });
+            setSelection(null);
+          },
+          onPick: (id) => {
+            setFocus(id);
+            panelRef.current?.querySelector(`[data-item="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          },
+        })
+      : preview;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -245,7 +282,9 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
       )}
       {reviewing && (
         <p className="border-b border-slate-200 bg-sky-50 px-4 py-1.5 text-xs text-sky-800 dark:border-slate-800 dark:bg-sky-950 dark:text-sky-200">
-          Feedback mode: select text to comment on it, or use + beside a block. The document itself stays unchanged.
+          Feedback mode: select text to comment on it, or use + beside a block
+          {typeof preview === "function" ? "; mark an area in the view to comment on the layout" : ""}. The document
+          itself stays unchanged.
         </p>
       )}
 
@@ -296,14 +335,14 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
           )}
         </div>
 
-        {preview && (
+        {previewContent && (
           <div className="min-h-[60vh] shrink-0 border-t border-slate-200 lg:min-h-0 lg:w-[45%] lg:shrink-0 lg:border-t-0 lg:border-l dark:border-slate-800">
-            {preview}
+            {previewContent}
           </div>
         )}
 
         {showPanel && (
-          <aside className="shrink-0 border-t border-slate-200 lg:w-80 lg:overflow-y-auto lg:border-t-0 lg:border-l dark:border-slate-800">
+          <aside ref={panelRef} className="shrink-0 border-t border-slate-200 lg:w-80 lg:overflow-y-auto lg:border-t-0 lg:border-l dark:border-slate-800">
             {sealed && (
               <div className="border-b border-emerald-300 bg-emerald-50 p-3 text-sm dark:border-emerald-800 dark:bg-emerald-950">
                 <div className="mb-1 flex items-center gap-2 font-medium text-emerald-800 dark:text-emerald-200">
@@ -327,7 +366,8 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
                       end_line: target.range.end,
                       scope: target.scope,
                       feedback,
-                      quote: target.scope === "rendered-text" ? target.quote : undefined,
+                      quote: target.scope === "blocks" ? undefined : target.quote,
+                      region: target.region,
                     });
                     setTarget(null);
                     await refresh(data);
@@ -338,6 +378,7 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
             {round.data && (
               <RoundItems
                 round={round.data}
+                focus={focus}
                 onJump={scrollTo}
                 onUpdate={(id, feedback) => run(async () => refresh(await api.update(round.data!.round, id, feedback)))}
                 onDelete={(id) =>
@@ -393,10 +434,12 @@ function Composer({ target, onAdd, onCancel }: { target: Target; onAdd: (text: s
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-sky-300 bg-white p-3 shadow-2xl lg:static lg:shadow-none dark:border-sky-800 dark:bg-slate-950">
       <p className="mb-1 text-xs font-medium text-slate-500">
-        {target.scope === "blocks" ? "Whole block" : "Selected text"} · {rangeLabel(target.range)}
+        {target.region
+          ? `Area · ${regionLabel(target.region)}`
+          : `${target.scope === "blocks" ? "Whole block" : "Selected text"} · ${rangeLabel(target.range)}`}
       </p>
       <blockquote className="mb-2 max-h-24 overflow-y-auto rounded bg-slate-50 px-2 py-1 font-mono text-xs whitespace-pre-wrap text-slate-600 dark:bg-slate-900 dark:text-slate-400">
-        {target.quote}
+        {target.quote || (target.region ? "(no text in this area)" : "")}
       </blockquote>
       <textarea
         autoFocus
@@ -423,6 +466,7 @@ function Composer({ target, onAdd, onCancel }: { target: Target; onAdd: (text: s
 
 function RoundItems(props: {
   round: RoundData;
+  focus: string | null;
   onJump: (item: FeedbackItem) => void;
   onUpdate: (id: string, feedback: string) => void;
   onDelete: (id: string) => void;
@@ -438,13 +482,21 @@ function RoundItems(props: {
       ) : (
         <ol className="space-y-3">
           {round.items.map((item) => (
-            <li key={item.id} className="rounded-lg border border-slate-200 p-2 text-sm dark:border-slate-800">
+            <li
+              key={item.id}
+              data-item={item.id}
+              className={`rounded-lg border p-2 text-sm ${
+                props.focus === item.id ? "border-sky-400 dark:border-sky-700" : "border-slate-200 dark:border-slate-800"
+              }`}
+            >
               <div className="mb-1 flex items-center gap-2 text-xs text-slate-500">
                 <button onClick={() => props.onJump(item)} className="font-semibold text-sky-700 hover:underline dark:text-sky-400">
                   {item.id}
                 </button>
                 <span className="flex-1">
-                  {item.scope === "blocks" ? "block" : "text"} · {rangeLabel({ start: item.start_line, end: item.end_line })}
+                  {item.region
+                    ? `area · ${regionLabel(item.region)}`
+                    : `${item.scope === "blocks" ? "block" : "text"} · ${rangeLabel({ start: item.start_line, end: item.end_line })}`}
                 </span>
                 {round.editable && (
                   <button onClick={() => props.onDelete(item.id)} className="text-slate-400 hover:text-red-600" aria-label={`Delete ${item.id}`}>

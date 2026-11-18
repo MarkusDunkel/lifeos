@@ -6,7 +6,8 @@ import { treeQuery } from "../knowledge/api";
 import { flattenFiles } from "../knowledge/links";
 import { MarkdownView } from "../knowledge/MarkdownView";
 import { formatTime } from "../workspaces/review";
-import { btn, errorText, plural, ReviewPane } from "../review/ReviewPane";
+import { PdfView } from "../review/PdfView";
+import { btn, errorText, plural, type PreviewContext, ReviewPane } from "../review/ReviewPane";
 import {
   packageQuery,
   packagesQuery,
@@ -158,12 +159,12 @@ function DocumentReview({ path, doc }: { path: string; doc: ReviewDocument }) {
       api={api}
       canReview
       title={<span className="text-xs">{doc.source}</span>}
-      preview={<Preview path={path} doc={doc} />}
+      preview={(ctx) => <Preview path={path} doc={doc} ctx={ctx} />}
     />
   );
 }
 
-function Preview({ path, doc }: { path: string; doc: ReviewDocument }) {
+function Preview({ path, doc, ctx }: { path: string; doc: ReviewDocument; ctx: PreviewContext }) {
   const tree = useQuery(treeQuery);
   const files = useMemo(() => (tree.data ? flattenFiles(tree.data) : []), [tree.data]);
   if (doc.view === "none") return null;
@@ -174,6 +175,6 @@ function Preview({ path, doc }: { path: string; doc: ReviewDocument }) {
       </div>
     );
   }
-  // PDFs (stored or generated on request) in the browser's own viewer.
-  return <iframe title={`${doc.label} – view`} src={viewUrl(path, doc.index, doc.sha256)} className="h-full min-h-[60vh] w-full bg-slate-100" />;
+  // PDFs (stored or generated on request), with comments on areas of the pages
+  return <PdfView url={viewUrl(path, doc.index, doc.sha256)} title={`${doc.label} – view`} {...ctx} />;
 }

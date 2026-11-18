@@ -30,7 +30,10 @@ export type ReportDoc = {
   rounds: RoundInfo[];
 };
 
-export type Scope = "blocks" | "rendered-text";
+export type Scope = "blocks" | "rendered-text" | "rendered-region";
+
+/** An area of the rendered view: page (1-based) and a rectangle in percent of the page. */
+export type Region = { page: number; x: number; y: number; w: number; h: number };
 
 export type FeedbackItem = {
   id: string;
@@ -40,6 +43,7 @@ export type FeedbackItem = {
   quote: string;
   feedback: string;
   target: string;
+  region?: Region | null; // only for "rendered-region"
 };
 
 export type RoundData = {

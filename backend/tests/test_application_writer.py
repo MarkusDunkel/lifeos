@@ -328,3 +328,16 @@ def test_review_feedback_is_read_from_the_rounds_and_answered(gh, vault) -> None
     answers = rounds.response(f"{FOLDER}/Cover-Letter.md", rid)
     assert [(a.id, a.status, a.text) for a in answers] == [("F1", "done", "Betreff gekürzt.")]
     assert rounds.response(f"{FOLDER}/CV.md", rid2)[0].status == "declined"
+
+
+def test_area_comment_prompt_names_page_and_area() -> None:
+    from lifeos.modules.applications.writer import Reviewed
+    from lifeos.modules.reviews.handoff import SentRound
+    from lifeos.modules.workspaces.feedback import Item, Region, Round
+
+    item = Item("F2", 0, 0, "rendered-region", "", "Logo kleiner.", region=Region(1, 5, 5, 20, 8))
+    sent = SentRound("Cover letter", f"{FOLDER}/Cover-Letter.md",
+                     Round("r", "s", "x", "sealed", "", "F3", items=[item]))  # fmt: skip
+    prompt = Reviewed(4, sent, item).prompt()
+    assert prompt.startswith("Comment 4 (review page, Cover letter, on the rendered PDF: page 1 ·")
+    assert "(no text)" in prompt and "Logo kleiner." in prompt

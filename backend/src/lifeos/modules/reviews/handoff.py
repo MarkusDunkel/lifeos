@@ -70,6 +70,15 @@ def short_quote(item: Item) -> str:
     return text if len(text) <= QUOTE_CHARS else text[: QUOTE_CHARS - 1].rstrip() + "…"
 
 
+def where(t: Any, item: Item) -> str:
+    """The quote shown to people; an area comment says on which page it is."""
+    quote = short_quote(item)
+    if item.region is None:
+        return quote
+    page = t("review_region", page=item.region.page)
+    return f"{page}: {quote}" if quote else page
+
+
 def summary(t: Any, rounds: list[SentRound], review_url: str | None) -> str:
     """The readable part of the ticket comment (``t``: the agent texts)."""
     count = sum(len(s.round.items) for s in rounds)
@@ -78,7 +87,7 @@ def summary(t: Any, rounds: list[SentRound], review_url: str | None) -> str:
         lines += ["", t("review_sent_document", label=s.label)]
         for item in s.round.items:
             feedback = "\n  ".join(item.feedback.strip().splitlines())
-            lines.append(t("review_sent_item", id=item.id, quote=short_quote(item),
+            lines.append(t("review_sent_item", id=item.id, quote=where(t, item),
                            feedback=feedback))  # fmt: skip
     if review_url:
         lines += ["", t("review_sent_link", url=review_url)]

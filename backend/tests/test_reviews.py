@@ -12,6 +12,7 @@ from lifeos.core.vault import Vault
 from lifeos.modules.reviews import handoff
 from lifeos.modules.reviews.package import PackageError, parse_package
 from lifeos.modules.reviews.service import ReviewService, ViewError
+from lifeos.modules.workspaces.feedback import Region
 from lifeos.modules.workspaces.rounds import Answer, FeedbackError
 
 PKG = "ready/knowledge/Career/Applications/2026-01-01 Beispiel AG"
@@ -218,3 +219,50 @@ def test_agent_answers_are_stored_next_to_the_sealed_round(vault_root, package) 
     text = (vault_root / rel).read_text(encoding="utf-8")
     assert "schema: lifeos-feedback-response/v1" in text and "## F1 · done" in text
     assert service.round(PKG, 0, rid)["state"] == "sealed"  # feedback.md untouched
+
+
+def test_area_comments_on_the_pdf_view(client, vault_root, package) -> None:
+    ref = {"path": PKG, "doc": 0}
+    rid = client.post("/api/reviews/rounds", json=ref).json()["round"]
+    area = {**ref, "round": rid, "scope": "rendered-region", "feedback": "Zu wenig Abstand.",
+            "quote": "  Erster Absatz.  ",
+            "region": {"page": 1, "x": 10.04, "y": 20, "w": 50, "h": 7.56}}  # fmt: skip
+    data = client.post("/api/reviews/rounds/items", json=area).json()
+    item = data["items"][0]
+    assert item["scope"] == "rendered-region" and item["quote"] == "Erster Absatz."
+    assert item["region"] == {"page": 1, "x": 10.0, "y": 20.0, "w": 50.0, "h": 7.6}
+    assert item["start_line"] == 0
+    # stored in md4h form and read back the same way
+    file = vault_root / ".md4h/feedback" / PKG / f"Anschreiben.md--{rid}" / "feedback.md"
+    text = file.read_text(encoding="utf-8")
+    assert "**Region:** page 1 · x 10.0% · y 20.0% · w 50.0% · h 7.6%" in text
+    assert "**Source lines:**" not in text and '"kind":"rendered-region"' in text
+    again = client.get("/api/reviews/round", params={**ref, "round": rid}).json()["items"][0]
+    assert {**again, "target": ""} == item
+    # an empty area is fine (e.g. a margin); areas outside the page or without a region are not
+    empty = {**area, "quote": None, "region": {"page": 2, "x": 0, "y": 90, "w": 100, "h": 10}}
+    assert client.post("/api/reviews/rounds/items", json=empty).status_code == 200
+    bad = {**area, "region": {"page": 1, "x": 80, "y": 0, "w": 30, "h": 5}}
+    assert client.post("/api/reviews/rounds/items", json=bad).status_code == 400
+    assert (
+        client.post("/api/reviews/rounds/items", json={**area, "region": None}).status_code == 400
+    )
+    # only PDF views have areas
+    rid2 = client.post("/api/reviews/rounds", json={"path": PKG, "doc": 1}).json()["round"]
+    md = {**area, "doc": 1, "round": rid2}
+    response = client.post("/api/reviews/rounds/items", json=md)
+    assert response.status_code == 400 and "PDF" in response.json()["detail"]
+
+
+def test_area_comments_in_the_ticket_summary(vault_root, package) -> None:
+    gh = TicketGitHub()
+    service = sending(vault_root, gh)
+    rid = service.start(PKG, 0)["round"]
+    service.add_item(PKG, 0, rid, start_line=0, end_line=0, scope="rendered-region",
+                     feedback="Logo zu groß.", quote="",
+                     region=Region(1, 0, 0, 30, 10))  # fmt: skip
+    service.send(PKG)
+    body = gh.comments[0][1]
+    assert "- F1 · “area on page 1”\n  → Logo zu groß." in body
+    [sent] = handoff.load_sent(Vault.open(vault_root), handoff.parse_marker(body) or {})
+    assert sent.round.items[0].region == Region(1, 0.0, 0.0, 30.0, 10.0)

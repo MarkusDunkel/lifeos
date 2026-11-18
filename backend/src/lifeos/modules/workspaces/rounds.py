@@ -22,7 +22,15 @@ from pathlib import Path
 import yaml
 
 from lifeos.core.vault import FEEDBACK, Vault, VaultPathError, write_atomic
-from lifeos.modules.workspaces.feedback import HANDOFF_PROMPT, Item, Round, Scope, parse, render
+from lifeos.modules.workspaces.feedback import (
+    HANDOFF_PROMPT,
+    Item,
+    Region,
+    Round,
+    Scope,
+    parse,
+    render,
+)
 
 ROUND_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{4}$")
 MAX_TEXT = 20_000
@@ -178,14 +186,22 @@ class FeedbackRounds:
         scope: Scope,
         feedback: str,
         quote: str | None = None,
+        region: Region | None = None,
     ) -> dict:
         _check_text("feedback", feedback)
+        if scope == "rendered-region":
+            _check_region(region)
+            quote, start_line, end_line = (quote or "").strip()[:MAX_TEXT], 0, 0
+        else:
+            region = None
         with self._lock:
             file, r, raw = self._open_draft(source, round_id)
             lines = raw.decode("utf-8").replace("\r\n", "\n").split("\n")
-            if not 1 <= start_line <= end_line <= len(lines):
+            if scope == "rendered-region":
+                pass  # an area of the rendered view: no source lines
+            elif not 1 <= start_line <= end_line <= len(lines):
                 raise FeedbackError(f"lines {start_line}-{end_line} are outside the document", 400)
-            if scope == "blocks":
+            elif scope == "blocks":
                 quote = "\n".join(lines[start_line - 1 : end_line])
             else:
                 _check_text("selected text", quote or "")
@@ -199,6 +215,7 @@ class FeedbackRounds:
                     scope=scope,
                     quote=quote,
                     feedback=feedback.strip("\n"),
+                    region=region,
                 )
             )
             r.next_id = f"F{number + 1}"
@@ -336,6 +353,20 @@ def _ours(text: str) -> bool:
 
 def _iso_ms(dt: datetime) -> str:
     return dt.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+MAX_PAGE = 1000
+
+
+def _check_region(region: Region | None) -> None:
+    if region is None:
+        raise FeedbackError("an area comment needs a region", 400)
+    inside = region.x >= 0 and region.y >= 0 and region.w > 0 and region.h > 0
+    inside = inside and region.x + region.w <= 100.01 and region.y + region.h <= 100.01
+    if not 1 <= region.page <= MAX_PAGE or not inside:
+        raise FeedbackError("the area must lie on a page (percent of the page)", 400)
+    for key in ("x", "y", "w", "h"):
+        setattr(region, key, round(float(getattr(region, key)), 1))
 
 
 def _check_text(what: str, text: str) -> None:

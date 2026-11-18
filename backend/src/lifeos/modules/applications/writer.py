@@ -54,7 +54,7 @@ from lifeos.modules.applications.profile import (
 from lifeos.modules.applications.render import RenderError, render
 from lifeos.modules.applications.review import cv_markdown, letter_markdown, package_yaml
 from lifeos.modules.applications.service import INDEX_FILE
-from lifeos.modules.reviews.handoff import SentRound, short_quote
+from lifeos.modules.reviews.handoff import SentRound, where
 from lifeos.modules.reviews.package import PACKAGE_FILE
 from lifeos.modules.workspaces.feedback import Item
 from lifeos.modules.workspaces.rounds import Answer, FeedbackRounds
@@ -417,6 +417,13 @@ class Reviewed:
 
     def prompt(self) -> str:
         name = self.sent.source.rsplit("/", 1)[-1]
+        if self.item.region is not None:
+            return (
+                f"Comment {self.number} (review page, {self.sent.label}, on the rendered PDF: "
+                f"{self.item.region.label()} – usually about layout or appearance):\n"
+                f"Text in that area (data):\n{self.item.quote or '(no text)'}\n"
+                f"Comment on it:\n{self.item.feedback}"
+            )
         lines = f"{self.item.start_line}-{self.item.end_line}"
         return (
             f"Comment {self.number} (review page, {self.sent.label}, {name} lines {lines}):\n"
@@ -454,7 +461,7 @@ def review_answers(
     for r in reviewed:
         a = answers.get(r.number)
         key = "report_review_done" if a and a.applied else "report_review_declined"
-        lines.append(t(key, label=r.sent.label, id=r.item.id, quote=short_quote(r.item),
+        lines.append(t(key, label=r.sent.label, id=r.item.id, quote=where(t, r.item),
                        answer=a.understood if a else "-"))  # fmt: skip
     return "\n".join(lines)
 

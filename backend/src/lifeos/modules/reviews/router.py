@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from lifeos.modules.reviews.package import PackageError
 from lifeos.modules.reviews.service import ReviewService, ViewError
-from lifeos.modules.workspaces.feedback import Scope
+from lifeos.modules.workspaces.feedback import Region, Scope
 
 
 class PackageRef(BaseModel):
@@ -23,12 +23,21 @@ class RoundRef(DocRef):
     round: str
 
 
+class RegionIn(BaseModel):
+    page: int
+    x: float
+    y: float
+    w: float
+    h: float
+
+
 class AddItem(RoundRef):
-    start_line: int
-    end_line: int
+    start_line: int = 0  # unused for "rendered-region"
+    end_line: int = 0
     scope: Scope
     feedback: str
-    quote: str | None = None
+    quote: str | None = None  # rendered text, or the text found in the region
+    region: RegionIn | None = None  # "rendered-region": an area of the PDF view
 
 
 class UpdateItem(RoundRef):
@@ -79,6 +88,7 @@ def build_router(service: ReviewService) -> APIRouter:
         return guarded(lambda: service.add_item(
             body.path, body.doc, body.round, start_line=body.start_line,
             end_line=body.end_line, scope=body.scope, feedback=body.feedback, quote=body.quote,
+            region=Region(**body.region.model_dump()) if body.region else None,
         ))  # fmt: skip
 
     @router.put("/rounds/items")

@@ -107,6 +107,7 @@ DEFAULT_TEXTS: dict[str, str] = {
     "review_sent_document": "**{label}**",
     "review_sent_item": "- {id} · “{quote}”\n  → {feedback}",
     "review_sent_link": "[Open the review]({url})",
+    "review_region": "area on page {page}",  # a comment on an area of the PDF
     # the agent's answer per review comment in its report
     "report_review_answers": "**Your review comments**",
     "report_review_done": "- {label} {id} “{quote}” → ✅ done: {answer}",

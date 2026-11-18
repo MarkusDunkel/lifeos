@@ -239,6 +239,27 @@ editor extension:
   written, so the extension cannot reopen an app round with highlights. Rounds started
   in the extension are shown read-only in the app.
 
+### Review packages
+
+An agent that hands over documents for review writes a `review.yaml` into their folder
+below `ready/` (format in `modules/reviews/package.py`): a title, the ticket, and per
+document the commented `source` (Markdown) and its `view` (`markdown`, `pdf`,
+`pdf-generated` from a registered generator, or `none`). The review page (`/reviews`)
+shows the source with comments on the left and the view on the right.
+
+- Rounds are the same md4h rounds as above, one per source file
+  (`.md4h/feedback/<source>--<round>/feedback.md`).
+- **Areas in a PDF view** are comments with scope `rendered-region`: instead of
+  `**Source lines:**` the item has `**Region:** page 1 · x 10.0% · y 20.0% · w 50.0% · h 8.0%`
+  (rectangle in percent of the page, from the top left), and its selected content is the
+  text found in that area (pdf.js text layer; may be empty).
+- **Send feedback** posts all open comments of a package as one comment on its ticket
+  (readable summary plus a hidden `<!-- lifeos-review: {...} -->` marker naming the
+  rounds), then seals and commits the rounds. The ticket is not moved.
+- The agent reads the sealed rounds named by the marker and answers every item in
+  `response.md` next to `feedback.md` (`## F1 · done` / `## F1 · declined` plus the
+  reason); `feedback.md` itself stays untouched.
+
 ## Conventions
 
 - UTF-8, LF line endings (`.gitattributes` enforces it).

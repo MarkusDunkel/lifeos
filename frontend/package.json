@@ -20,6 +20,7 @@
     "@uiw/react-codemirror": "^4.25.12",
     "lucide-react": "^1.72.0",
     "mdast-util-find-and-replace": "^3.0.4",
+    "pdfjs-dist": "6.5.438",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-markdown": "^10.1.0",
