@@ -34,6 +34,11 @@ def build_llm_factory(settings: Settings) -> Callable[[AgentDef], Llm]:
 
 
 def build_workflows(settings: Settings) -> dict[str, Workflow]:
+    from lifeos.agents.assistant_work import make_assistant_workflow
     from lifeos.modules.applications import writer
 
-    return {"application-writer": writer.make_application_writer(llm_settings(settings))}
+    model_settings = llm_settings(settings)
+    return {
+        "application-writer": writer.make_application_writer(model_settings),
+        "assistant": make_assistant_workflow(model_settings),
+    }

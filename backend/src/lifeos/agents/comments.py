@@ -118,6 +118,12 @@ DEFAULT_TEXTS: dict[str, str] = {
     ),
     "order_source": "From a comment of the owner on {ref} ({url}):\n\n{quote}",
     "order_addition": "🤖 **Addition from {ref}** ({url})",
+    # the assistant's report on an approved ticket it worked on
+    "task_summary": "**Done:** {summary}",
+    "task_files": "**Changed files** (committed in the vault)",
+    "task_changes": "**What changed**",
+    "task_rejected": "**Not applied** (outside what I may change, or invalid)",
+    "task_nothing": "No file was changed.",
     # heading of the human summary in agents/<name>.md (shown to the assistant)
     "summary_heading": "Summary",
 }

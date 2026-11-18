@@ -28,6 +28,7 @@ from typing import Any
 KEEP_ENV = ("CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR")
 SUBSCRIPTION_SOURCE = "none"  # init event `apiKeySource` when no API key is in use
 WEB_TOOLS = ("WebSearch", "WebFetch")
+FILE_TOOLS = ("Read", "Edit", "Write", "Glob", "Grep")  # no Bash: the code applies changes
 DEFAULT_TIMEOUT = 15 * 60
 
 
@@ -98,12 +99,17 @@ class ClaudeCode:
         tools: Sequence[str] = (),
         schema: dict[str, Any] | None = None,
         max_turns: int | None = None,
+        workdir: Path | None = None,
     ) -> CallResult:
+        """One call. ``workdir`` is where file tools work (default: an empty directory);
+        Claude Code does not edit files outside its working directory without a prompt,
+        which a non-interactive call never answers."""
         with tempfile.TemporaryDirectory(
             prefix="lifeos-claude-", ignore_cleanup_errors=True
         ) as tmp:
-            workdir = Path(tmp) / "work"
-            workdir.mkdir()
+            if workdir is None:
+                workdir = Path(tmp) / "work"
+                workdir.mkdir()
             system_file = Path(tmp) / "system.md"
             system_file.write_text(system, encoding="utf-8")
             args = [
