@@ -21,6 +21,7 @@ class ProjectField:
     name: str
     type: str  # SINGLE_SELECT | TEXT | NUMBER | DATE
     options: dict[str, str] = field(default_factory=dict)  # option name -> id
+    descriptions: dict[str, str] = field(default_factory=dict)  # option name -> description
 
 
 @dataclass
@@ -29,6 +30,8 @@ class Project:
     title: str
     url: str
     fields: dict[str, ProjectField]
+    readme: str = ""
+    short_description: str = ""
 
 
 @dataclass
@@ -96,10 +99,10 @@ query($owner: String!, $name: String!) {
 
 PROJECT_BODY = """
 projectV2(number: $number) {
-  id title url
+  id title url readme shortDescription
   fields(first: 50) { nodes { __typename
     ... on ProjectV2FieldCommon { id name dataType }
-    ... on ProjectV2SingleSelectField { options { id name } }
+    ... on ProjectV2SingleSelectField { options { id name description } }
   } }
 }
 """
@@ -151,9 +154,20 @@ class GitHubClient:
         fields = {}
         for f in node["fields"]["nodes"]:
             if f.get("dataType") in EDITABLE_FIELD_TYPES:
-                options = {o["name"]: o["id"] for o in f.get("options") or []}
-                fields[f["name"]] = ProjectField(f["id"], f["name"], f["dataType"], options)
-        return Project(id=node["id"], title=node["title"], url=node["url"], fields=fields)
+                raw = f.get("options") or []
+                options = {o["name"]: o["id"] for o in raw}
+                descriptions = {o["name"]: o.get("description") or "" for o in raw}
+                fields[f["name"]] = ProjectField(
+                    f["id"], f["name"], f["dataType"], options, descriptions
+                )
+        return Project(
+            id=node["id"],
+            title=node["title"],
+            url=node["url"],
+            fields=fields,
+            readme=node.get("readme") or "",
+            short_description=node.get("shortDescription") or "",
+        )
 
     def repo(self, repo: str) -> RepoMeta:
         owner, name = split_repo(repo)
@@ -233,26 +247,45 @@ class GitHubClient:
         self.graphql(q, {"p": project_id, "r": repo_id})
 
     def create_field(
-        self, project_id: str, name: str, data_type: str, options: list[str] | None = None
+        self,
+        project_id: str,
+        name: str,
+        data_type: str,
+        options: list[str] | None = None,
+        descriptions: dict[str, str] | None = None,
     ) -> None:
         q = """mutation($input: CreateProjectV2FieldInput!) {
           createProjectV2Field(input: $input) { clientMutationId } }"""
         payload: dict[str, Any] = {"projectId": project_id, "name": name, "dataType": data_type}
         if options is not None:
-            payload["singleSelectOptions"] = _option_inputs(options)
+            payload["singleSelectOptions"] = _option_inputs(options, descriptions)
         self.graphql(q, {"input": payload})
 
-    def set_options(self, field_id: str, options: list[str]) -> None:
-        """Replace the options of a single-select field (e.g. the built-in Status)."""
+    def set_options(
+        self, field_id: str, options: list[str], descriptions: dict[str, str] | None = None
+    ) -> None:
+        """Replace the options of a single-select field (e.g. the built-in Status).
+
+        GitHub clears every item's value of the field; callers restore them.
+        """
         q = """mutation($input: UpdateProjectV2FieldInput!) {
           updateProjectV2Field(input: $input) { clientMutationId } }"""
-        payload = {"fieldId": field_id, "singleSelectOptions": _option_inputs(options)}
+        payload = {
+            "fieldId": field_id,
+            "singleSelectOptions": _option_inputs(options, descriptions),
+        }
         self.graphql(q, {"input": payload})
 
     def rename_project(self, project_id: str, title: str) -> None:
         q = """mutation($p: ID!, $t: String!) {
           updateProjectV2(input: {projectId: $p, title: $t}) { projectV2 { id } } }"""
         self.graphql(q, {"p": project_id, "t": title})
+
+    def set_readme(self, project_id: str, readme: str, short_description: str) -> None:
+        q = """mutation($p: ID!, $r: String!, $s: String!) {
+          updateProjectV2(input: {projectId: $p, readme: $r, shortDescription: $s}) {
+            projectV2 { id } } }"""
+        self.graphql(q, {"p": project_id, "r": readme, "s": short_description})
 
     def rename_field(self, field_id: str, name: str) -> None:
         q = """mutation($input: UpdateProjectV2FieldInput!) {
@@ -307,8 +340,14 @@ class GitHubClient:
         self.graphql(q, {**ids, "v": field_value(f, value)})
 
 
-def _option_inputs(options: list[str]) -> list[dict[str, str]]:
-    return [{"name": name, "color": "GRAY", "description": ""} for name in options]
+def _option_inputs(
+    options: list[str], descriptions: dict[str, str] | None = None
+) -> list[dict[str, str]]:
+    descriptions = descriptions or {}
+    return [
+        {"name": name, "color": "GRAY", "description": descriptions.get(name, "")}
+        for name in options
+    ]
 
 
 def field_value(f: ProjectField, value: str) -> dict[str, Any]:

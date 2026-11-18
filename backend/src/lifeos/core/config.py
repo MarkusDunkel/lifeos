@@ -136,6 +136,16 @@ class Settings(BaseSettings):
         description="Seconds between board checks of `lifeos worker` for applications; 0 = off.",
     )
 
+    agents_interval: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Seconds between rounds of the AI teammates in `lifeos worker`: mirror the board "
+            "contracts (`boards/` in the vault) to GitHub, then let agents (`agents/`) take "
+            "tickets in their columns. 0 = off. Needs LIFEOS_GITHUB_TOKEN."
+        ),
+    )
+
     @property
     def github_project_list(self) -> list[str]:
         refs = [r.strip() for r in self.github_projects.split(",") if r.strip()]

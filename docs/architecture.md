@@ -62,7 +62,8 @@ Writers that know what they changed commit their own paths right away
 |---|---|
 | `moodle:` | daily Moodle job, e.g. `moodle: 3 new, 2 updated` with courses and files in the body |
 | `study:` | end of a study session, e.g. `study: Spanish – 15 answers, 12 correct`; unfinished sessions are committed by the sync job as `study: … (session not ended)` |
-| `application:` / `agent(application):` | applications: new ticket folder, drafts written by the AI (`… vN`, with `Refs owner/repo#N`) |
+| `application:` | applications: new ticket folder, abandoned applications |
+| `agent(<name>):` | a run of an AI teammate: its run log and outputs, e.g. `agent(application-writer): #12 done – Company`, body `Refs owner/repo#12` |
 | `lifeos: auto-sync` | the periodic sync, collecting everything else (e.g. edits in the web app) |
 
 Future writers (OneDrive, tickets, study progress, agents) follow the same pattern.
@@ -73,6 +74,8 @@ Future writers (OneDrive, tickets, study progress, agents) follow the same patte
 | Job | Schedule | Setting |
 |---|---|---|
 | `moodle-sync` | daily at a local time; missed runs are caught up, failures retried hourly (max. 3 per day) | `LIFEOS_MOODLE_SYNC_AT=05:00`, `LIFEOS_TIMEZONE` |
+| `applications-board` | every N seconds: close/reopen on outcome columns, roll back deleted tickets | `LIFEOS_APPLICATIONS_INTERVAL` |
+| `agents` | every N seconds: mirror board contracts, AI teammates take their tickets | `LIFEOS_AGENTS_INTERVAL` |
 | `git-sync` | every N seconds | `LIFEOS_GIT_SYNC_INTERVAL` |
 
 The last run of every job is kept in `state/jobs.json` (`GET /api/jobs/status`), so a
@@ -123,7 +126,7 @@ result. If devjobs.at refuses the importer it stops for the day. Log and state l
 The **Jobs** page of the web app shows the import status and the postings (search, new
 since, duplicates and offline postings on request, details with the full text).
 
-## Tickets: one repository, several projects, a review layer
+## Tickets: one repository, several projects
 
 All tickets are issues in **one** private repository (`LIFEOS_GITHUB_REPOS`). Projects v2
 boards group them by purpose (`LIFEOS_GITHUB_PROJECTS`, e.g. "LifeOS Tasks"; the
@@ -137,22 +140,23 @@ project, that project's status, state, label and text; there is no board view, b
 statuses differ per project. The editor groups fields per project and can add a ticket
 to another project; removing it from a project is done on GitHub.
 
-**Review layer.** GitHub is the source of truth for tickets; `ready/tickets/` is the
-editable copy in LifeOS. Changes are split by how much they matter:
+**Add directly, never change.** GitHub is the source of truth for tickets;
+`ready/tickets/` is a read copy (context for agents, search, history). The control over
+AI work is the board itself: a ticket an AI creates lands in an inbox column and nothing
+happens until the user moves it on. So the rule for every agent – worker or interactive –
+is:
 
 | Change | Path to GitHub |
 |---|---|
-| Ticket the user creates with a button (e.g. **Apply**) | direct |
-| Status move inside a process the user steers (application: Active → In Review) | direct |
-| Mechanical consequence of the user's move (close/reopen on outcome columns) | direct |
-| Notice comment by the system (draft ready, links, commit reference) | direct |
-| Anything an AI writes: titles, text, labels, project fields | copy → **Changes** → plan → apply |
-| New tickets on an AI's own initiative (e.g. job suggestions) | copy (or LifeOS page) → user → GitHub |
-| A status an AI *decides* ("this task is done") | copy → **Changes** → plan → apply |
+| New ticket in the inbox column (`New` on the inbox board): proposals, notices | direct |
+| Comments: start, question, report, reply saying how a comment of the user was read | direct |
+| The `AI` field; moving a ticket the agent works on to its working column and to review | direct |
+| Tickets the user creates with a button (e.g. **Apply**), mechanical consequences of the user's moves (close/reopen on outcome columns) | direct |
+| Titles, texts, labels or fields the user set; closing, deleting; moving beyond review | **never** – the agent comments or proposes instead |
+| A batch change the user explicitly asks for in a session | copy → **Changes** → plan → apply |
 
-Agents never call GitHub themselves; the vault rules (`vault/CLAUDE.md`) say the same.
-Commits of agents that belong to a ticket end with `Refs <owner>/<repo>#<number>`, which
-links them in the ticket's timeline.
+The **Changes** page stays for such batch changes. Commits of agents that belong to a
+ticket end with `Refs <owner>/<repo>#<number>`, which links them in the ticket's timeline.
 
 ## Applications
 
@@ -163,8 +167,9 @@ the columns New, Active, In Review, Sent, 1st/2nd/3rd+ Interview, Offer, Accepte
 Rejected, Declined, and the fields `Interview round`, `Company`, `Posting`. **Apply** on the
 Jobs page (`POST /api/applications`) creates the ticket in New, a folder
 `ready/knowledge/Career/Applications/<date> <company> – <title>/` with `Application.md` and a
-`Posting.md` snapshot, and marks the posting (commit `application: new – …`). AI
-suggestions will first appear in LifeOS and become a ticket only when the user accepts.
+`Posting.md` snapshot, and marks the posting (commit `application: new – …`). Moving the
+ticket to **Active** hands it to the AI teammate named in the board contract (see
+*AI teammates on the boards*).
 `lifeos applications migrate-vault [--commit]` moves the first, German layout
 (`Karriere/…`) to the English one.
 
@@ -175,10 +180,9 @@ Only `Career/Applications/Examples/` serves as examples for new cover letters; a
 there when its ticket reaches **Sent**, i.e. after the user's last review. Archived drafts
 never do. Issues that are only taken off the board are left alone.
 
-The worker job `applications-board` (`LIFEOS_APPLICATIONS_INTERVAL`) polls the board and runs
-the handler of a column once when a ticket arrives there (state in
-`.lifeos/applications/board.json`; a failing handler comments on the ticket and is not retried
-until the ticket moves again). Outcome columns close the issue; moving it back reopens it.
+The worker job `applications-board` (`LIFEOS_APPLICATIONS_INTERVAL`) polls the board for the
+mechanical consequences of the user's moves (state in `.lifeos/applications/board.json`):
+outcome columns close the issue; moving it back reopens it.
 
 Documents are rendered with Typst (`typst` Python package) from `templates/typst/` and the
 bundled XCharter font; the master CV (`Career/CV/cv.yaml`) and personal data
@@ -186,6 +190,43 @@ bundled XCharter font; the master CV (`Career/CV/cv.yaml`) and personal data
 and lessons, `Career/Applications/Examples/` earlier cover letters. A draft may only select master entries and
 bullets by id and titles from the allowed variants; companies and periods always come from
 the master. The cover letter must fit one page, the CV two.
+
+## AI teammates on the boards
+
+AI agents work on the GitHub boards like team members. The configuration lives in the
+vault, the code only executes it:
+
+- `boards/<board>.md` – the **board contract**: columns with owner and description, fields,
+  the `ai:` block (`pickup`, `working`, `review` columns, optionally `responsible_field`),
+  an optional `inbox:` column and a `## README` section. The worker mirrors it to GitHub
+  (status option descriptions, fields, project README and short description) – vault →
+  GitHub only. If GitHub was edited by hand and the contract did not change, nothing is
+  overwritten: the drift becomes one ticket in the inbox.
+- `agents/<name>.md` – the **agent definition**: front matter (`title`, `runner`,
+  `workflow`, `board`, `model`, …) and a human-readable body (summary, workflow, rules with
+  origin, review checklist, history, rejected proposals).
+- `agents/texts.yaml` – the wording of agent comments and run logs (defaults in English).
+- `agents/<name>/runs.md` – the run log, appended by every run.
+
+**Taking tickets by state, not by events.** A ticket belongs to an agent when it is open,
+sits in the pickup or working column, its `AI` field is empty and – on boards with a
+`Responsible` field – that field says `AI: <title>` (on other boards the column names the
+agent). A round of the `agents` job (`LIFEOS_AGENTS_INTERVAL`, also `lifeos agents run`):
+
+1. mirror every contract (`lifeos agents sync` does only this),
+2. for each such ticket: `AI = running`, move to the working column, start comment (what
+   the column means, the numbered workflow steps, link to the agent file at its git
+   revision),
+3. run the workflow (`agents/workflows.py`, by the definition's `workflow` name),
+4. report and move to the review column with `AI` cleared – or, on a question
+   (`AgentBlocked`) or an error, comment and set `AI = blocked`; the agent waits until the
+   user clears the field,
+5. append to the run log and commit `agent(<name>): #N <outcome> – …` with `Refs`.
+
+A ticket left at `running` for 30 minutes (worker restarted mid-run) becomes `blocked`.
+Agents write with the user's token, so every agent comment starts with an invisible
+marker (`<!-- lifeos-agent: <name> -->`); comments without it are the user's and are the
+only instructions an agent follows. State: `.lifeos/agents/` (`boards.json`, `runs-*.json`).
 
 ## Backend layout (`backend/src/lifeos`)
 
@@ -204,7 +245,7 @@ the master. The cover letter must fit one page, the CV two.
 | `modules/notes` | JSON Lines store with per-note revisions, column schema (inferred or `schema.json`) |
 | `modules/workspaces` | Read-only reports, archive, change logs; md4h feedback rounds (draft → sealed) |
 | `modules/tickets` | Ticket list (filters by project/status/label) and editor over `ready/tickets`, conflict resolution |
-| `modules/agents` | Upcoming review gate |
+| `agents/` | AI teammates: board contracts and agent definitions (`config.py`), mirror to GitHub (`mirror.py`), taking tickets by state (`team.py`), comments and run logs, workflows, one round (`service.py`) |
 | `connectors/github` | GraphQL client, ingest → 3-way merge, write-back plans and apply |
 | `connectors/onedrive` | Microsoft device-code sign-in, read-only Graph client, `.pptx` text extraction, one-way mirror into the knowledge hub |
 | `connectors/moodle` | Moodle web service client (read-only), token sign-in, incremental mirror of course materials and overviews |

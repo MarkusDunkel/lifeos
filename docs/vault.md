@@ -13,7 +13,8 @@ vault/
 │       ├── aenderungsprotokoll/   change log per processed report
 │       └── archive/               processed reports, moved unchanged
 ├── outbox/                digest plans and results per connector
-├── agents/                personal agent overrides and context
+├── boards/                board contracts: columns, owners, fields, README (mirrored to GitHub)
+├── agents/                agent definitions <name>.md, texts.yaml, run logs <name>/runs.md
 ├── .md4h/feedback/        feedback rounds on workspace files (md4h v2 format)
 ├── .lifeos/               runtime state: indexes, merge bases (gitignored)
 └── CLAUDE.md              rules for agents working in the vault

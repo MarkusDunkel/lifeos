@@ -58,6 +58,14 @@ def main(argv: list[str] | None = None) -> int:
         "--commit", action="store_true", help="commit and sync the moved files (server only)"
     )
 
+    agents = sub.add_parser("agents", help="AI teammates on the GitHub boards")
+    agents.add_argument(
+        "action",
+        choices=["sync", "run"],
+        help="sync: mirror the board contracts (vault boards/) to GitHub; "
+        "run: one full round (mirror, then agents take tickets) – what the worker does",
+    )
+
     sub.add_parser("moodle-sync", help="sync Moodle now (same as the button in the app)")
     sub.add_parser("worker", help="run background jobs (vault git sync)")
     sub.add_parser("git-sync", help="sync the vault with its git remote once")
@@ -89,6 +97,8 @@ def main(argv: list[str] | None = None) -> int:
         return _moodle_sync()
     if args.cmd == "jobsearch":
         return _jobsearch(args)
+    if args.cmd == "agents":
+        return _agents(args)
     if args.cmd == "applications":
         if args.action == "migrate-vault":
             return _applications_migrate(args)
@@ -184,6 +194,32 @@ def _applications_migrate(args) -> int:
         committed = git.commit_paths(changed_paths(), message)
         print(f"committed {len(committed)} file(s); sync: {git.run().status}")
     return 0
+
+
+def _agents(args) -> int:
+    from lifeos.agents.service import run_round
+    from lifeos.agents.workflows import WORKFLOWS
+    from lifeos.connectors.github.client import GitHubClient
+    from lifeos.core.config import get_settings
+    from lifeos.core.git_sync import git_sync_for
+    from lifeos.core.vault import Vault
+
+    settings = get_settings()
+    if not settings.github_token:
+        print("set LIFEOS_GITHUB_TOKEN", file=sys.stderr)
+        return 2
+    events, failed = run_round(
+        GitHubClient(settings.github_token),
+        Vault.open(settings.vault_root),
+        WORKFLOWS,
+        next(iter(settings.github_repo_list), None),
+        git=git_sync_for(settings),
+        timezone=settings.timezone,
+        mirror_only=args.action == "sync",
+    )
+    for line in events or ["no changes"]:
+        print(line)
+    return 1 if failed else 0
 
 
 def _applications_setup() -> int:

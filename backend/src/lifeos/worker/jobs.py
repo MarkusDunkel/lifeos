@@ -151,6 +151,26 @@ def applications_board_job(settings: Settings, git: GitSync) -> Callable[[], Job
     return run
 
 
+def agents_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]:
+    """Mirror the board contracts to GitHub and let the AI teammates take their tickets."""
+    from lifeos.agents.service import run_round
+    from lifeos.agents.workflows import WORKFLOWS
+    from lifeos.connectors.github.client import GitHubClient
+
+    vault = Vault.open(settings.vault_root)
+
+    def run() -> JobResult:
+        if not settings.github_token:
+            return JobResult("skipped", "LIFEOS_GITHUB_TOKEN not set")
+        gh = GitHubClient(settings.github_token)
+        repo = next(iter(settings.github_repo_list), None)
+        events, failed = run_round(gh, vault, WORKFLOWS, repo, git=git, timezone=settings.timezone)
+        message = "; ".join(events) if events else "no changes"
+        return JobResult("error" if failed else "ok", message)
+
+    return run
+
+
 def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
     jobs: list[Job] = []
     if settings.moodle_sync_at:
@@ -170,6 +190,8 @@ def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
                 applications_board_job(settings, git),
             )
         )
+    if settings.agents_interval > 0:
+        jobs.append(Job("agents", Every(settings.agents_interval), agents_job(settings, git)))
     if settings.git_sync_interval > 0:
         jobs.append(Job("git-sync", Every(settings.git_sync_interval), git_sync_job(git)))
     return jobs

@@ -108,6 +108,27 @@ class GitSync:
                 )  # fmt: skip
             return changed
 
+    def last_commit(self, path: str) -> str | None:
+        """Short hash of the last commit that touched ``path`` (None without git/history)."""
+        if not (self.root / ".git").exists():
+            return None
+        proc = self._git_raw("log", "-1", "--format=%h", "--", path)
+        if proc.returncode != 0:
+            return None
+        return proc.stdout.strip() or None
+
+    def is_dirty(self, path: str) -> bool:
+        """``path`` has uncommitted changes (or is untracked)."""
+        if not (self.root / ".git").exists():
+            return False
+        proc = self._git_raw("status", "--porcelain", "--", path)
+        return proc.returncode == 0 and bool(proc.stdout.strip())
+
+    def web_url(self) -> str | None:
+        """``https://github.com/owner/repo`` for a GitHub remote, else None."""
+        url = self._remote_url() if (self.root / ".git").exists() else None
+        return github_web_url(url) if url else None
+
     def added_lines(self, path: str) -> int:
         """Lines added to ``path`` since the last commit (all lines for a new file)."""
         if not (self.root / ".git").exists() or not (self.root / path).is_file():
@@ -257,6 +278,20 @@ class GitSync:
                     yield
             else:
                 yield
+
+
+def github_web_url(remote: str) -> str | None:
+    """Turn an ssh/https GitHub remote (also an ssh host alias) into its web address."""
+    remote = remote.strip()
+    if remote.endswith(".git"):
+        remote = remote[:-4]
+    if remote.startswith("https://github.com/"):
+        return remote
+    if remote.startswith("git@") and ":" in remote:
+        path = remote.split(":", 1)[1].strip("/")
+        if path.count("/") == 1:
+            return f"https://github.com/{path}"
+    return None
 
 
 def background_committer(git: GitSync) -> Callable[[list[str], str], None]:
