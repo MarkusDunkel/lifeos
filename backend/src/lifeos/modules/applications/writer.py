@@ -1,6 +1,8 @@
 """The application writer: an agent workflow that drafts the cover letter and CV.
 
-A fixed sequence of Messages API calls, enforced by the code:
+A fixed sequence of model calls, enforced by the code. The calls go to the Messages API
+(:class:`AnthropicLlm`, billed per token) or through Claude Code to the owner's Claude
+subscription (:class:`ClaudeCodeLlm`); the workflow is the same:
 
 1. **research** – the company, with server-side web search (capped); skipped on a
    revision when research notes already exist,
@@ -26,8 +28,15 @@ from datetime import date
 from typing import Any, Protocol
 from urllib.parse import quote
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
+from lifeos.agents.claude_code import (
+    WEB_TOOLS,
+    CallResult,
+    ClaudeCode,
+    Refused,
+    SubscriptionLimit,
+)
 from lifeos.agents.team import AgentBlocked, RunContext, RunResult
 from lifeos.core.vault import write_atomic
 from lifeos.modules.applications.model import Draft, DraftError, resolve_cv
@@ -95,8 +104,18 @@ class Review(BaseModel):
 
 @dataclass
 class Usage:
-    usd: float = 0.0
+    usd: float = 0.0  # billed API cost; 0 on the subscription
     searches: int = 0
+    tokens: int = 0  # subscription only: tokens processed
+    list_usd: float = 0.0  # subscription only: the API list price of the same calls
+
+    def __add__(self, other: Usage) -> Usage:
+        return Usage(
+            self.usd + other.usd,
+            self.searches + other.searches,
+            self.tokens + other.tokens,
+            self.list_usd + other.list_usd,
+        )
 
 
 class Llm(Protocol):
@@ -158,8 +177,7 @@ class AnthropicLlm:
                 betas=self.BETAS,
                 fallbacks="default",
             )
-            used = usage_usd(self.model, response.usage)
-            total = Usage(total.usd + used.usd, total.searches + used.searches)
+            total += usage_usd(self.model, response.usage)
             if response.stop_reason == "refusal":
                 raise ModelRefused("the model declined the research request")
             if response.stop_reason != "pause_turn":
@@ -191,6 +209,67 @@ class AnthropicLlm:
         if response.parsed_output is None:
             raise RuntimeError("the answer did not match the expected format")
         return response.parsed_output, usage_usd(self.model, response.usage)
+
+
+class ClaudeCodeLlm:
+    """The same calls through Claude Code, billed to the owner's subscription.
+
+    Research may use only web search and fetch; writing and reviewing get no tools and a
+    JSON schema. A subscription limit blocks the ticket instead of failing it.
+    """
+
+    RETRIES = 1  # extra attempts when the structured answer does not validate
+
+    def __init__(self, model: str, cli: ClaudeCode | None = None) -> None:
+        self.model = model
+        self.cli = cli or ClaudeCode()
+
+    def _call(self, **kwargs: Any) -> CallResult:
+        try:
+            return self.cli.call(model=self.model, **kwargs)
+        except SubscriptionLimit as exc:
+            raise AgentBlocked(str(exc)) from exc
+        except Refused as exc:
+            raise ModelRefused(str(exc)) from exc
+
+    @staticmethod
+    def _usage(result: CallResult) -> Usage:
+        return Usage(0.0, result.searches, result.tokens, result.list_usd)
+
+    def research(
+        self, system: str, prompt: str, max_searches: int, effort: str
+    ) -> tuple[str, Usage]:  # noqa: E501
+        result = self._call(
+            system=system,
+            prompt=prompt,
+            effort=effort,
+            tools=WEB_TOOLS,
+            max_turns=2 * max_searches + 4,  # searches plus a few page fetches
+        )
+        return result.text.strip(), self._usage(result)
+
+    def parse(
+        self, system: str, prompt: str, schema: type[BaseModel], effort: str
+    ) -> tuple[Any, Usage]:  # noqa: E501
+        total = Usage()
+        ask = prompt
+        for attempt in range(self.RETRIES + 1):
+            result = self._call(
+                system=system, prompt=ask, effort=effort, schema=schema.model_json_schema()
+            )
+            total += self._usage(result)
+            try:
+                if result.structured is None:
+                    raise ValueError("no structured answer")
+                return schema.model_validate(result.structured), total
+            except (ValidationError, ValueError) as exc:
+                problem = str(exc)
+            log.warning("structured answer invalid (attempt %d): %s", attempt + 1, problem)
+            ask = (
+                f"{prompt}\n\nYour previous answer did not match the required format:\n"
+                f"{problem[:2000]}\nAnswer again in the required format."
+            )
+        raise RuntimeError("the answer did not match the expected format")
 
 
 # -- prompts -------------------------------------------------------------------------------
@@ -328,7 +407,7 @@ def make_application_writer(
 
         def charge(used: Usage) -> None:
             nonlocal spent
-            spent = Usage(spent.usd + used.usd, spent.searches + used.searches)
+            spent += used
             ctx.cost_eur = spent.usd * settings.eur_per_usd
 
         folder = application_folder(ctx)
