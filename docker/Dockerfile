@@ -55,4 +55,5 @@ CMD ["lifeos", "serve", "--host", "0.0.0.0", "--port", "8000"]
 # --- 3. Tests (built by ops/deployer.py before a release; not the running image) ---
 FROM app AS test
 RUN uv sync --frozen
-CMD ["pytest", "-q", "-p", "no:cacheprovider"]
+# The running image serves the frontend and the vault from fixed paths; tests set their own.
+CMD ["env", "-u", "LIFEOS_STATIC_DIR", "-u", "LIFEOS_VAULT_ROOT", "pytest", "-q", "-p", "no:cacheprovider"]
