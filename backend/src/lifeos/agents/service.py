@@ -16,6 +16,7 @@ from lifeos.agents.config import AgentDef, BoardContract, load_config
 from lifeos.agents.inbox import create_inbox_ticket, owner_option  # noqa: F401 - API
 from lifeos.agents.llm import Llm
 from lifeos.agents.mirror import BoardMirror
+from lifeos.agents.releases import AppRepo, DeployQueue, Releases
 from lifeos.agents.team import Team, Workflow
 from lifeos.connectors.github.client import GitHubError
 from lifeos.core.vault import STATE, Vault
@@ -40,6 +41,8 @@ def run_round(
     mirror_only: bool = False,
     llm_factory: Callable[[AgentDef], Llm] | None = None,
     eur_per_usd: float = 0.9,
+    queue: DeployQueue | None = None,
+    app: AppRepo | None = None,
 ) -> tuple[list[str], bool]:
     """Returns the events and whether something failed.
 
@@ -66,16 +69,22 @@ def run_round(
             failed = True
     if mirror_only:
         return events, failed
+    releases = Releases(gh, vault, cfg, git, queue, app)
     for contract in order:
         team = Team(
             gh, vault, cfg, contract, workflows, vault.resolve(runs_state(contract.board)),
-            git=git, timezone=timezone, repo=repo,
+            git=git, timezone=timezone, repo=repo, releases=releases,
         )  # fmt: skip
         try:
             events += team.poll()
         except (GitHubError, ValueError) as exc:
             events.append(f"{contract.board}: {exc}")
             failed = True
+    try:
+        events += releases.poll()
+    except (GitHubError, ValueError) as exc:
+        events.append(f"releases: {exc}")
+        failed = True
     if llm_factory is not None:
         assistant = Assistant(gh, vault, cfg, repo, llm_factory, git=git, timezone=timezone,
                               eur_per_usd=eur_per_usd)  # fmt: skip

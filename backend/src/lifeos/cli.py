@@ -198,7 +198,7 @@ def _applications_migrate(args) -> int:
 
 def _agents(args) -> int:
     from lifeos.agents.service import run_round
-    from lifeos.agents.workflows import build_llm_factory, build_workflows
+    from lifeos.agents.workflows import build_llm_factory, build_release, build_workflows
     from lifeos.connectors.github.client import GitHubClient
     from lifeos.core.config import get_settings
     from lifeos.core.git_sync import git_sync_for
@@ -208,6 +208,7 @@ def _agents(args) -> int:
     if not settings.github_token:
         print("set LIFEOS_GITHUB_TOKEN", file=sys.stderr)
         return 2
+    queue, app = build_release(settings)
     events, failed = run_round(
         GitHubClient(settings.github_token),
         Vault.open(settings.vault_root),
@@ -218,6 +219,8 @@ def _agents(args) -> int:
         mirror_only=args.action == "sync",
         llm_factory=build_llm_factory(settings),
         eur_per_usd=settings.agents_eur_per_usd,
+        queue=queue,
+        app=app,
     )
     for line in events or ["no changes"]:
         print(line)

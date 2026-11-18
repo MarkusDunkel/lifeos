@@ -293,6 +293,44 @@ alone), commits them and writes a log of every tool call to
 redacted). App code changes are asked for as a branch and pull request, never a push to the
 main or deployed branch.
 
+### Releasing the assistant's changes – and undoing them
+
+On a board whose contract names a discard column (`ai: {discard: New}`), everything an
+agent hands over to review is **live**, and moving the ticket to the discard column undoes
+it (`agents/releases.py`):
+
+- **Vault changes** are live once the team committed them. The report links the commit.
+- **Pull requests** the agent lists (`RunResult.pull_requests`) in `LIFEOS_APP_REPO` against
+  `LIFEOS_DEPLOY_BRANCH` are tested, merged and deployed: the worker queues a `test` request,
+  merges the pull request (merge commit, `Refs` the ticket) when the tests pass and queues a
+  `deploy` request. Each step is reported on the ticket; a failed deployment rolls back to
+  the previous version and undoes the merge on the branch.
+- What went live is remembered per ticket (`.lifeos/agents/releases.json`, plus an invisible
+  `lifeos-release` marker in the report). A ticket in the discard column whose record is
+  `live` is undone once: vault commits with `git revert`, merged pull requests with a revert
+  commit on the deploy branch that is deployed. A revert that conflicts (a later change built
+  on it) is reported instead of half done. Tickets without a record are left alone.
+- Every commit names the ticket (`Refs owner/repo#N`: agent commits, merge and revert
+  commits; the pull request gets a "Belongs to" comment), so the ticket's timeline lists all
+  of them.
+
+**Host deployer.** The worker has no Docker, so `ops/deployer.py` (standard library only)
+runs on the host as the user that owns the checkout, every 20 seconds via systemd. It reads
+`<state>/deploy/requests/*.json` and writes `results/*.json`. `test` checks the commit out in
+a separate clone, builds the Dockerfile's `test` stage and runs the suite in a container
+without network, volumes or secrets. `deploy` accepts only the deploy branch, waits while an
+agent run is in progress, updates the checkout, runs `docker compose build && up -d`, waits
+for `/api/health` and restores the previous commit if the app does not come up. Install:
+
+```bash
+cp ops/deployer.env.example /srv/lifeos/deploy/deployer.env   # set LIFEOS_DEPLOY_BRANCH
+sed "s/^User=.*/User=$USER/" ops/lifeos-deployer.service | sudo tee /etc/systemd/system/lifeos-deployer.service
+sudo cp ops/lifeos-deployer.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now lifeos-deployer.timer
+```
+
+The app needs `LIFEOS_APP_REPO` and `LIFEOS_DEPLOY_BRANCH` (same branch as the deployer).
+
 ## Backend layout (`backend/src/lifeos`)
 
 | Module | Responsibility |

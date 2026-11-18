@@ -160,6 +160,20 @@ class Settings(BaseSettings):
         ),
     )
 
+    app_repo: str = Field(
+        default="",
+        description=(
+            "owner/name of this app's GitHub repository. With it, pull requests the assistant "
+            "opens for a ticket are tested, merged into LIFEOS_DEPLOY_BRANCH and deployed by "
+            "the host deployer (ops/deployer.sh) when the ticket goes to review."
+        ),
+    )
+
+    deploy_branch: str = Field(
+        default="main",
+        description="The branch the server runs; the assistant's pull requests are merged into it.",
+    )
+
     claude_timeout: int = Field(
         default=900,
         gt=0,

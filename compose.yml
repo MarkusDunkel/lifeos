@@ -12,6 +12,7 @@ x-lifeos: &lifeos
   build:
     context: .
     dockerfile: docker/Dockerfile
+    target: app  # the Dockerfile's last stage is the test image
   image: lifeos:local
   env_file: ${LIFEOS_ENV_FILE:-../deploy/.env}
   environment:

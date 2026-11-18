@@ -332,6 +332,27 @@ class GitHubClient:
             raise GitHubError("issue not found")
         return node["comments"]["nodes"]
 
+    def pull_request(self, repo: str, number: int) -> dict[str, Any] | None:
+        """A pull request of ``owner/name``: id, number, url, state, base and head branch,
+        head commit, head repository and merge commit (None when there is no such PR)."""
+        owner, name = repo.split("/", 1)
+        q = """query($o: String!, $n: String!, $num: Int!) { repository(owner: $o, name: $n) {
+          pullRequest(number: $num) { id number url state title body baseRefName headRefName
+            headRefOid headRepository { nameWithOwner } mergeCommit { oid } } } }"""
+        try:
+            data = self.graphql(q, {"o": owner, "n": name, "num": number})
+        except GitHubError:
+            return None
+        return (data.get("repository") or {}).get("pullRequest")
+
+    def merge_pull_request(self, pr_id: str, head_oid: str, headline: str, body: str) -> str:
+        """Merge (merge commit) if the head is still ``head_oid``; returns the merge commit."""
+        q = """mutation($id: ID!, $oid: GitObjectID!, $h: String!, $b: String!) {
+          mergePullRequest(input: {pullRequestId: $id, expectedHeadOid: $oid, mergeMethod: MERGE,
+            commitHeadline: $h, commitBody: $b}) { pullRequest { mergeCommit { oid } } } }"""
+        data = self.graphql(q, {"id": pr_id, "oid": head_oid, "h": headline, "b": body})
+        return data["mergePullRequest"]["pullRequest"]["mergeCommit"]["oid"]
+
     def viewer_login(self) -> str:
         """The login of the account behind the token (the owner)."""
         return self.graphql("query { viewer { login } }", {})["viewer"]["login"]

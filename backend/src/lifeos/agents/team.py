@@ -112,6 +112,8 @@ class RunResult:
     # general points the agent noticed (e.g. from the owner's comments): each becomes a
     # proposal ticket in the inbox, waiting for the owner's approval
     proposals: list[Proposal] = field(default_factory=list)
+    # pull requests the agent opened (URLs); released by the team's releases, if configured
+    pull_requests: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -184,9 +186,11 @@ class Team:
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         texts: Texts | None = None,
         repo: str | None = None,
+        releases: Any | None = None,
     ) -> None:
         self.gh = gh
         self.repo = repo  # repository for new tickets in the inbox (proposals)
+        self.releases = releases  # lifeos.agents.releases.Releases
         self.vault = vault
         self.cfg = cfg
         self.contract = contract
@@ -339,25 +343,8 @@ class Team:
         if result is not None and result.cost_eur:
             spend.cost_eur = max(spend.cost_eur, result.cost_eur)
         footer = comments.footer(self.t, revision, seconds, spend, agent.billing, self.clock())
-        if outcome == "done" and result is not None:
-            report = result.report + self._proposals(agent, ticket, result.proposals)
-            body = comments.report_comment(self.t, agent.name, report, footer)
-            self.gh.add_comment(ticket.issue_id, body)
-            self.gh.set_field(project.id, ticket.item_id, project.fields[STATUS], ai.review)
-            self.gh.set_field(project.id, ticket.item_id, project.fields[AI_FIELD], None)
-        else:
-            body = (
-                comments.question_comment(self.t, agent.name, message, footer)
-                if outcome == "blocked"
-                else comments.error_comment(self.t, agent.name, message, footer)
-            )
-            self.gh.add_comment(ticket.issue_id, body)
-            self.gh.set_field(project.id, ticket.item_id, project.fields[AI_FIELD], BLOCKED)
 
-        state = self._load()
-        state.pop(ticket.item_id, None)
-        self._save(state)
-
+        # the run log and the files first: the report links the commit
         first_line = message.strip().splitlines()[0] if message.strip() else ""
         summary = (result.summary if result else "") or first_line[:120]
         record = RunRecord(
@@ -377,8 +364,44 @@ class Team:
         )
         paths = [append_run(self.vault, agent.name, agent.title, record, self.t)]
         paths += result.paths if result else []
-        self._commit(agent, ticket, outcome, summary, paths)
+        commit = self._commit(agent, ticket, outcome, summary, paths)
+
+        if outcome == "done" and result is not None:
+            report = (
+                result.report
+                + self._proposals(agent, ticket, result.proposals)
+                + self._release(agent, ticket, commit if result.paths else None, result)
+            )
+            body = comments.report_comment(self.t, agent.name, report, footer)
+            self.gh.add_comment(ticket.issue_id, body)
+            self.gh.set_field(project.id, ticket.item_id, project.fields[STATUS], ai.review)
+            self.gh.set_field(project.id, ticket.item_id, project.fields[AI_FIELD], None)
+        else:
+            body = (
+                comments.question_comment(self.t, agent.name, message, footer)
+                if outcome == "blocked"
+                else comments.error_comment(self.t, agent.name, message, footer)
+            )
+            self.gh.add_comment(ticket.issue_id, body)
+            self.gh.set_field(project.id, ticket.item_id, project.fields[AI_FIELD], BLOCKED)
+
+        state = self._load()
+        state.pop(ticket.item_id, None)
+        self._save(state)
         return f"#{ticket.number} {agent.name}: {outcome}" + (f" – {summary}" if summary else "")
+
+    def _release(
+        self, agent: AgentDef, ticket: Ticket, commit: str | None, result: RunResult
+    ) -> str:
+        """Report lines that link what went live; on boards with a discard column the
+        releases also remember it, to undo it when the ticket is moved there."""
+        if self.releases is not None and self.contract.ai.discard:
+            return self.releases.record(agent, self.contract, ticket, commit, result.pull_requests)
+        base = self.git.web_url() if self.git else None
+        if commit and base:
+            link = f"[`{commit}`]({base}/commit/{commit})"
+            return "\n\n" + self.t("report_commit", link=link)
+        return ""
 
     def _proposals(self, agent: AgentDef, ticket: Ticket, proposals: list[Proposal]) -> str:
         """Create the proposal tickets; returns the report lines that link them."""
@@ -405,15 +428,20 @@ class Team:
 
     def _commit(
         self, agent: AgentDef, ticket: Ticket, outcome: str, summary: str, paths: list[str]
-    ) -> None:
+    ) -> str | None:
+        """Commit and push ``paths``; returns the commit (short) when something changed."""
         if self.git is None:
-            return
+            return None
         subject = f"agent({agent.name}): #{ticket.number} {outcome}"
         if summary:
             subject += f" – {summary}"
         message = f"{subject[:150]}\n\nRefs {ticket.ref}\n"
         try:
-            if self.git.commit_paths(paths, message):
-                self.git.run()
+            if not self.git.commit_paths(paths, message):
+                return None
+            commit = self.git.head() if hasattr(self.git, "head") else None
+            self.git.run()
+            return commit
         except Exception:  # the run itself is done; a commit failure must not undo it
             log.exception("commit after %s run failed", agent.name)
+            return None

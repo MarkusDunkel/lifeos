@@ -43,7 +43,7 @@ class FakeClaude:
 
 def task(**kw: Any) -> TaskResult:
     base = dict(summary="Regel ergänzt", changes=["agents/writer.md: neue Regel"],
-                please_check=["Formulierung der Regel"], question="")  # fmt: skip
+                please_check=["Formulierung der Regel"], question="", pull_requests=[])  # fmt: skip
     return TaskResult(**(base | kw))
 
 

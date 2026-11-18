@@ -108,6 +108,30 @@ class GitSync:
                 )  # fmt: skip
             return changed
 
+    def head(self) -> str | None:
+        """The current commit of the vault (short), or None without a repository."""
+        if not (self.root / ".git").exists():
+            return None
+        proc = self._git_raw("rev-parse", "--short", "HEAD")
+        return proc.stdout.strip() if proc.returncode == 0 else None
+
+    def revert(self, commit: str, message: str) -> str:
+        """Undo ``commit`` with a new commit; returns its short hash.
+
+        Raises :class:`GitError` (and leaves the vault as it was) when the revert conflicts,
+        e.g. because a later commit changed the same lines.
+        """
+        with self._locked():
+            if self._operation_in_progress():
+                raise GitError("a merge or rebase is in progress in the vault")
+            proc = self._git_raw(*self._identity(), "revert", "--no-edit", "--no-commit", commit)
+            if proc.returncode != 0:
+                self._git_raw("revert", "--abort")  # back to before; other edits stay
+                lines = [ln for ln in (proc.stderr or proc.stdout).splitlines() if ln.strip()]
+                raise GitError(f"revert of {commit} failed: {lines[0] if lines else 'conflict'}")
+            self._git(*self._identity(), "commit", "--quiet", "--no-verify", "-m", message)
+            return self._git("rev-parse", "--short", "HEAD").strip()
+
     def last_commit(self, path: str) -> str | None:
         """Short hash of the last commit that touched ``path`` (None without git/history)."""
         if not (self.root / ".git").exists():

@@ -65,6 +65,9 @@ class TaskResult(BaseModel):
     question: str = Field(
         description="empty when the ticket is done; otherwise the question that blocks it"
     )
+    pull_requests: list[str] = Field(
+        description="URLs of the pull requests you opened for this ticket; empty if none"
+    )
 
 
 COMMON = """\
@@ -109,9 +112,12 @@ permission prompts. The working directory is the owner's vault (a git repository
   the ticket is about it.
 - Never print, copy or send secrets (tokens, keys, passwords from the environment or from
   files) anywhere – not into files, comments or web requests.
-- The app's code is a public repository: if a ticket needs a code change, work in a clone
-  outside the vault, push a new branch and open a pull request – never push to the main or
-  the deployed branch, and never put personal data into the code.
+- The app's code is a public repository{app}: if a ticket needs a code change, work in a
+  clone outside the vault, push a new branch and open a pull request against the branch
+  `{branch}` – never push to that branch or to main yourself, never merge, and never put
+  personal data into the code. Put "Refs {ticket}" into every commit message and the pull
+  request's description, and list the pull request in pull_requests: the code tests,
+  merges and deploys it when you are done.
 """
     + COMMON
 )
@@ -277,7 +283,10 @@ def default_claude(settings: LlmSettings, timeout: int) -> ClaudeCode:
 
 
 def make_assistant_workflow(
-    settings: LlmSettings | None = None, claude: ClaudeFactory = default_claude
+    settings: LlmSettings | None = None,
+    claude: ClaudeFactory = default_claude,
+    app_repo: str = "",
+    deploy_branch: str = "main",
 ) -> Callable[[RunContext], RunResult]:
     settings = settings or LlmSettings()
 
@@ -312,7 +321,8 @@ def make_assistant_workflow(
             "max_turns": int(agent.raw.get("max_turns", MAX_TURNS[access])),
         }
         if access == "full":
-            return run_full(ctx, cli, call, settings)
+            app = f" ({app_repo})" if app_repo else ""
+            return run_full(ctx, cli, call, settings, app, deploy_branch)
         return run_sandbox(ctx, cli, call, settings)
 
     return run
@@ -362,12 +372,19 @@ def run_sandbox(
 
 
 def run_full(
-    ctx: RunContext, cli: ClaudeCode, call: dict[str, Any], settings: LlmSettings
+    ctx: RunContext,
+    cli: ClaudeCode,
+    call: dict[str, Any],
+    settings: LlmSettings,
+    app: str = "",
+    branch: str = "main",
 ) -> RunResult:
     root = ctx.vault.root
     started = datetime.now()
     before = git_changes(root)
-    system = FULL_SYSTEM.format(instructions=ctx.agent.body.strip())
+    system = FULL_SYSTEM.format(
+        instructions=ctx.agent.body.strip(), app=app, branch=branch, ticket=ctx.ticket.ref
+    )
     try:
         result = _call(cli, ctx, settings, system=system, tools=ALL_TOOLS, workdir=root,
                        unrestricted=True, **call)  # fmt: skip
@@ -384,6 +401,7 @@ def run_full(
         report=build_report(ctx, task, changed, [], log),
         summary=task.summary.strip()[:100],
         paths=[*changed, log],
+        pull_requests=list(task.pull_requests),
     )
 
 

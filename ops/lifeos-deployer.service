@@ -1,0 +1,14 @@
+# Runs the LifeOS host deployer once (tests and deployments the worker queued).
+# Install: see docs/architecture.md → Releasing the assistant's changes.
+[Unit]
+Description=LifeOS deployer (queued tests and deployments)
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+# The user that owns the app checkout and may run docker compose.
+User=lifeos-deployer-user
+EnvironmentFile=-/srv/lifeos/deploy/deployer.env
+ExecStart=/usr/bin/python3 /srv/lifeos/app/ops/deployer.py
+TimeoutStartSec=45min

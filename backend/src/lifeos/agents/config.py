@@ -57,6 +57,9 @@ class AiColumns:
     working: str  # where they sit while it works (may equal pickup)
     review: str  # where it hands them over
     responsible_field: str | None = None  # boards with mixed tickets: who does the work
+    # moving a ticket here undoes what the AI made live for it (vault commits, merged app
+    # changes); None = no undo on this board
+    discard: str | None = None
 
 
 @dataclass
@@ -162,6 +165,7 @@ def parse_contract(text: str, path: str) -> BoardContract:
                 working=str(ai.get("working", ai["pickup"])),
                 review=str(ai["review"]),
                 responsible_field=ai.get("responsible_field"),
+                discard=ai.get("discard"),
             ),
             columns=columns,
             fields=fields,
@@ -174,7 +178,8 @@ def parse_contract(text: str, path: str) -> BoardContract:
     if not NAME_RE.match(board):
         raise ConfigError(f"{path}: board name must be lower-case letters, digits and '-'")
     names = contract.column_names
-    for col in (contract.ai.pickup, contract.ai.working, contract.ai.review):
+    for col in (contract.ai.pickup, contract.ai.working, contract.ai.review,
+                *([contract.ai.discard] if contract.ai.discard else [])):  # fmt: skip
         if col not in names:
             raise ConfigError(f"{path}: column '{col}' (ai) is not in columns")
     if contract.inbox and contract.inbox not in names:

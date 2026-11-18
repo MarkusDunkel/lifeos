@@ -130,6 +130,42 @@ DEFAULT_TEXTS: dict[str, str] = {
     ),
     "tool_log_title": "# Steps: {ticket}",
     "tool_log_intro": "{count} tool calls of the assistant on {url}, in order. Secrets redacted.",
+    # releases: what went live for a ticket, and undoing it (boards with a discard column)
+    "report_commit": "**Changes:** commit {link}",
+    "release_vault": "**Live in the vault:** commit {link}",
+    "release_pr_queued": (
+        "**App:** pull request {link} – tests, merge and deployment run now; I report here."
+    ),
+    "release_pr_skipped": "**App:** pull request {link} is not released automatically: {reason}",
+    "release_not_configured": "releases are not set up (LIFEOS_APP_REPO)",
+    "release_other_repo": "it is not a branch of the app repository",
+    "release_pr_missing": "the pull request was not found",
+    "release_pr_not_open": "it is {state}",
+    "release_pr_wrong_base": "it targets `{base}` instead of `{branch}`",
+    "release_pr_belongs": "Belongs to {ref}.",
+    "release_test_failed": (
+        "⛔ **Tests failed** for {link} – nothing was deployed.\n\n```\n{message}\n```"
+    ),
+    "release_merge_failed": "⛔ **Could not merge** {link}: {error}",
+    "release_tested": "✅ Tests passed for {link}; merged as {merge}, deploying now.",
+    "release_live": "🚀 **Live:** {link} runs on the server now (version `{version}`).",
+    "release_deploy_failed": (
+        "⛔ **Deployment failed** for {link} – the previous version runs again.\n\n"
+        "```\n{message}\n```"
+    ),
+    "release_branch_reset": "\n\nThe merge was undone on the branch ({revert}).",
+    "release_branch_not_reset": (
+        "\n\n⚠️ The merge could not be undone on the branch ({error}) – please do it by hand."
+    ),
+    "release_reverted": "↩️ **Undone** – the ticket was moved to **{column}**:",
+    "release_revert_vault": "- vault: commit {commit} undone by {revert}",
+    "release_revert_app": (
+        "- app: pull request {link} undone by {revert}; the previous version is being deployed"
+    ),
+    "release_revert_cancelled": (
+        "- app: pull request {link} was not merged yet – it will not be released"
+    ),
+    "release_revert_failed": "- ⛔ could not undo {what}: {error} – please undo it by hand",
     # heading of the human summary in agents/<name>.md (shown to the assistant)
     "summary_heading": "Summary",
 }
