@@ -15,6 +15,7 @@ from lifeos.modules.applications.profile import GUIDE_FILE, MASTER_FILE, PERSONA
 from lifeos.modules.applications.service import INDEX_FILE
 from lifeos.modules.applications.writer import (
     Check,
+    FeedbackItem,
     Notes,
     Review,
     Usage,
@@ -65,11 +66,12 @@ class FakeLlm:
         return out, Usage(0.10, 0)
 
 
-def output(bullet: str = "acme-sql") -> WriterOutput:
+def output(bullet: str = "acme-sql", feedback: list | None = None) -> WriterOutput:
     return WriterOutput(
         draft=draft(bullet=bullet),
         notes=Notes(decisions=["SQL betont"], uncertain=["Ansprechperson geraten"],
                     please_check=["Gehalt weggelassen"]),
+        feedback=feedback or [],
     )  # fmt: skip
 
 
@@ -195,6 +197,28 @@ def test_revision_uses_owner_feedback_and_reuses_research(gh, vault) -> None:
     assert "<owner_feedback>" in prompt and "Einleitung kürzer" in prompt
     assert "<previous_draft>" in prompt
     assert "Übernommen" not in prompt and comments.marker("writer") not in prompt
+
+
+def test_feedback_is_reported_as_read_and_general_points_become_proposals(gh, vault) -> None:
+    mirrored(gh, vault)
+    item = gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    run(gh, vault, FakeLlm([output(), review()]))
+    gh.add_comment("I1", "Einleitung kürzer.")
+    gh.add_comment("I1", "Und generell: nie das Gehalt nennen.")
+    gh.values(item)["Status"] = "Active"
+    read = [
+        FeedbackItem(comment="Einleitung kürzer", understood="Gekürzt.", general=False,
+                     proposal_title="", proposal_body=""),
+        FeedbackItem(comment="nie das Gehalt nennen", understood="Gilt künftig immer.",
+                     general=True, proposal_title="Writer: never name a salary",
+                     proposal_body="Occasion: comment on #1."),
+    ]  # fmt: skip
+    llm = FakeLlm([output(feedback=read), review()])
+    run(gh, vault, llm)
+    assert "Comment 1:\nEinleitung kürzer." in llm.calls[0][2]
+    report = gh.comments[-1][1]
+    assert "“Einleitung kürzer” → for this ticket: Gekürzt." in report
+    assert "“nie das Gehalt nennen” → general: Gilt künftig immer." in report
 
 
 def test_unknown_folder_asks(gh, vault) -> None:

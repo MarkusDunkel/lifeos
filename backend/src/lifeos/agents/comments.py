@@ -99,6 +99,27 @@ DEFAULT_TEXTS: dict[str, str] = {
     "report_open": "**Still open after review**",
     "report_research": "**Research:** {searches} web searches – {link}",
     "report_feedback": "**Your feedback applied:** {count} comment(s)",
+    "report_comments": "**Your comments, as I read them**",
+    "report_comment_this": "- “{comment}” → for this ticket: {understood}",
+    "report_comment_general": "- “{comment}” → general: {understood}",
+    "report_proposals": "**Proposals in the inbox** (waiting for your approval, move to Todo):",
+    "proposal_source": "Proposed by {agent} while working on {ref} ({url}).",
+    # the assistant's answers to work orders (comments starting with "KI:")
+    "order_title": "🤖 **Work order received**",
+    "order_understood": "**Understood as:** {text}",
+    "order_new": (
+        "→ New ticket in the inbox: {link} – it waits there for your approval (move it to Todo)."
+    ),
+    "order_existing": "→ Added to the open ticket {link} instead of creating a second one.",
+    "order_current": "**For this ticket:** {text}",
+    "order_error": (
+        "⛔ **I could not process this work order.** {error}\n\n"
+        "Write the comment again (starting with `KI:`) to retry."
+    ),
+    "order_source": "From a comment of the owner on {ref} ({url}):\n\n{quote}",
+    "order_addition": "🤖 **Addition from {ref}** ({url})",
+    # heading of the human summary in agents/<name>.md (shown to the assistant)
+    "summary_heading": "Summary",
 }
 
 

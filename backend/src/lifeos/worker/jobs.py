@@ -154,7 +154,7 @@ def applications_board_job(settings: Settings, git: GitSync) -> Callable[[], Job
 def agents_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]:
     """Mirror the board contracts to GitHub and let the AI teammates take their tickets."""
     from lifeos.agents.service import run_round
-    from lifeos.agents.workflows import build_workflows
+    from lifeos.agents.workflows import build_llm_factory, build_workflows
     from lifeos.connectors.github.client import GitHubClient
 
     vault = Vault.open(settings.vault_root)
@@ -165,8 +165,9 @@ def agents_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]:
         gh = GitHubClient(settings.github_token)
         repo = next(iter(settings.github_repo_list), None)
         events, failed = run_round(
-            gh, vault, build_workflows(settings), repo, git=git, timezone=settings.timezone
-        )
+            gh, vault, build_workflows(settings), repo, git=git, timezone=settings.timezone,
+            llm_factory=build_llm_factory(settings), eur_per_usd=settings.agents_eur_per_usd,
+        )  # fmt: skip
         message = "; ".join(events) if events else "no changes"
         return JobResult("error" if failed else "ok", message)
 

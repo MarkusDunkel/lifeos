@@ -251,7 +251,28 @@ are paid; the workflow is the same:
 A ticket left at `running` for 30 minutes (worker restarted mid-run) becomes `blocked`.
 Agents write with the user's token, so every agent comment starts with an invisible
 marker (`<!-- lifeos-agent: <name> -->`); comments without it are the user's and are the
-only instructions an agent follows. State: `.lifeos/agents/` (`boards.json`, `runs-*.json`).
+only instructions an agent follows. State: `.lifeos/agents/` (`boards.json`, `runs-*.json`,
+`assistant.json`).
+
+**Comments: feedback and work orders.** One rule for every board, so a new process needs
+no rules of its own:
+
+- A comment of the user **without** `KI:` is feedback on the ticket. The responsible agent
+  reads it on its next run and reports how it read each comment (for this ticket, or
+  general). A general point may come back as a `Proposal` in the `RunResult`; the team
+  files it as a ticket in the inbox (`New`), responsible: the assistant.
+- A comment **starting with `KI:`** is a work order. The **assistant** (`agents/assistant.py`,
+  definition `agents/assistant.md`) answers it within a round on any board: it reads the
+  ticket, its recent comments, the agents' summaries and the open inbox tickets, and
+  returns a `WorkOrder` (structured output). The code then creates a ticket in the inbox –
+  or adds to an open ticket on the same topic – and replies on the original ticket how the
+  order was read, where it went and what it means for that ticket. `@KI` is avoided on
+  purpose: GitHub would notify an account of that name.
+
+Every new ticket waits in `New` until the user moves it to Todo. Only comments of the
+account behind the token count, only those written after the assistant first ran, and
+comments are fetched only for issues whose `updatedAt` changed. Without
+`agents/assistant.md` no work orders are answered.
 
 ## Backend layout (`backend/src/lifeos`)
 
@@ -270,7 +291,7 @@ only instructions an agent follows. State: `.lifeos/agents/` (`boards.json`, `ru
 | `modules/notes` | JSON Lines store with per-note revisions, column schema (inferred or `schema.json`) |
 | `modules/workspaces` | Read-only reports, archive, change logs; md4h feedback rounds (draft → sealed) |
 | `modules/tickets` | Ticket list (filters by project/status/label) and editor over `ready/tickets`, conflict resolution |
-| `agents/` | AI teammates: board contracts and agent definitions (`config.py`), mirror to GitHub (`mirror.py`), taking tickets by state (`team.py`), comments and run logs, workflows, one round (`service.py`) |
+| `agents/` | AI teammates: board contracts and agent definitions (`config.py`), mirror to GitHub (`mirror.py`), taking tickets by state (`team.py`), work orders from `KI:` comments (`assistant.py`), inbox tickets (`inbox.py`), model access API or subscription (`llm.py`, `claude_code.py`), comments and run logs, workflows, one round (`service.py`), agents page API (`admin.py`, `router.py`) |
 | `connectors/github` | GraphQL client, ingest → 3-way merge, write-back plans and apply |
 | `connectors/onedrive` | Microsoft device-code sign-in, read-only Graph client, `.pptx` text extraction, one-way mirror into the knowledge hub |
 | `connectors/moodle` | Moodle web service client (read-only), token sign-in, incremental mirror of course materials and overviews |

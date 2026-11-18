@@ -37,6 +37,7 @@ from lifeos.agents.config import (
     AgentDef,
     BoardContract,
 )
+from lifeos.agents.inbox import assistant_option, create_inbox_ticket
 from lifeos.agents.mirror import STATUS, split_project
 from lifeos.agents.runlog import RunRecord, append_run
 from lifeos.agents.spend import Spend
@@ -59,6 +60,7 @@ class Ticket:
     body: str
     status: str | None
     values: dict[str, Any] = field(default_factory=dict)
+    updated_at: str = ""  # of the issue: changes with every new comment
 
     @property
     def ref(self) -> str:
@@ -87,6 +89,7 @@ def tickets(raw: list[dict[str, Any]], project: Project) -> list[Ticket]:
                 body=issue.get("body") or "",
                 status=values.get(STATUS),
                 values=values,
+                updated_at=issue.get("updatedAt") or "",
             )
         )
     return out
@@ -106,6 +109,15 @@ class RunResult:
     summary: str = ""  # one line for the commit message and the run log
     paths: list[str] = field(default_factory=list)  # vault paths to commit
     cost_eur: float = 0.0
+    # general points the agent noticed (e.g. from the owner's comments): each becomes a
+    # proposal ticket in the inbox, waiting for the owner's approval
+    proposals: list[Proposal] = field(default_factory=list)
+
+
+@dataclass
+class Proposal:
+    title: str
+    body: str  # Markdown: occasion, current state, proposal, pros and cons
 
 
 @dataclass
@@ -171,8 +183,10 @@ class Team:
         stale_minutes: int = STALE_MINUTES,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         texts: Texts | None = None,
+        repo: str | None = None,
     ) -> None:
         self.gh = gh
+        self.repo = repo  # repository for new tickets in the inbox (proposals)
         self.vault = vault
         self.cfg = cfg
         self.contract = contract
@@ -326,7 +340,8 @@ class Team:
             spend.cost_eur = max(spend.cost_eur, result.cost_eur)
         footer = comments.footer(self.t, revision, seconds, spend, agent.billing, self.clock())
         if outcome == "done" and result is not None:
-            body = comments.report_comment(self.t, agent.name, result.report, footer)
+            report = result.report + self._proposals(agent, ticket, result.proposals)
+            body = comments.report_comment(self.t, agent.name, report, footer)
             self.gh.add_comment(ticket.issue_id, body)
             self.gh.set_field(project.id, ticket.item_id, project.fields[STATUS], ai.review)
             self.gh.set_field(project.id, ticket.item_id, project.fields[AI_FIELD], None)
@@ -364,6 +379,29 @@ class Team:
         paths += result.paths if result else []
         self._commit(agent, ticket, outcome, summary, paths)
         return f"#{ticket.number} {agent.name}: {outcome}" + (f" – {summary}" if summary else "")
+
+    def _proposals(self, agent: AgentDef, ticket: Ticket, proposals: list[Proposal]) -> str:
+        """Create the proposal tickets; returns the report lines that link them."""
+        links = []
+        source = self.t("proposal_source", agent=agent.title, ref=ticket.ref, url=ticket.url)
+        for proposal in proposals:
+            body = f"{proposal.body.strip()}\n\n---\n{source}"
+            try:
+                url = create_inbox_ticket(
+                    self.gh,
+                    self.cfg,
+                    self.repo,
+                    proposal.title,
+                    body,
+                    author=agent.name,
+                    responsible=assistant_option(self.cfg),
+                )
+            except Exception:  # the run is done; a failed proposal must not undo it
+                log.exception("proposal of %s failed: %s", agent.name, proposal.title)
+                url = None
+            if url:
+                links.append(f"- [{proposal.title}]({url})")
+        return "\n\n" + "\n".join([self.t("report_proposals"), *links]) if links else ""
 
     def _commit(
         self, agent: AgentDef, ticket: Ticket, outcome: str, summary: str, paths: list[str]

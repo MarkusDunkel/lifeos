@@ -307,7 +307,7 @@ class GitHubClient:
         q = f"""query($id: ID!, $cursor: String) {{ node(id: $id) {{ ... on ProjectV2 {{
           items(first: 100, after: $cursor) {{ pageInfo {{ hasNextPage endCursor }}
             nodes {{ id updatedAt {FIELD_VALUES}
-              content {{ __typename ... on Issue {{ id number title url state body
+              content {{ __typename ... on Issue {{ id number title url state body updatedAt
                 repository {{ nameWithOwner }} labels(first: 30) {{ nodes {{ name }} }} }} }}
             }} }} }} }} }}"""
         out: list[dict[str, Any]] = []
@@ -323,13 +323,18 @@ class GitHubClient:
             cursor = page["pageInfo"]["endCursor"]
 
     def issue_comments(self, issue_id: str) -> list[dict[str, Any]]:
-        """The last 100 comments of an issue, oldest first: ``id, body, createdAt``."""
+        """The last 100 comments of an issue, oldest first: ``id, body, createdAt, url`` and
+        ``author.login``."""
         q = """query($id: ID!) { node(id: $id) { ... on Issue {
-          comments(last: 100) { nodes { id body createdAt } } } } }"""
+          comments(last: 100) { nodes { id body createdAt url author { login } } } } } }"""
         node = self.graphql(q, {"id": issue_id})["node"]
         if node is None:
             raise GitHubError("issue not found")
         return node["comments"]["nodes"]
+
+    def viewer_login(self) -> str:
+        """The login of the account behind the token (the owner)."""
+        return self.graphql("query { viewer { login } }", {})["viewer"]["login"]
 
     def add_comment(self, subject_id: str, body: str) -> None:
         q = """mutation($s: ID!, $b: String!) {

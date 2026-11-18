@@ -1,16 +1,21 @@
 """One round of the AI teammates: mirror every board contract, then let agents take tickets.
 
-Used by the worker job ``agents`` and the CLI (``lifeos agents sync|run``).
+Used by the worker job ``agents`` and the CLI (``lifeos agents sync|run``). After the
+teams, the assistant answers new ``KI:`` comments on all boards.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from lifeos.agents import comments
-from lifeos.agents.config import AgentConfig, BoardContract, load_config
-from lifeos.agents.mirror import STATUS, BoardMirror, split_project
+from lifeos.agents.assistant import Assistant
+from lifeos.agents.config import AgentDef, BoardContract, load_config
+from lifeos.agents.inbox import create_inbox_ticket, owner_option  # noqa: F401 - API
+from lifeos.agents.llm import Llm
+from lifeos.agents.mirror import BoardMirror
 from lifeos.agents.team import Team, Workflow
 from lifeos.connectors.github.client import GitHubError
 from lifeos.core.vault import STATE, Vault
@@ -25,41 +30,6 @@ def runs_state(board: str) -> str:
     return f"{STATE_DIR}/runs-{board}.json"
 
 
-def owner_option(contract: BoardContract) -> str | None:
-    """The person in the Responsible field: its first fixed option in the contract."""
-    name = contract.ai.responsible_field
-    spec = next((f for f in contract.fields if f.name == name), None)
-    return spec.options[0] if spec and spec.options else None
-
-
-def create_inbox_ticket(
-    gh: Any, cfg: AgentConfig, repo: str | None, title: str, body: str, author: str = "lifeos"
-) -> str | None:
-    """A new ticket in the inbox column of the inbox board (proposals, notices).
-
-    Adding is allowed directly; the owner approves by moving the ticket to Todo.
-    Returns the ticket URL, or None when the inbox board or repository is missing.
-    """
-    contract = cfg.inbox
-    if contract is None or not contract.inbox or not repo:
-        log.warning("no inbox board/repository for: %s", title)
-        return None
-    owner, number = split_project(contract.project)
-    project = gh.project(owner, number)
-    meta = gh.repo(repo)
-    issue = gh.create_issue(
-        meta.id, {"title": title[:250], "body": f"{comments.marker(author)}\n{body}"}
-    )
-    item_id = gh.add_to_project(project.id, issue["id"])
-    if contract.inbox in project.fields[STATUS].options:
-        gh.set_field(project.id, item_id, project.fields[STATUS], contract.inbox)
-    responsible = contract.ai.responsible_field
-    person = owner_option(contract)
-    if responsible and person and person in getattr(project.fields.get(responsible), "options", {}):
-        gh.set_field(project.id, item_id, project.fields[responsible], person)
-    return issue["url"]
-
-
 def run_round(
     gh: Any,
     vault: Vault,
@@ -68,8 +38,13 @@ def run_round(
     git: Any | None = None,
     timezone: str = "UTC",
     mirror_only: bool = False,
+    llm_factory: Callable[[AgentDef], Llm] | None = None,
+    eur_per_usd: float = 0.9,
 ) -> tuple[list[str], bool]:
-    """Returns the events and whether something failed."""
+    """Returns the events and whether something failed.
+
+    Without ``llm_factory`` the assistant (``KI:`` comments) does not run.
+    """
     cfg = load_config(vault)
     events = [f"config: {e}" for e in cfg.errors]
     failed = bool(cfg.errors)
@@ -87,18 +62,26 @@ def run_round(
         try:
             events += mirror.sync(contract, cfg)
         except (GitHubError, ValueError) as exc:
-            events.append(f"{contract.board}: Spiegeln fehlgeschlagen: {exc}")
+            events.append(f"{contract.board}: mirroring failed: {exc}")
             failed = True
     if mirror_only:
         return events, failed
     for contract in order:
         team = Team(
             gh, vault, cfg, contract, workflows, vault.resolve(runs_state(contract.board)),
-            git=git, timezone=timezone,
+            git=git, timezone=timezone, repo=repo,
         )  # fmt: skip
         try:
             events += team.poll()
         except (GitHubError, ValueError) as exc:
             events.append(f"{contract.board}: {exc}")
+            failed = True
+    if llm_factory is not None:
+        assistant = Assistant(gh, vault, cfg, repo, llm_factory, git=git, timezone=timezone,
+                              eur_per_usd=eur_per_usd)  # fmt: skip
+        try:
+            events += assistant.poll()
+        except (GitHubError, ValueError) as exc:
+            events.append(f"assistant: {exc}")
             failed = True
     return events, failed
