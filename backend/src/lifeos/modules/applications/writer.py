@@ -51,13 +51,17 @@ from lifeos.modules.applications.profile import (
     load_profile,
 )
 from lifeos.modules.applications.render import RenderError, render
+from lifeos.modules.applications.review import cv_markdown, letter_markdown, package_yaml
 from lifeos.modules.applications.service import INDEX_FILE
+from lifeos.modules.reviews.package import PACKAGE_FILE
 
 log = logging.getLogger("lifeos.applications.writer")
 
 DEFAULT_FILES = {
     "letter": "Cover-Letter.pdf",
     "cv": "CV.pdf",
+    "letter_text": "Cover-Letter.md",  # the letter as Markdown, for the review page
+    "cv_text": "CV.md",
     "draft": "draft.json",
     "research": "Research.md",
     "notes": "Notes.md",
@@ -358,9 +362,13 @@ def make_application_writer(
         write_atomic(ctx.vault.resolve(out["letter"]), rendered.letter)
         write_atomic(ctx.vault.resolve(out["cv"]), rendered.cv)
         write_atomic(ctx.vault.resolve(out["draft"]), output.draft.model_dump_json(indent=1) + "\n")
+        write_review_package(ctx, folder, files, output.draft, profile)
         open_items = problems if review is not None else []
         report = build_report(ctx, out, research_rel, output.notes, review, fixed, open_items,
                               spent.searches, read_as)  # fmt: skip
+        if settings.public_url:
+            url = f"{settings.public_url.rstrip('/')}/reviews/{quote(folder)}"
+            report = ctx.texts("report_review_link", url=url) + "\n\n" + report
         write_atomic(ctx.vault.resolve(out["notes"]), report + "\n")
         company = ctx.ticket.title.split(" – ", 1)[0]
         proposals = [
@@ -377,6 +385,20 @@ def make_application_writer(
         )
 
     return run
+
+
+def write_review_package(
+    ctx: RunContext, folder: str, files: dict[str, str], draft: Draft, profile: Any
+) -> None:
+    """Letter and CV as Markdown plus ``review.yaml``: the folder as a review package."""
+    t = ctx.texts
+    write_atomic(ctx.vault.resolve(f"{folder}/{files['letter_text']}"), letter_markdown(draft))
+    cv = cv_markdown(resolve_cv(draft.cv, profile.master))
+    write_atomic(ctx.vault.resolve(f"{folder}/{files['cv_text']}"), cv)
+    labels = {"letter": t("report_letter"), "cv": t("report_cv"),
+              "notes": t("review_notes"), "research": t("review_research")}  # fmt: skip
+    package = package_yaml(ctx.ticket.title, ctx.ticket.ref, files, labels)
+    write_atomic(ctx.vault.resolve(f"{folder}/{PACKAGE_FILE}"), package)
 
 
 def build_report(

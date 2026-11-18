@@ -1,488 +1,70 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, Check, ClipboardCopy, History, MessageSquarePlus, Plus, ScrollText, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ApiError } from "../../lib/api";
-import { treeQuery } from "../knowledge/api";
-import { flattenFiles } from "../knowledge/links";
-import { MarkdownView } from "../knowledge/MarkdownView";
+import { ArrowLeft, ScrollText } from "lucide-react";
+import { useMemo } from "react";
+import { btn, PromptNote, ReviewPane, type RoundsApi } from "../review/ReviewPane";
 import {
   addItem,
   deleteItem,
   discardRound,
-  type FeedbackItem,
   reportQuery,
-  type RoundData,
-  type RoundInfo,
   roundQuery,
-  type Scope,
   sealRound,
   startRound,
   updateItem,
 } from "./api";
-import { formatTime, itemsAt, type LineRange, merge, rangeLabel, shorten, sourceSlice, splitReportPath } from "./review";
-
-const btn =
-  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";
-const TOP_BLOCK = "article > [data-ls]";
-
-type Target = { scope: Scope; range: LineRange; quote: string };
-type Selection = { text: string; range: LineRange; block: LineRange; top: number; left: number };
-
-const lines = (el: Element): LineRange => ({
-  start: Number(el.getAttribute("data-ls")),
-  end: Number(el.getAttribute("data-le")),
-});
-
-const elementOf = (node: Node | null): Element | null =>
-  node ? (node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement) : null;
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-
-function errorText(e: unknown): string {
-  return e instanceof ApiError || e instanceof Error ? e.message : String(e);
-}
+import { splitReportPath } from "./review";
 
 export function ReportPage({ path }: { path: string }) {
-  const queryClient = useQueryClient();
   const { folder, name } = splitReportPath(path);
-  const isOpen = folder === null;
   const doc = useQuery(reportQuery(path));
-  const tree = useQuery(treeQuery);
-  const files = useMemo(() => (tree.data ? flattenFiles(tree.data) : []), [tree.data]);
 
-  const draftInfo = doc.data?.rounds.find((r) => r.editable);
-  const staleDraft = doc.data?.rounds.find((r) => r.state === "draft" && r.stale);
-  const [roundId, setRoundId] = useState<string | null>(null);
-  const shownRound = roundId ?? draftInfo?.round ?? null;
-  const round = useQuery({ ...roundQuery(name, shownRound ?? ""), enabled: isOpen && shownRound !== null });
-  const reviewing = Boolean(round.data?.editable);
-
-  const [target, setTarget] = useState<Target | null>(null);
-  const [selection, setSelection] = useState<Selection | null>(null);
-  const [hovered, setHovered] = useState<{ range: LineRange; top: number } | null>(null);
-  const [sealed, setSealed] = useState<{ prompt: string; copied: boolean } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
-
-  const refresh = async (data?: RoundData) => {
-    if (data) queryClient.setQueryData(roundQuery(name, data.round).queryKey, data);
-    await queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-  };
-
-  const run = async <T,>(action: () => Promise<T>): Promise<T | undefined> => {
-    setError(null);
-    try {
-      return await action();
-    } catch (e) {
-      setError(errorText(e));
-      await queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-      return undefined;
-    }
-  };
-
-  const start = () =>
-    run(async () => {
-      const data = await startRound(name);
-      setRoundId(data.round);
-      setSealed(null);
-      await refresh(data);
-    });
-
-  const finish = () =>
-    run(async () => {
-      if (!round.data) return;
-      const result = await sealRound(name, round.data.round);
-      let copied = false;
-      try {
-        await navigator.clipboard.writeText(result.prompt);
-        copied = true;
-      } catch {
-        /* clipboard needs HTTPS or localhost; the prompt is shown instead */
-      }
-      setSealed({ prompt: result.prompt, copied });
-      setRoundId(result.round);
-      await refresh(result);
-    });
-
-  const discard = (id: string) =>
-    run(async () => {
-      if (!window.confirm("Discard this feedback draft and all its comments?")) return;
-      await discardRound(name, id);
-      setRoundId(null);
-      setTarget(null);
-      await refresh();
-    });
-
-  // Mark blocks that carry feedback and show the IDs in the gutter.
-  useEffect(() => {
-    const box = boxRef.current;
-    if (!box) return;
-    const items = round.data?.items ?? [];
-    box.querySelectorAll(TOP_BLOCK).forEach((el) => {
-      const ids = itemsAt(items, lines(el)).map((i) => i.id);
-      if (ids.length) el.setAttribute("data-fb", ids.join(" "));
-      else el.removeAttribute("data-fb");
-    });
-  }, [round.data, doc.data]);
-
-  // Escape closes the selection toolbar and the composer.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setSelection(null);
-        setTarget(null);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  const onSelect = () => {
-    if (!reviewing || !boxRef.current) return;
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return setSelection(null);
-    const range = sel.getRangeAt(0);
-    const box = boxRef.current;
-    const startEl = elementOf(range.startContainer)?.closest("[data-ls]");
-    const endEl = elementOf(range.endContainer)?.closest("[data-ls]");
-    const startTop = elementOf(range.startContainer)?.closest(TOP_BLOCK);
-    const endTop = elementOf(range.endContainer)?.closest(TOP_BLOCK);
-    if (!startEl || !endEl || !startTop || !endTop || !box.contains(startEl) || !box.contains(endEl)) {
-      return setSelection(null);
-    }
-    const rect = range.getBoundingClientRect();
-    const boxRect = box.getBoundingClientRect();
-    setSelection({
-      text: sel.toString(),
-      range: merge(lines(startEl), lines(endEl)),
-      block: merge(lines(startTop), lines(endTop)),
-      top: rect.bottom - boxRect.top + box.scrollTop + 6,
-      left: Math.max(0, rect.left - boxRect.left),
-    });
-  };
-
-  const onHover = (e: React.MouseEvent) => {
-    if (!reviewing || !boxRef.current) return;
-    const block = (e.target as Element).closest?.(TOP_BLOCK) as HTMLElement | null;
-    if (!block || !boxRef.current.contains(block)) return;
-    const boxRect = boxRef.current.getBoundingClientRect();
-    const top = block.getBoundingClientRect().top - boxRect.top + boxRef.current.scrollTop;
-    setHovered((h) => (h && h.range.start === lines(block).start ? h : { range: lines(block), top }));
-  };
-
-  const pick = (scope: Scope, range: LineRange, quote: string) => {
-    setTarget({ scope, range, quote });
-    setSelection(null);
-    window.getSelection()?.removeAllRanges();
-  };
-
-  const scrollTo = (item: FeedbackItem) => {
-    const block = [...(boxRef.current?.querySelectorAll(TOP_BLOCK) ?? [])].find(
-      (el) => lines(el).end >= item.start_line,
-    );
-    block?.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
+  const api = useMemo<RoundsApi>(
+    () => ({
+      invalidate: ["workspaces"],
+      round: (id) => roundQuery(name, id),
+      start: () => startRound(name),
+      add: (round, item) => addItem(name, round, item),
+      update: (round, id, feedback) => updateItem(name, round, id, feedback),
+      remove: (round, id) => deleteItem(name, round, id),
+      seal: (round) => sealRound(name, round),
+      discard: (round) => discardRound(name, round),
+    }),
+    [name],
+  );
 
   if (doc.isError)
     return <p className="p-6 text-slate-500">This report does not exist (anymore). It may have been archived.</p>;
   if (!doc.data) return <p className="p-6 text-slate-400">Loading…</p>;
-  const content = doc.data.content;
-  const showPanel = isOpen && (round.data !== undefined || doc.data.rounds.length > 0);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-2 dark:border-slate-800">
-        <Link to="/workspaces" className="-ml-1 rounded-md p-1.5 text-slate-500 md:hidden" aria-label="Back to the list">
-          <ArrowLeft className="size-5" />
-        </Link>
-        <div className="min-w-0 flex-1 truncate text-sm text-slate-500">
+    <ReviewPane
+      content={doc.data.content}
+      path={path}
+      rounds={doc.data.rounds}
+      api={api}
+      canReview={folder === null}
+      sealedNote={(result) => <PromptNote prompt={result.prompt} />}
+      title={
+        <span className="flex items-center gap-1">
+          <Link to="/workspaces" className="-ml-1 rounded-md p-1.5 text-slate-500 md:hidden" aria-label="Back to the list">
+            <ArrowLeft className="size-5" />
+          </Link>
           {folder && `${folder} / `}
           <span className="font-medium text-slate-900 dark:text-slate-100">{name}</span>
-        </div>
-        {doc.data.changelog && (
-          <Link to="/workspaces/$" params={{ _splat: doc.data.changelog }} className={`${btn} hover:bg-slate-100 dark:hover:bg-slate-800`}>
+        </span>
+      }
+      actions={
+        doc.data.changelog && (
+          <Link
+            to="/workspaces/$"
+            params={{ _splat: doc.data.changelog }}
+            className={`${btn} hover:bg-slate-100 dark:hover:bg-slate-800`}
+          >
             <ScrollText className="size-4" /> Change log
           </Link>
-        )}
-        {isOpen && !reviewing && !staleDraft && (
-          <button onClick={start} className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}>
-            <MessageSquarePlus className="size-4" /> {draftInfo ? "Resume feedback" : "Start feedback"}
-          </button>
-        )}
-        {reviewing && round.data && (
-          <>
-            <span className="text-xs text-slate-400">{plural(round.data.items.length, "comment")}</span>
-            <button
-              onClick={finish}
-              disabled={round.data.items.length === 0}
-              className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}
-              title="Seal this round and copy the agent prompt"
-            >
-              <Check className="size-4" /> Finish &amp; copy
-            </button>
-            <button onClick={() => discard(round.data!.round)} className={`${btn} text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950`} aria-label="Discard draft">
-              <Trash2 className="size-4" />
-            </button>
-          </>
-        )}
-      </header>
-
-      {staleDraft && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm dark:border-amber-800 dark:bg-amber-950">
-          <span className="flex-1">
-            This report changed after a feedback draft was started, so the draft can no longer be finished.
-          </span>
-          <button className={`${btn} bg-amber-600 text-white`} onClick={() => discard(staleDraft.round)}>
-            Discard draft ({staleDraft.items})
-          </button>
-        </div>
-      )}
-      {error && (
-        <div className="flex items-center gap-2 border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-          <span className="flex-1">{error}</span>
-          <button onClick={() => setError(null)} aria-label="Dismiss">
-            <X className="size-4" />
-          </button>
-        </div>
-      )}
-      {reviewing && (
-        <p className="border-b border-slate-200 bg-sky-50 px-4 py-1.5 text-xs text-sky-800 dark:border-slate-800 dark:bg-sky-950 dark:text-sky-200">
-          Feedback mode: select text to comment on it, or use + beside a block. The report itself stays unchanged.
-        </p>
-      )}
-
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div
-          ref={boxRef}
-          className="relative min-h-0 flex-1 overflow-y-auto"
-          onMouseUp={onSelect}
-          onTouchEnd={() => setTimeout(onSelect, 0)}
-          onMouseMove={onHover}
-          onMouseLeave={() => setHovered(null)}
-        >
-          <div className={`mx-auto max-w-3xl py-6 pr-4 sm:pr-8 ${round.data ? "pl-14" : "pl-4 sm:pl-8"}`}>
-            <MarkdownView content={content} path={path} files={files} sourceLines />
-          </div>
-
-          {reviewing && hovered && !selection && (
-            <button
-              onClick={() => pick("blocks", hovered.range, sourceSlice(content, hovered.range))}
-              style={{ top: hovered.top }}
-              className="absolute left-2 z-10 rounded-md bg-white p-1 text-slate-400 shadow ring-1 ring-slate-200 hover:text-sky-600 dark:bg-slate-900 dark:ring-slate-700"
-              title={`Comment on this block (${rangeLabel(hovered.range)})`}
-            >
-              <Plus className="size-4" />
-            </button>
-          )}
-          {selection && (
-            <div
-              style={{ top: selection.top, left: selection.left }}
-              className="absolute z-20 flex gap-1 rounded-lg bg-white p-1 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
-            >
-              <button
-                className={`${btn} px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800`}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => pick("rendered-text", selection.range, selection.text)}
-              >
-                Comment text
-              </button>
-              <button
-                className={`${btn} px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800`}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => pick("blocks", selection.block, sourceSlice(content, selection.block))}
-                title="Comment on the whole block(s), with their exact source"
-              >
-                Comment block
-              </button>
-            </div>
-          )}
-        </div>
-
-        {showPanel && (
-          <aside className="max-h-[40%] min-h-0 overflow-y-auto border-t border-slate-200 lg:max-h-none lg:w-96 lg:shrink-0 lg:overflow-y-auto lg:border-t-0 lg:border-l dark:border-slate-800">
-            {sealed && <SealedNotice prompt={sealed.prompt} copied={sealed.copied} onClose={() => setSealed(null)} />}
-            {target && round.data && reviewing && (
-              <Composer
-                target={target}
-                onCancel={() => setTarget(null)}
-                onAdd={(feedback) =>
-                  run(async () => {
-                    const data = await addItem(name, round.data!.round, {
-                      start_line: target.range.start,
-                      end_line: target.range.end,
-                      scope: target.scope,
-                      feedback,
-                      quote: target.scope === "rendered-text" ? target.quote : undefined,
-                    });
-                    setTarget(null);
-                    await refresh(data);
-                  })
-                }
-              />
-            )}
-            {round.data && (
-              <RoundItems
-                round={round.data}
-                onJump={scrollTo}
-                onUpdate={(id, feedback) =>
-                  run(async () => refresh(await updateItem(name, round.data!.round, id, feedback)))
-                }
-                onDelete={(id) =>
-                  run(async () => {
-                    if (!window.confirm(`Delete comment ${id}?`)) return;
-                    await refresh(await deleteItem(name, round.data!.round, id));
-                  })
-                }
-              />
-            )}
-            <RoundsList rounds={doc.data.rounds} current={shownRound} onSelect={(id) => setRoundId(id)} />
-          </aside>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Composer({ target, onAdd, onCancel }: { target: Target; onAdd: (text: string) => Promise<unknown>; onCancel: () => void }) {
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const submit = async () => {
-    if (!text.trim() || busy) return;
-    setBusy(true);
-    await onAdd(text);
-    setBusy(false);
-  };
-  return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-sky-300 bg-white p-3 shadow-2xl lg:static lg:shadow-none dark:border-sky-800 dark:bg-slate-950">
-      <p className="mb-1 text-xs font-medium text-slate-500">
-        {target.scope === "blocks" ? "Whole block" : "Selected text"} · {rangeLabel(target.range)}
-      </p>
-      <blockquote className="mb-2 max-h-24 overflow-y-auto rounded bg-slate-50 px-2 py-1 font-mono text-xs whitespace-pre-wrap text-slate-600 dark:bg-slate-900 dark:text-slate-400">
-        {target.quote}
-      </blockquote>
-      <textarea
-        autoFocus
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if ((e.ctrlKey || e.metaKey) && e.key === "Enter") void submit();
-        }}
-        rows={4}
-        placeholder="What should change? (Ctrl+Enter adds the comment)"
-        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900"
-      />
-      <div className="mt-2 flex justify-end gap-2">
-        <button onClick={onCancel} className={`${btn} hover:bg-slate-100 dark:hover:bg-slate-800`}>
-          Cancel
-        </button>
-        <button onClick={submit} disabled={!text.trim() || busy} className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}>
-          Add comment
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function RoundItems(props: {
-  round: RoundData;
-  onJump: (item: FeedbackItem) => void;
-  onUpdate: (id: string, feedback: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const { round } = props;
-  return (
-    <section className="p-3">
-      <h3 className="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">
-        {round.state === "sealed" ? `Sealed round · ${formatTime(round.sealed_at)}` : round.stale ? "Stale draft" : "Draft round"}
-      </h3>
-      {round.items.length === 0 ? (
-        <p className="text-sm text-slate-500">No comments yet.</p>
-      ) : (
-        <ol className="space-y-3">
-          {round.items.map((item) => (
-            <li key={item.id} className="rounded-lg border border-slate-200 p-2 text-sm dark:border-slate-800">
-              <div className="mb-1 flex items-center gap-2 text-xs text-slate-500">
-                <button onClick={() => props.onJump(item)} className="font-semibold text-sky-700 hover:underline dark:text-sky-400">
-                  {item.id}
-                </button>
-                <span className="flex-1">
-                  {item.scope === "blocks" ? "block" : "text"} · {rangeLabel({ start: item.start_line, end: item.end_line })}
-                </span>
-                {round.editable && (
-                  <button onClick={() => props.onDelete(item.id)} className="text-slate-400 hover:text-red-600" aria-label={`Delete ${item.id}`}>
-                    <Trash2 className="size-3.5" />
-                  </button>
-                )}
-              </div>
-              {item.quote && <p className="mb-1 font-mono text-xs text-slate-400">{shorten(item.quote)}</p>}
-              {round.editable ? (
-                <EditableFeedback value={item.feedback} onSave={(v) => props.onUpdate(item.id, v)} />
-              ) : (
-                <p className="whitespace-pre-wrap">{item.feedback}</p>
-              )}
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
-  );
-}
-
-function EditableFeedback({ value, onSave }: { value: string; onSave: (v: string) => void }) {
-  const [text, setText] = useState(value);
-  useEffect(() => setText(value), [value]);
-  return (
-    <textarea
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => {
-        if (text.trim() && text !== value) onSave(text);
-        else setText(value);
-      }}
-      rows={Math.min(8, Math.max(2, text.split("\n").length))}
-      className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-slate-200 focus:border-sky-500 focus:outline-none dark:hover:border-slate-700"
+        )
+      }
     />
-  );
-}
-
-function RoundsList({ rounds, current, onSelect }: { rounds: RoundInfo[]; current: string | null; onSelect: (id: string) => void }) {
-  if (rounds.length === 0) return null;
-  return (
-    <section className="border-t border-slate-200 p-3 dark:border-slate-800">
-      <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">
-        <History className="size-3.5" /> Rounds
-      </h3>
-      <ul className="space-y-1 text-sm">
-        {rounds.map((r) => (
-          <li key={r.round}>
-            <button
-              onClick={() => onSelect(r.round)}
-              className={`w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-800 ${r.round === current ? "bg-slate-100 dark:bg-slate-800" : ""}`}
-            >
-              <span className="font-medium">{r.state === "sealed" ? "Sealed" : r.stale ? "Stale draft" : "Draft"}</span>
-              <span className="ml-2 text-xs text-slate-400">
-                {formatTime(r.sealed_at ?? r.created_at)} · {plural(r.items, "comment")}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function SealedNotice({ prompt, copied, onClose }: { prompt: string; copied: boolean; onClose: () => void }) {
-  return (
-    <div className="border-b border-emerald-300 bg-emerald-50 p-3 text-sm dark:border-emerald-800 dark:bg-emerald-950">
-      <div className="mb-1 flex items-center gap-2 font-medium text-emerald-800 dark:text-emerald-200">
-        <ClipboardCopy className="size-4" />
-        <span className="flex-1">{copied ? "Round sealed — agent prompt copied." : "Round sealed — copy the agent prompt:"}</span>
-        <button onClick={onClose} aria-label="Close">
-          <X className="size-4" />
-        </button>
-      </div>
-      <textarea readOnly value={prompt} rows={5} onFocus={(e) => e.currentTarget.select()} className="w-full rounded border border-emerald-200 bg-white p-2 font-mono text-xs dark:border-emerald-900 dark:bg-slate-950" />
-    </div>
   );
 }

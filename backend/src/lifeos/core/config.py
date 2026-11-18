@@ -160,6 +160,12 @@ class Settings(BaseSettings):
         ),
     )
 
+    public_url: str = Field(
+        default="",
+        description="Where LifeOS is reachable (e.g. https://lifeos.example.org); agents link "
+        "their reports to it, e.g. to the review page of what they made.",
+    )
+
     app_repo: str = Field(
         default="",
         description=(

@@ -264,3 +264,19 @@ def test_billing_selects_the_model_access(monkeypatch) -> None:
     api = parse_agent(head + "---\nbody", "agents/w.md")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")  # the client needs one to start
     assert isinstance(default_llm(api, Settings()), AnthropicLlm)
+
+
+def test_writer_leaves_a_review_package(gh, vault) -> None:
+    from lifeos.modules.reviews.service import ReviewService
+
+    mirrored(gh, vault)
+    gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    run(gh, vault, FakeLlm([output(), review()]))
+    package = ReviewService(vault, generators={}).package(FOLDER)
+    assert package["ticket"] == "someone/board#1"
+    labels = [d["label"] for d in package["documents"]]
+    assert labels == ["Cover letter", "CV", "Notes", "Research"]
+    letter, cv = package["documents"][0], package["documents"][1]
+    assert letter["source"].endswith("/Cover-Letter.md") and letter["view"] == "pdf-generated"
+    assert letter["content"].startswith("# ") and "Mit freundlichen Grüßen" in letter["content"]
+    assert cv["content"].startswith("# ") and "## Experience" in cv["content"]

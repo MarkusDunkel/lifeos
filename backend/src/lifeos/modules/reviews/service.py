@@ -1,0 +1,201 @@
+"""Review packages: list, read, show the rendered view, and feedback rounds on documents.
+
+Feedback uses the same md4h rounds as workspace reports (``workspaces/rounds.py``), on the
+document's ``source``. Generated views (``pdf-generated``) come from registered generators
+and are cached in memory by the content of their input; nothing is written to the vault.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import threading
+from collections import OrderedDict
+from collections.abc import Callable
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from lifeos.core.vault import FEEDBACK, READY, Vault, VaultPathError
+from lifeos.modules.reviews.package import PACKAGE_FILE, Document, Package, parse_package
+from lifeos.modules.workspaces.feedback import Scope
+from lifeos.modules.workspaces.rounds import FeedbackError, FeedbackRounds, sha256_of
+
+Generator = Callable[[Vault, Path], bytes]  # (vault, input file) -> PDF
+CACHE_SIZE = 16
+
+
+class ViewError(Exception):
+    """A view cannot be produced (HTTP 422)."""
+
+
+def application_generators() -> dict[str, Generator]:
+    """PDF views of applications: the letter and the CV made from ``draft.json``."""
+
+    def make(kind: str) -> Generator:
+        def generate(vault: Vault, input_path: Path) -> bytes:
+            from lifeos.modules.applications.model import Draft
+            from lifeos.modules.applications.profile import load_profile
+            from lifeos.modules.applications.render import render
+
+            draft = Draft.model_validate_json(input_path.read_text(encoding="utf-8"))
+            rendered = render(draft, load_profile(vault))
+            return rendered.letter if kind == "letter" else rendered.cv
+
+        return generate
+
+    return {"application-letter": make("letter"), "application-cv": make("cv")}
+
+
+def _utc(ts: float) -> str:
+    return datetime.fromtimestamp(ts, UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+class ReviewService:
+    def __init__(
+        self,
+        vault: Vault,
+        rounds: FeedbackRounds | None = None,
+        generators: dict[str, Generator] | None = None,
+    ) -> None:
+        self.vault = vault
+        self.feedback = rounds or FeedbackRounds(vault)
+        self.generators = generators if generators is not None else application_generators()
+        self._cache: OrderedDict[tuple[str, str], bytes] = OrderedDict()
+        self._lock = threading.Lock()
+
+    # -- packages ---------------------------------------------------------------------
+
+    def _package(self, path: str) -> tuple[Package, Path]:
+        path = path.strip("/")
+        if not (path == READY or path.startswith(f"{READY}/")):
+            raise VaultPathError(f"review packages live below {READY}/: {path}")
+        folder = self.vault.resolve(path)
+        file = folder / PACKAGE_FILE
+        if not file.is_file():
+            raise FileNotFoundError(f"{path}/{PACKAGE_FILE}")
+        return parse_package(file.read_text(encoding="utf-8"), path), folder
+
+    def _document(self, path: str, doc: int) -> tuple[Package, Document, Path]:
+        package, folder = self._package(path)
+        if not 0 <= doc < len(package.documents):
+            raise FileNotFoundError(f"document {doc} of {path}")
+        return package, package.documents[doc], folder
+
+    def _inside(self, folder: Path, inner: str) -> Path:
+        return self.vault.resolve(inner, zone=self.vault.relative(folder))
+
+    def list(self) -> list[dict[str, Any]]:
+        root = self.vault.resolve(READY)
+        out = []
+        for file in root.rglob(PACKAGE_FILE):
+            rel_parts = file.relative_to(self.vault.root).parts
+            if any(part.startswith(".") for part in rel_parts):
+                continue
+            path = "/".join(rel_parts[:-1])
+            try:
+                package = parse_package(file.read_text(encoding="utf-8"), path)
+            except (OSError, ValueError) as exc:
+                out.append({"path": path, "title": path, "error": str(exc),
+                            "modified": _utc(file.stat().st_mtime), "documents": 0})  # fmt: skip
+                continue
+            out.append({
+                "path": path,
+                "title": package.title,
+                "ticket": package.ticket,
+                "documents": len(package.documents),
+                "modified": _utc(file.stat().st_mtime),
+            })  # fmt: skip
+        out.sort(key=lambda p: p["modified"], reverse=True)
+        return out
+
+    def package(self, path: str) -> dict[str, Any]:
+        package, folder = self._package(path)
+        documents = []
+        for i, d in enumerate(package.documents):
+            source = self._inside(folder, d.source)
+            exists = source.is_file()
+            content = source.read_text(encoding="utf-8", errors="replace") if exists else ""
+            sha = sha256_of(source) if exists else ""
+            rel = package.rel(d.source)
+            documents.append({
+                "index": i,
+                "label": d.label,
+                "source": rel,
+                "exists": exists,
+                "content": content,
+                "sha256": sha,
+                "view": d.view.type,
+                "rounds": [r.__dict__ for r in self.feedback.rounds(rel, sha)] if exists else [],
+            })  # fmt: skip
+        return {"path": package.path, "title": package.title, "ticket": package.ticket,
+                "documents": documents}  # fmt: skip
+
+    # -- the rendered view --------------------------------------------------------------
+
+    def view(self, path: str, doc: int) -> bytes:
+        """The PDF of a ``pdf`` or ``pdf-generated`` view."""
+        _, d, folder = self._document(path, doc)
+        if d.view.type == "pdf":
+            assert d.view.file is not None
+            file = self._inside(folder, d.view.file)
+            if not file.is_file():
+                raise FileNotFoundError(d.view.file)
+            return file.read_bytes()
+        if d.view.type != "pdf-generated":
+            raise ViewError(f"the view of this document is {d.view.type!r}, not a PDF")
+        assert d.view.input is not None and d.view.generator is not None
+        generator = self.generators.get(d.view.generator)
+        if generator is None:
+            raise ViewError(f"no generator {d.view.generator!r}")
+        source = self._inside(folder, d.view.input)
+        if not source.is_file():
+            raise FileNotFoundError(d.view.input)
+        key = (d.view.generator, hashlib.sha256(source.read_bytes()).hexdigest())
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                return self._cache[key]
+        try:
+            pdf = generator(self.vault, source)
+        except Exception as exc:  # show why, instead of a broken viewer
+            raise ViewError(f"{d.view.generator}: {exc}") from exc
+        with self._lock:
+            self._cache[key] = pdf
+            while len(self._cache) > CACHE_SIZE:
+                self._cache.popitem(last=False)
+        return pdf
+
+    # -- feedback rounds on a document ----------------------------------------------------
+
+    def _source(self, path: str, doc: int) -> str:
+        package, d, folder = self._document(path, doc)
+        if not self._inside(folder, d.source).is_file():
+            raise FileNotFoundError(d.source)
+        rel = package.rel(d.source)
+        if rel.startswith(FEEDBACK):
+            raise FeedbackError("feedback files cannot be reviewed", 400)
+        return rel
+
+    def round(self, path: str, doc: int, round_id: str) -> dict:
+        return self.feedback.round(self._source(path, doc), round_id)
+
+    def start(self, path: str, doc: int) -> dict:
+        return self.feedback.start(self._source(path, doc))
+
+    def add_item(self, path: str, doc: int, round_id: str, *, start_line: int, end_line: int,
+                 scope: Scope, feedback: str, quote: str | None = None) -> dict:  # fmt: skip
+        return self.feedback.add_item(self._source(path, doc), round_id, start_line=start_line,
+                                      end_line=end_line, scope=scope, feedback=feedback,
+                                      quote=quote)  # fmt: skip
+
+    def update_item(self, path: str, doc: int, round_id: str, item_id: str, text: str) -> dict:
+        return self.feedback.update_item(self._source(path, doc), round_id, item_id, text)
+
+    def delete_item(self, path: str, doc: int, round_id: str, item_id: str) -> dict:
+        return self.feedback.delete_item(self._source(path, doc), round_id, item_id)
+
+    def seal(self, path: str, doc: int, round_id: str) -> dict:
+        return self.feedback.seal(self._source(path, doc), round_id)
+
+    def discard(self, path: str, doc: int, round_id: str) -> None:
+        self.feedback.discard(self._source(path, doc), round_id)

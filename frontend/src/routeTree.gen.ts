@@ -17,11 +17,14 @@ import { Route as AppJobsRouteImport } from './routes/_app/jobs'
 import { Route as AppKnowledgeRouteImport } from './routes/_app/knowledge'
 import { Route as AppMoodleRouteImport } from './routes/_app/moodle'
 import { Route as AppNotesRouteImport } from './routes/_app/notes'
+import { Route as AppReviewsRouteImport } from './routes/_app/reviews'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppTicketsRouteImport } from './routes/_app/tickets'
 import { Route as AppWorkspacesRouteImport } from './routes/_app/workspaces'
 import { Route as AppKnowledgeIndexRouteImport } from './routes/_app/knowledge/index'
 import { Route as AppKnowledgeSplatRouteImport } from './routes/_app/knowledge/$'
+import { Route as AppReviewsIndexRouteImport } from './routes/_app/reviews/index'
+import { Route as AppReviewsSplatRouteImport } from './routes/_app/reviews/$'
 import { Route as AppStudyIndexRouteImport } from './routes/_app/study/index'
 import { Route as AppStudySubjectRouteImport } from './routes/_app/study/$subject'
 import { Route as AppWorkspacesIndexRouteImport } from './routes/_app/workspaces/index'
@@ -66,6 +69,11 @@ const AppNotesRoute = AppNotesRouteImport.update({
   path: '/notes',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReviewsRoute = AppReviewsRouteImport.update({
+  id: '/reviews',
+  path: '/reviews',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -90,6 +98,16 @@ const AppKnowledgeSplatRoute = AppKnowledgeSplatRouteImport.update({
   id: '/$',
   path: '/$',
   getParentRoute: () => AppKnowledgeRoute,
+} as any)
+const AppReviewsIndexRoute = AppReviewsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppReviewsRoute,
+} as any)
+const AppReviewsSplatRoute = AppReviewsSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => AppReviewsRoute,
 } as any)
 const AppStudyIndexRoute = AppStudyIndexRouteImport.update({
   id: '/study/',
@@ -120,13 +138,16 @@ export interface FileRoutesByFullPath {
   '/knowledge': typeof AppKnowledgeRouteWithChildren
   '/moodle': typeof AppMoodleRoute
   '/notes': typeof AppNotesRoute
+  '/reviews': typeof AppReviewsRouteWithChildren
   '/settings': typeof AppSettingsRoute
   '/tickets': typeof AppTicketsRoute
   '/workspaces': typeof AppWorkspacesRouteWithChildren
   '/knowledge/$': typeof AppKnowledgeSplatRoute
+  '/reviews/$': typeof AppReviewsSplatRoute
   '/study/$subject': typeof AppStudySubjectRoute
   '/workspaces/$': typeof AppWorkspacesSplatRoute
   '/knowledge/': typeof AppKnowledgeIndexRoute
+  '/reviews/': typeof AppReviewsIndexRoute
   '/study/': typeof AppStudyIndexRoute
   '/workspaces/': typeof AppWorkspacesIndexRoute
 }
@@ -140,9 +161,11 @@ export interface FileRoutesByTo {
   '/tickets': typeof AppTicketsRoute
   '/': typeof AppIndexRoute
   '/knowledge/$': typeof AppKnowledgeSplatRoute
+  '/reviews/$': typeof AppReviewsSplatRoute
   '/study/$subject': typeof AppStudySubjectRoute
   '/workspaces/$': typeof AppWorkspacesSplatRoute
   '/knowledge': typeof AppKnowledgeIndexRoute
+  '/reviews': typeof AppReviewsIndexRoute
   '/study': typeof AppStudyIndexRoute
   '/workspaces': typeof AppWorkspacesIndexRoute
 }
@@ -155,14 +178,17 @@ export interface FileRoutesById {
   '/_app/knowledge': typeof AppKnowledgeRouteWithChildren
   '/_app/moodle': typeof AppMoodleRoute
   '/_app/notes': typeof AppNotesRoute
+  '/_app/reviews': typeof AppReviewsRouteWithChildren
   '/_app/settings': typeof AppSettingsRoute
   '/_app/tickets': typeof AppTicketsRoute
   '/_app/workspaces': typeof AppWorkspacesRouteWithChildren
   '/_app/': typeof AppIndexRoute
   '/_app/knowledge/$': typeof AppKnowledgeSplatRoute
+  '/_app/reviews/$': typeof AppReviewsSplatRoute
   '/_app/study/$subject': typeof AppStudySubjectRoute
   '/_app/workspaces/$': typeof AppWorkspacesSplatRoute
   '/_app/knowledge/': typeof AppKnowledgeIndexRoute
+  '/_app/reviews/': typeof AppReviewsIndexRoute
   '/_app/study/': typeof AppStudyIndexRoute
   '/_app/workspaces/': typeof AppWorkspacesIndexRoute
 }
@@ -176,13 +202,16 @@ export interface FileRouteTypes {
     | '/knowledge'
     | '/moodle'
     | '/notes'
+    | '/reviews'
     | '/settings'
     | '/tickets'
     | '/workspaces'
     | '/knowledge/$'
+    | '/reviews/$'
     | '/study/$subject'
     | '/workspaces/$'
     | '/knowledge/'
+    | '/reviews/'
     | '/study/'
     | '/workspaces/'
   fileRoutesByTo: FileRoutesByTo
@@ -196,9 +225,11 @@ export interface FileRouteTypes {
     | '/tickets'
     | '/'
     | '/knowledge/$'
+    | '/reviews/$'
     | '/study/$subject'
     | '/workspaces/$'
     | '/knowledge'
+    | '/reviews'
     | '/study'
     | '/workspaces'
   id:
@@ -210,14 +241,17 @@ export interface FileRouteTypes {
     | '/_app/knowledge'
     | '/_app/moodle'
     | '/_app/notes'
+    | '/_app/reviews'
     | '/_app/settings'
     | '/_app/tickets'
     | '/_app/workspaces'
     | '/_app/'
     | '/_app/knowledge/$'
+    | '/_app/reviews/$'
     | '/_app/study/$subject'
     | '/_app/workspaces/$'
     | '/_app/knowledge/'
+    | '/_app/reviews/'
     | '/_app/study/'
     | '/_app/workspaces/'
   fileRoutesById: FileRoutesById
@@ -285,6 +319,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppNotesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/reviews': {
+      id: '/_app/reviews'
+      path: '/reviews'
+      fullPath: '/reviews'
+      preLoaderRoute: typeof AppReviewsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
@@ -319,6 +360,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/knowledge/$'
       preLoaderRoute: typeof AppKnowledgeSplatRouteImport
       parentRoute: typeof AppKnowledgeRoute
+    }
+    '/_app/reviews/': {
+      id: '/_app/reviews/'
+      path: '/'
+      fullPath: '/reviews/'
+      preLoaderRoute: typeof AppReviewsIndexRouteImport
+      parentRoute: typeof AppReviewsRoute
+    }
+    '/_app/reviews/$': {
+      id: '/_app/reviews/$'
+      path: '/$'
+      fullPath: '/reviews/$'
+      preLoaderRoute: typeof AppReviewsSplatRouteImport
+      parentRoute: typeof AppReviewsRoute
     }
     '/_app/study/': {
       id: '/_app/study/'
@@ -365,6 +420,20 @@ const AppKnowledgeRouteWithChildren = AppKnowledgeRoute._addFileChildren(
   AppKnowledgeRouteChildren,
 )
 
+interface AppReviewsRouteChildren {
+  AppReviewsSplatRoute: typeof AppReviewsSplatRoute
+  AppReviewsIndexRoute: typeof AppReviewsIndexRoute
+}
+
+const AppReviewsRouteChildren: AppReviewsRouteChildren = {
+  AppReviewsSplatRoute: AppReviewsSplatRoute,
+  AppReviewsIndexRoute: AppReviewsIndexRoute,
+}
+
+const AppReviewsRouteWithChildren = AppReviewsRoute._addFileChildren(
+  AppReviewsRouteChildren,
+)
+
 interface AppWorkspacesRouteChildren {
   AppWorkspacesSplatRoute: typeof AppWorkspacesSplatRoute
   AppWorkspacesIndexRoute: typeof AppWorkspacesIndexRoute
@@ -385,6 +454,7 @@ interface AppRouteChildren {
   AppKnowledgeRoute: typeof AppKnowledgeRouteWithChildren
   AppMoodleRoute: typeof AppMoodleRoute
   AppNotesRoute: typeof AppNotesRoute
+  AppReviewsRoute: typeof AppReviewsRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
   AppTicketsRoute: typeof AppTicketsRoute
   AppWorkspacesRoute: typeof AppWorkspacesRouteWithChildren
@@ -399,6 +469,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppKnowledgeRoute: AppKnowledgeRouteWithChildren,
   AppMoodleRoute: AppMoodleRoute,
   AppNotesRoute: AppNotesRoute,
+  AppReviewsRoute: AppReviewsRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
   AppTicketsRoute: AppTicketsRoute,
   AppWorkspacesRoute: AppWorkspacesRouteWithChildren,

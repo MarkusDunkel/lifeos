@@ -25,6 +25,7 @@ def llm_settings(settings: Settings) -> LlmSettings:
         eur_per_usd=settings.agents_eur_per_usd,
         claude_command=settings.claude_command,
         claude_timeout=settings.claude_timeout,
+        public_url=settings.public_url,
     )
 
 

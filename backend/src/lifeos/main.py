@@ -38,6 +38,8 @@ from lifeos.modules.moodle.router import build_router as moodle_router
 from lifeos.modules.notes.router import build_router as notes_router
 from lifeos.modules.notes.store import NotesStore
 from lifeos.modules.presentations.router import build_router as presentations_router
+from lifeos.modules.reviews.router import build_router as reviews_router
+from lifeos.modules.reviews.service import ReviewService
 from lifeos.modules.study.router import build_router as study_router
 from lifeos.modules.study.service import StudyService
 from lifeos.modules.tickets.router import build_router as tickets_router
@@ -118,6 +120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(knowledge_router(knowledge, KnowledgeIndex(knowledge.root)))
     app.include_router(notes_router(NotesStore(vault)))
     app.include_router(workspaces_router(WorkspaceService(vault)))
+    app.include_router(reviews_router(ReviewService(vault)))
 
     token = settings.github_token
     github = GitHubConnector(

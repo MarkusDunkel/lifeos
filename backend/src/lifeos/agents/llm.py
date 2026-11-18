@@ -226,6 +226,7 @@ class LlmSettings:
     eur_per_usd: float = 0.9
     claude_command: str = "claude"  # Claude Code, for billing: subscription
     claude_timeout: int = DEFAULT_TIMEOUT
+    public_url: str = ""  # LifeOS for links in reports, e.g. to the review page
 
 
 def default_llm(agent: AgentDef, settings: LlmSettings) -> Llm:
