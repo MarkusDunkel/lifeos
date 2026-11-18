@@ -38,6 +38,7 @@ from lifeos.modules.jobsearch.importer import (
 log = logging.getLogger("lifeos.jobsearch.autorun")
 
 APP_NAME = "LifeOS"
+APP_ID = "LifeOS.JobSearch"
 SNOOZE = timedelta(hours=1)
 
 
@@ -60,11 +61,26 @@ class Notifier(Protocol):
 # -- notifications --------------------------------------------------------------------
 
 
+def register_app_id(app_id: str = APP_ID, display_name: str = APP_NAME) -> None:
+    """Register the notification sender for the current user (idempotent).
+
+    Windows 11 shows toasts from an unregistered app id (win11toast's default "Python")
+    without their buttons, so the user could not choose anything.
+    """
+    import winreg
+
+    key_path = rf"Software\Classes\AppUserModelId\{app_id}"
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+        winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, display_name)
+
+
 class ToastNotifier:
     """Windows notifications with buttons (needs the optional ``win11toast`` package)."""
 
     def __init__(self) -> None:
         import win11toast  # noqa: F401  (fail early if missing)
+
+        register_app_id()
 
     def ask(self, title: str, text: str) -> Choice | None:
         from win11toast import toast
@@ -77,7 +93,14 @@ class ToastNotifier:
                 (Choice.SKIP, "Not today"),
             )
         ]
-        result = toast(title, text, buttons=buttons, scenario="reminder", on_click=lambda r: r)
+        result = toast(
+            title,
+            text,
+            buttons=buttons,
+            scenario="reminder",
+            on_click=lambda r: r,
+            app_id=APP_ID,
+        )
         if isinstance(result, dict):
             argument = str(result.get("arguments", "")).rsplit(":", 1)[-1]
             with contextlib.suppress(ValueError):
@@ -87,7 +110,7 @@ class ToastNotifier:
     def info(self, title: str, text: str) -> None:
         from win11toast import notify
 
-        notify(title, text)
+        notify(title, text, app_id=APP_ID)
 
 
 class MessageBoxNotifier:

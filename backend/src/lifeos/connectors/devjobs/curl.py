@@ -15,6 +15,9 @@ import httpx
 
 TIMEOUT = 60
 _STATUS_MARK = b"\n__LIFEOS_HTTP_STATUS__:"
+# The autorun runs under pythonw (no console): without this flag Windows opens a
+# console window for every curl call. 0 on other systems.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 class CurlTransport(httpx.BaseTransport):
@@ -41,7 +44,12 @@ class CurlTransport(httpx.BaseTransport):
             str(request.url),
         ]
         try:
-            proc = subprocess.run(cmd, capture_output=True, timeout=TIMEOUT + 10)
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=TIMEOUT + 10,
+                creationflags=_NO_WINDOW,
+            )
         except subprocess.TimeoutExpired as exc:
             raise httpx.TimeoutException("curl timed out", request=request) from exc
         body, _, status = proc.stdout.rpartition(_STATUS_MARK)

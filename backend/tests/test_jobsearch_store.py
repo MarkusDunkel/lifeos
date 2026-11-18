@@ -160,7 +160,8 @@ def test_recently_gone_postings_are_kept(store: JobStore) -> None:
 def test_curl_transport_passes_only_the_user_agent(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[list[str]] = []
 
-    def fake_run(cmd, capture_output, timeout):
+    def fake_run(cmd, capture_output, timeout, creationflags):
+        assert creationflags == curl_module._NO_WINDOW  # no console window under pythonw
         seen.append(cmd)
         out = b"<html>ok</html>" + curl_module._STATUS_MARK + b"200"
         return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr=b"")
