@@ -274,6 +274,15 @@ account behind the token count, only those written after the assistant first ran
 comments are fetched only for issues whose `updatedAt` changed. Without
 `agents/assistant.md` no work orders are answered.
 
+**Approved tickets.** A ticket with `Responsible = AI: <assistant>` moved to Todo runs the
+`assistant` workflow (`agents/assistant_work.py`, needs `billing: subscription`): Claude
+Code works with file tools only (no shell) in a temporary copy of `CLAUDE.md`, `agents/`,
+`boards/` and `ready/knowledge/`. The code then applies only allowed changes – agent
+definitions and `agents/texts.yaml`, board contracts (only if they still parse), files
+below `ready/knowledge/` – and never deletions or files that changed in the vault
+meanwhile; everything else is listed in the report. A question blocks the ticket and
+applies nothing. The app's code is out of reach on purpose.
+
 ## Backend layout (`backend/src/lifeos`)
 
 | Module | Responsibility |
