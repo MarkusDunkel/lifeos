@@ -12,6 +12,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from lifeos import __version__
+from lifeos.agents.admin import AgentAdmin
+from lifeos.agents.router import build_router as agents_router
 from lifeos.connectors.github.client import GitHubClient, GitHubError
 from lifeos.connectors.github.sync import GitHubConnector, SyncError
 from lifeos.connectors.moodle.client import MoodleError
@@ -142,6 +144,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         timezone=settings.timezone,
     )
     app.include_router(applications_router(applications))
+    app.include_router(agents_router(AgentAdmin(vault, committer=background_committer(git))))
 
     if mcp is not None and settings.mcp_path_token:
         mount_mcp(app, mcp, settings.mcp_path_token)

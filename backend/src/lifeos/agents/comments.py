@@ -61,6 +61,9 @@ DEFAULT_TEXTS: dict[str, str] = {
     "billing_line": "💳 Paid via: {way}",
     "billing_api": "API (pay per use)",
     "billing_subscription": "Claude subscription",
+    # history entry when billing is switched in LifeOS (section of the agent file)
+    "history_heading": "History",
+    "history_billing": "{date}: paid via {way} instead of {previous} (switched in LifeOS).",
     "workflow_heading": "Workflow",
     "drift_title": "Board “{title}” differs from the vault",
     "drift_body": (
