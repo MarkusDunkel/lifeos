@@ -8,6 +8,9 @@
 #set page(paper: "a4", margin: (x: 2cm, y: 1.7cm))
 #set text(font: "XCharter", size: 10pt, lang: "de")
 #set par(justify: true, leading: 0.74em, spacing: 0.95em)
+// Gap between the body paragraphs: clearly larger than the line gap, so paragraphs read
+// as separate blocks (0.95em read as too tight in review).
+#let paragraph-gap = 1.6em
 
 #grid(
   columns: (1fr, 1fr),
@@ -25,17 +28,20 @@
   }),
 )
 
-#v(1cm)
+#v(0.8cm)
 #align(right, d.date)
 #v(0.8cm)
 #text(weight: "bold", l.subject)
-#v(0.9cm)
+#v(0.7cm)
 #l.salutation
 #v(0.4cm)
 
-#for paragraph in l.paragraphs [
-  #paragraph
+#[
+  #set par(spacing: paragraph-gap)
+  #for paragraph in l.paragraphs [
+    #paragraph
 
+  ]
 ]
 
 #v(0.8cm)

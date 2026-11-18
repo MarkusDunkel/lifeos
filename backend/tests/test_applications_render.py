@@ -173,3 +173,19 @@ def test_render_refuses_a_letter_longer_than_a_page(vault: Vault) -> None:
     long.letter.paragraphs = ["Sehr langer Absatz. " * 60 for _ in range(6)]
     with pytest.raises(RenderError, match="cover letter has 2 pages"):
         render(long, load_profile(vault))
+
+
+def test_render_fits_a_typical_letter_with_wide_paragraph_gaps_on_one_page(vault: Vault) -> None:
+    # The guide asks for five paragraphs and about 350 to 400 words; the wider gap between
+    # paragraphs (lifeos-board#33) must still leave such a letter on one page.
+    from lifeos.modules.applications.render import render
+
+    typical = draft()
+    # 12 words, about 7.5 characters per word like a real German letter (spaces included).
+    # Repeating one sentence fills lines less evenly than real text, so stay at 360 words.
+    sentence = (
+        "Ich habe Datenmodelle in SQL entwickelt und Anwendungen mit den Fachbereichen verbessert. "
+    )
+    typical.letter.paragraphs = [sentence * 6 for _ in range(5)]
+    assert sum(len(p.split()) for p in typical.letter.paragraphs) == 360
+    assert render(typical, load_profile(vault)).pages["letter"] == 1
