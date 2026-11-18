@@ -11,9 +11,19 @@ RUN npm run build
 # --- 2. Python runtime -------------------------------------------------------
 FROM python:3.13-slim AS app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git openssh-client \
+    && apt-get install -y --no-install-recommends git openssh-client curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /usr/local/bin/uv
+
+# Claude Code for agents with `billing: subscription` (`claude -p`, see lifeos.agents.claude_code).
+# Pinned: the agents rely on its stream-json output and on flags that may change between
+# versions. Update deliberately and run the subscription smoke test afterwards.
+ARG CLAUDE_CODE_VERSION=2.1.326
+RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION}" \
+    && install -m 0755 "$(readlink -f /root/.local/bin/claude)" /usr/local/bin/claude \
+    && rm -rf /root/.local/share/claude /root/.local/bin/claude /root/.claude /root/.claude.json \
+    && claude --version
+ENV DISABLE_AUTOUPDATER=1
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \

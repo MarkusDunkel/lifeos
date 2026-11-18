@@ -305,6 +305,10 @@ extended with facts the master CV does not contain. Facts about the owner come o
 master CV; the research is only about the company. Letter paragraphs are plain text without
 Markdown. `technical_skills` stays empty unless a tailored line helps.
 
+The notes always describe the draft you return as a whole – the key decisions in it, what
+you are unsure about, what the owner should check – never the changes against a previous
+draft or the steps of a revision. The owner reads them next to the finished documents.
+
 {rules}
 
 <agent_instructions>

@@ -40,6 +40,8 @@ services:
         required: false
     environment:
       LIFEOS_STATE_DIR: /state
+      # Claude Code (agents with `billing: subscription`) keeps its config in the state folder.
+      CLAUDE_CONFIG_DIR: /state/claude
       # Deploy key with write access to the private vault repository only.
       GIT_SSH_COMMAND: >-
         ssh -i /ssh/id_ed25519 -o IdentitiesOnly=yes

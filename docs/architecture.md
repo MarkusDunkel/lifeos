@@ -203,7 +203,7 @@ vault, the code only executes it:
   GitHub only. If GitHub was edited by hand and the contract did not change, nothing is
   overwritten: the drift becomes one ticket in the inbox.
 - `agents/<name>.md` – the **agent definition**: front matter (`title`, `runner`,
-  `workflow`, `board`, `model`, …) and a human-readable body (summary, workflow, rules with
+  `workflow`, `board`, `model`, `billing`, …) and a human-readable body (summary, workflow, rules with
   origin, review checklist, history, rejected proposals).
 - `agents/texts.yaml` – the wording of agent comments and run logs (defaults in English).
 - `agents/<name>/runs.md` – the run log, appended by every run.
@@ -224,16 +224,29 @@ agent). A round of the `agents` job (`LIFEOS_AGENTS_INTERVAL`, also `lifeos agen
 5. append to the run log and commit `agent(<name>): #N <outcome> – …` with `Refs`.
 
 **The application writer** (`modules/applications/writer.py`, workflow
-`application-writer`) is a fixed sequence of Messages API calls with Claude: research the
-company with server-side web search (capped by `max_searches`, reused on a revision),
+`application-writer`) is a fixed sequence of model calls with Claude: research the
+company with web search (capped by `max_searches`, reused on a revision),
 write a `Draft` plus notes as structured output, check it (ids against the master CV and
 page limits via Typst, then a separate reviewer call that answers the agent's checklist),
 revise at most `max_revisions` times (no further round once `budget_eur` is spent), and
 write the PDFs, `draft.json`, research and notes into the application folder. On a
 revision it reads the owner's comments since its last run and the previous draft. The
-model never acts: board writes, files and commits are done by the code. Requests use
-prompt caching and server-side refusal fallbacks; the worker needs `ANTHROPIC_API_KEY`
-(from `deploy/agents.env`).
+model never acts: board writes, files and commits are done by the code.
+
+**API or subscription.** `billing:` in the agent definition chooses how the model calls
+are paid; the workflow is the same:
+
+- `api` (default) – Messages API with prompt caching and server-side refusal fallbacks;
+  needs `ANTHROPIC_API_KEY`. Reports show the cost in euro; `budget_eur` caps revisions.
+- `subscription` – Claude Code (`claude -p`, `agents/claude_code.py`) on the user's Claude
+  plan; needs `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`). Every call runs in an
+  empty temporary directory without settings, MCP servers or session files; research may
+  only use web search and fetch, writing and reviewing get no tools and a JSON schema. The
+  call removes every other `ANTHROPIC_*`/`CLAUDE*` variable and stops as soon as Claude
+  Code reports a credential other than the subscription, so it never bills an API key.
+  Reports show tokens, the API price of the same calls and the plan's usage; a reached
+  usage limit blocks the ticket, and the report warns two weeks before the token expires.
+  The image pins the Claude Code version (`CLAUDE_CODE_VERSION` in the Dockerfile).
 
 A ticket left at `running` for 30 minutes (worker restarted mid-run) becomes `blocked`.
 Agents write with the user's token, so every agent comment starts with an invisible
