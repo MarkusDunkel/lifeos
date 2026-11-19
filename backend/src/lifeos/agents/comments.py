@@ -112,6 +112,10 @@ DEFAULT_TEXTS: dict[str, str] = {
     "report_review_answers": "**Your review comments**",
     "report_review_done": "- {label} {id} “{quote}” → ✅ done: {answer}",
     "report_review_declined": "- {label} {id} “{quote}” → ↩️ not done: {answer}",
+    # facts from the owner's comments that the writer put into the master CV
+    "report_master": "**Master CV updated** (from your comments)",
+    "report_master_rejected": "**Not taken into the master CV**",
+    "origin_comment": "comment {n}",  # origin of a fact from a ticket comment
     "report_comments": "**Your comments, as I read them**",
     "report_comment_this": "- “{comment}” → for this ticket: {understood}",
     "report_comment_general": "- “{comment}” → general: {understood}",

@@ -179,8 +179,10 @@ ticket to **Active** hands it to the AI teammate named in the board contract (se
 Deleting an application's issue on GitHub rolls the application back (worker job
 `applications-board`): the posting is released for a new application, and the folder moves
 to `Career/Applications/Archive/` with `status: abandoned` and a notice in `Application.md`.
-Only `Career/Applications/Examples/` serves as examples for new cover letters; a letter gets
-there when its ticket reaches **Sent**, i.e. after the user's last review. Archived drafts
+Only `Career/Applications/Examples/` serves as examples for new cover letters and
+`Career/Applications/Examples/CV/` for new CVs (the rendered CV plus its selection of master
+ids); both get there when the ticket reaches **Sent**, i.e. after the user's last review.
+The writer reads the three newest of each, the newest as the starting point. Archived drafts
 never do. Issues that are only taken off the board are left alone.
 
 The worker job `applications-board` (`LIFEOS_APPLICATIONS_INTERVAL`) polls the board for the
@@ -190,9 +192,20 @@ outcome columns close the issue; moving it back reopens it.
 Documents are rendered with Typst (`typst` Python package) from `templates/typst/` and the
 bundled XCharter font; the master CV (`Career/CV/cv.yaml`) and personal data
 (`Career/CV/personal.yaml`) live in the vault; `Career/Application-Guide.md` collects rules
-and lessons, `Career/Applications/Examples/` earlier cover letters. A draft may only select master entries and
-bullets by id and titles from the allowed variants; companies and periods always come from
-the master. The cover letter must fit one page, the CV two.
+and lessons, `Career/Applications/Examples/` earlier cover letters and CVs. A draft may only
+select master entries and bullets by id and titles from the allowed variants; companies and
+periods always come from the master. `check: true` marks master points still to be confirmed,
+`origin` where a fact came from. Technical skills can be grouped (`skills.groups`, one line
+per group in the PDF). The cover letter must fit one page, the CV two.
+
+**The owner's comments win.** Every comment of the owner is applied, also against the master
+CV or the guide; the reviewer sees the comments too and never asks to undo them. Facts the
+owner states in a comment (a period, a new or corrected point, skills, a confirmation) come
+back from the writer as `master_updates` (`modules/applications/master.py`): the code applies
+them to the master CV *before* the draft is checked and rendered, so the CV uses them in the
+same run, and writes `cv.yaml` back with `origin: <ticket> · <comment> · <date>` on every
+changed item. An update must cite the number of an owner comment, otherwise it is rejected;
+the report lists what was taken over and what not.
 
 ## AI teammates on the boards
 

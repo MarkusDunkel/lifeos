@@ -30,7 +30,7 @@ from lifeos.modules.applications.board import (
     STATUS,
     split_project,
 )
-from lifeos.modules.applications.profile import APPLICATIONS_DIR, EXAMPLES_DIR
+from lifeos.modules.applications.profile import APPLICATIONS_DIR, EXAMPLE_CVS_DIR, EXAMPLES_DIR
 from lifeos.modules.jobsearch.model import Posting
 from lifeos.modules.jobsearch.store import JobStore
 
@@ -39,6 +39,7 @@ STATE_DIR = f"{STATE}/applications"
 INDEX_FILE = f"{STATE_DIR}/index.json"
 BOARD_STATE_FILE = f"{STATE_DIR}/board.json"
 LETTER_GENERATOR = "application-letter"  # the view of the letter in the review package
+CV_GENERATOR = "application-cv"
 
 
 class ApplicationError(Exception):
@@ -273,11 +274,12 @@ class Applications:
             return True
 
     def sent(self, item: Any) -> str | None:
-        """Board handler for "Sent": freeze the PDFs and keep the letter as an example.
+        """Board handler for "Sent": freeze the PDFs and keep letter and CV as examples.
 
         The review package of the application is frozen (the generated PDFs are stored
-        once, dated today), the letter is copied to ``Applications/Examples/`` for future
-        letters, and ``Application.md`` records the date. ``draft.json`` stays in the
+        once, dated today), the letter is copied to ``Applications/Examples/`` and the CV
+        with its selection to ``Applications/Examples/CV/`` as models for future
+        applications, and ``Application.md`` records the date. ``draft.json`` stays in the
         folder as the structured record of what was sent.
         """
         from lifeos.modules.reviews.package import PACKAGE_FILE
@@ -291,6 +293,7 @@ class Applications:
         package = reviews.load(folder)
         letter = next((d for d in package.documents if d.view.generator == LETTER_GENERATOR),
                       None)  # fmt: skip
+        cv = next((d for d in package.documents if d.view.generator == CV_GENERATOR), None)
         day = datetime.now(self.tz).date().isoformat()
         with self._lock:
             paths = reviews.freeze(folder, day)
@@ -298,6 +301,8 @@ class Applications:
                 return "already frozen"
             if letter is not None:
                 paths.append(self._example(folder, package.rel(letter.source), entry, day))
+            if cv is not None:
+                paths.append(self._example_cv(folder, package.rel(cv.source), entry, day))
             summary = self.vault.resolve(f"{folder}/Application.md")
             if summary.is_file():
                 text = summary.read_text(encoding="utf-8").rstrip("\n")
@@ -321,6 +326,26 @@ class Applications:
         }
         body = self.vault.resolve(letter).read_text(encoding="utf-8")
         write_atomic(self.vault.resolve(rel), dump_front(front) + "\n" + body)
+        return rel
+
+    def _example_cv(self, folder: str, cv: str, entry: dict[str, Any], day: str) -> str:
+        """The sent CV in ``Examples/CV/`` with its selection from the master CV (ids)."""
+        name = folder.rsplit("/", 1)[-1]
+        rel = f"{EXAMPLE_CVS_DIR}/{name}.md"
+        front = {
+            "company": entry.get("company", ""),
+            "position": entry.get("title", ""),
+            "date": day,
+            "source": f"LifeOS, sent application ({folder}/draft.json)",
+        }
+        body = self.vault.resolve(cv).read_text(encoding="utf-8").rstrip("\n")
+        draft = self.vault.resolve(f"{folder}/draft.json")
+        if draft.is_file():
+            selection = json.loads(draft.read_text(encoding="utf-8")).get("cv")
+            if selection:
+                text = json.dumps(selection, ensure_ascii=False, indent=1)
+                body += f"\n\n## Selection\n\n```json\n{text}\n```"
+        write_atomic(self.vault.resolve(rel), dump_front(front) + "\n" + body + "\n")
         return rel
 
     def archive(self, folder: str, reason: str) -> str | None:

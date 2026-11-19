@@ -42,9 +42,17 @@ def cv_markdown(cv: dict[str, Any]) -> str:
         lines += [f"- {b['text']}" for b in edu.get("bullets", [])]
         if edu.get("bullets"):
             lines.append("")
-    skills = {k: v for k, v in (cv.get("skills") or {}).items() if v}
-    if skills:
-        lines += ["## Skills", ""] + [f"- **{k}:** {v}" for k, v in skills.items()] + [""]
+    skills = dict(cv.get("skills") or {})
+    groups = skills.pop("groups", None) or []
+    if groups:
+        skills.pop("technical", None)  # the groups replace the single line
+    skills = {k: v for k, v in skills.items() if v}
+    if skills or groups:
+        lines += ["## Skills", ""]
+    if groups:
+        lines += ["- **technical:**"] + [f"  - {g['label']}: {g['items']}" for g in groups]
+    if skills or groups:
+        lines += [f"- **{k}:** {v}" for k, v in skills.items()] + [""]
     return "\n".join(lines).rstrip() + "\n"
 
 

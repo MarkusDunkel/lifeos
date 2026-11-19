@@ -3,7 +3,11 @@
 The master CV (vault, YAML) holds every position, education entry and bullet with a
 stable id. A draft only *selects* from it: positions and bullets by id, titles from the
 allowed variants. Companies, places and periods always come from the master, so the
-writer cannot invent them.
+writer cannot invent them. Facts the owner gives in review comments reach the master
+first (``master.py``), so the draft can use them in the same run.
+
+``check: true`` marks an entry or bullet that still has to be confirmed by the owner;
+``origin`` says where a fact came from (e.g. the review comment that added it).
 """
 
 from __future__ import annotations
@@ -46,6 +50,8 @@ class Bullet(BaseModel):
     id: str
     text: str
     url: str | None = None
+    check: bool = False
+    origin: str | None = None
 
 
 class Position(BaseModel):
@@ -56,6 +62,8 @@ class Position(BaseModel):
     place: str = ""
     period: str
     bullets: list[Bullet] = Field(default_factory=list)
+    check: bool = False
+    origin: str | None = None
 
 
 class Education(BaseModel):
@@ -66,12 +74,21 @@ class Education(BaseModel):
     period: str
     inline: bool = False
     bullets: list[Bullet] = Field(default_factory=list)
+    check: bool = False
+    origin: str | None = None
+
+
+class SkillGroup(BaseModel):
+    label: str = Field(description="e.g. 'Softwareentwicklung'")
+    items: str = Field(description="comma-separated, e.g. 'Python, SQL, Git'")
 
 
 class Skills(BaseModel):
     technical: str = ""
+    groups: list[SkillGroup] = Field(default_factory=list)  # shown instead of `technical`
     interests: str = ""
     languages: str = ""
+    origin: str | None = None
 
 
 class MasterCv(BaseModel):
@@ -107,6 +124,10 @@ class CvSelection(BaseModel):
     positions: list[ChosenPosition]
     education: list[ChosenEducation]
     technical_skills: str = Field(default="", description="empty = master value")
+    skill_groups: list[SkillGroup] = Field(
+        default_factory=list,
+        description="technical skills in groups, one line each; empty = master groups",
+    )
 
 
 class Letter(BaseModel):
@@ -162,12 +183,14 @@ def resolve_cv(cv: CvSelection, master: MasterCv) -> dict:
         if edu is None:
             raise DraftError(f"unknown education id {chosen.id!r}")
         out_education.append(
-            edu.model_dump(exclude={"bullets", "id"})
+            edu.model_dump(exclude={"bullets", "id", "check", "origin"})
             | {"bullets": _bullets(chosen.bullets, edu.bullets, edu.id)}
         )
-    skills = master.skills.model_dump()
+    skills = master.skills.model_dump(exclude={"origin"})
     if cv.technical_skills.strip():
         skills["technical"] = cv.technical_skills.strip()
+    if cv.skill_groups:
+        skills["groups"] = [g.model_dump() for g in cv.skill_groups]
     return {
         "headline": cv.headline,
         "profile": cv.profile,

@@ -262,8 +262,9 @@ shows the source with comments on the left and the view on the right.
 - **Freezing**: when the documents go out, every `pdf-generated` view is stored once as a
   PDF beside its source (`Anschreiben.md` → `Anschreiben.pdf`), its view becomes `pdf`, and
   `review.yaml` gets `frozen: <date>`. Applications do this when their ticket moves to
-  *Sent*; the sent letter is also copied to `Applications/Examples/` as a model for future
-  letters, and the writer never rewrites a frozen application. Until then no PDFs are
+  *Sent*; the sent letter is also copied to `Applications/Examples/` and the CV with its
+  selection to `Applications/Examples/CV/` as models for future applications, and the writer
+  never rewrites a frozen application. Until then no PDFs are
   stored: the review page generates them on request.
 
 ## Conventions

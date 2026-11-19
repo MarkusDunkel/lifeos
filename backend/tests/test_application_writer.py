@@ -392,9 +392,72 @@ def test_sent_freezes_the_pdfs_and_keeps_the_letter_as_an_example(gh, vault) -> 
     assert (folder / "CV.pdf").read_bytes().startswith(b"%PDF")
     example = vault.resolve(f"{EXAMPLES_DIR}/{folder.name}.md").read_text(encoding="utf-8")
     assert "company: Beispiel AG" in example and "Mit freundlichen Grüßen" in example
+    cv = vault.resolve(f"{EXAMPLES_DIR}/CV/{folder.name}.md").read_text(encoding="utf-8")
+    assert "company: Beispiel AG" in cv and "## Experience" in cv
+    assert "## Selection" in cv and '"base": "acme-sql"' in cv  # ids for the next selection
     history = (folder / "Application.md").read_text(encoding="utf-8")
     assert "sent; frozen: Cover-Letter.pdf, CV.pdf" in history
     [(paths, message)] = commits
     assert f"{FOLDER}/review.yaml" in paths and message.startswith("application: sent – ")
     assert apps.sent(SimpleNamespace(number=1)) == "already frozen"
     assert apps.sent(SimpleNamespace(number=9)) == "no review package, nothing frozen"
+
+
+def test_owner_facts_update_the_master_and_the_reviewer_sees_the_comments(gh, vault) -> None:
+    import yaml
+
+    from lifeos.modules.applications.master import MasterUpdate
+
+    mirrored(gh, vault)
+    item = gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    run(gh, vault, FakeLlm([output(), review()]))
+    gh.add_comment("I1", "Die Stelle bei ACME endet 2026: bitte '2024 – 2026'.")
+    gh.values(item)["Status"] = "Active"
+    read = [FeedbackItem(number=1, comment="Zeitraum", applied=True, understood="Übernommen.",
+                         general=False, proposal_title="", proposal_body="")]  # fmt: skip
+    out = output(feedback=read)
+    out.master_updates = [
+        MasterUpdate(comment=1, op="set_period", entry="acme", text="2024 – 2026"),
+        MasterUpdate(comment=5, op="set_period", entry="tu", text="1999"),  # no such comment
+    ]
+    llm = FakeLlm([out, review()])
+    run(gh, vault, llm)
+
+    review_prompt = llm.calls[1][2]
+    assert "<owner_feedback>" in review_prompt and "endet 2026" in review_prompt
+    assert "2024 – 2026" in llm.calls[1][1]  # the reviewer checks against the updated master
+    master = yaml.safe_load(vault.resolve(MASTER_FILE).read_text(encoding="utf-8"))
+    acme = master["positions"][0]
+    assert acme["period"] == "2024 – 2026"
+    assert acme["origin"].startswith("someone/board#1 · comment 1 · ")
+    assert master["education"][0]["period"] == "2018 – 2020"
+    cv = vault.resolve(f"{FOLDER}/CV.md").read_text(encoding="utf-8")
+    assert "2024 – 2026" in cv  # used in the same run
+    report = gh.comments[-1][1]
+    assert "Master CV updated" in report and "period of acme → 2024 – 2026" in report
+    assert "Not taken into the master CV" in report and "comment 5 is not from" in report
+
+
+def test_without_owner_updates_the_master_stays_untouched(gh, vault) -> None:
+    mirrored(gh, vault)
+    gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    before = vault.resolve(MASTER_FILE).read_text(encoding="utf-8")
+    run(gh, vault, FakeLlm([output(), review()]))
+    assert vault.resolve(MASTER_FILE).read_text(encoding="utf-8") == before
+
+
+def test_sent_cvs_are_examples_newest_first(gh, vault) -> None:
+    from lifeos.modules.applications.profile import EXAMPLE_CVS_DIR
+
+    for name in ("2026-01-01 Old AG – Dev", "2026-03-01 New AG – Dev"):
+        path = vault.resolve(f"{EXAMPLE_CVS_DIR}/{name}.md")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# CV for {name}\n", encoding="utf-8")
+    mirrored(gh, vault)
+    gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
+    llm = FakeLlm([output(), review()])
+    run(gh, vault, llm)
+    system = llm.calls[1][1]
+    block = system[system.index("<example_cvs>") :]
+    assert block.index("1. 2026-03-01 New AG – Dev (newest)") < block.index("2. 2026-01-01 Old")
+    assert "<example_letters>\n(none)" in system  # cover letters are separate

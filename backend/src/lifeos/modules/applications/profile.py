@@ -16,7 +16,8 @@ CV_DIR = f"{CAREER}/CV"
 PERSONAL_FILE = f"{CV_DIR}/personal.yaml"
 MASTER_FILE = f"{CV_DIR}/cv.yaml"
 APPLICATIONS_DIR = f"{CAREER}/Applications"
-EXAMPLES_DIR = f"{APPLICATIONS_DIR}/Examples"
+EXAMPLES_DIR = f"{APPLICATIONS_DIR}/Examples"  # sent cover letters
+EXAMPLE_CVS_DIR = f"{EXAMPLES_DIR}/CV"  # sent CVs with their selection
 GUIDE_FILE = f"{CAREER}/Application-Guide.md"
 
 

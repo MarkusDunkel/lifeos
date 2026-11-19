@@ -189,3 +189,20 @@ def test_render_fits_a_typical_letter_with_wide_paragraph_gaps_on_one_page(vault
     typical.letter.paragraphs = [sentence * 6 for _ in range(5)]
     assert sum(len(p.split()) for p in typical.letter.paragraphs) == 360
     assert render(typical, load_profile(vault)).pages["letter"] == 1
+
+
+def test_skill_groups_are_one_line_each_in_pdf_and_markdown(vault: Vault) -> None:
+    from lifeos.modules.applications.model import SkillGroup
+    from lifeos.modules.applications.render import render
+    from lifeos.modules.applications.review import cv_markdown
+
+    d = draft()
+    d.cv.skill_groups = [SkillGroup(label="Daten", items="SQL, dbt"),
+                         SkillGroup(label="Betrieb", items="Linux, Docker")]  # fmt: skip
+    profile = load_profile(vault)
+    cv = PdfReader(io.BytesIO(render(d, profile).cv)).pages[0].extract_text()
+    assert "Technische Kenntnisse:" in cv and "Daten: SQL, dbt" in cv
+    assert "Betrieb: Linux, Docker" in cv and "Python, SQL" not in cv  # replaces the line
+    md = cv_markdown(resolve_cv(d.cv, profile.master))
+    assert "- **technical:**\n  - Daten: SQL, dbt\n  - Betrieb: Linux, Docker" in md
+    assert "Python, SQL" not in md and "- **languages:** Deutsch, Englisch" in md

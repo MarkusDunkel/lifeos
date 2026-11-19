@@ -96,7 +96,13 @@
     ("Interessen", cv.skills.interests),
     ("Sprachen", cv.skills.languages),
   )
+  let groups = cv.skills.at("groups", default: ())
   for (label, value) in rows {
-    if value != "" { block(above: 0.12cm, below: 0pt)[*#label:* #value] }
+    if label == "Technische Kenntnisse" and groups.len() > 0 {
+      block(above: 0.12cm, below: 0pt)[*#label:*]
+      for g in groups {
+        block(above: 0.08cm, below: 0pt, inset: (left: 0.4cm))[#g.label: #g.items]
+      }
+    } else if value != "" { block(above: 0.12cm, below: 0pt)[*#label:* #value] }
   }
 }
