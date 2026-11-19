@@ -211,6 +211,34 @@ def apply_updates(
     return Applied(out, MasterCv.model_validate(out), done, rejected)
 
 
+class _Dumper(yaml.SafeDumper):
+    """Lists indented under their key, multi-line text as a block: easy to edit by hand."""
+
+    def increase_indent(self, flow: bool = False, indentless: bool = False) -> None:
+        return super().increase_indent(flow, False)
+
+
+def _text(dumper: yaml.SafeDumper, value: str) -> yaml.ScalarNode:
+    style = "|" if "\n" in value else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
+
+
+_Dumper.add_representer(str, _text)
+
+
 def dump(data: dict[str, Any]) -> str:
-    """The master as YAML, in a stable form (keys in their order, no line wrapping)."""
-    return yaml.safe_dump(data, allow_unicode=True, sort_keys=False, width=10_000)
+    """The master as YAML in a stable, readable form.
+
+    Keys keep their order, lines are not wrapped, and a blank line separates the top-level
+    sections and the entries of ``positions`` and ``education``.
+    """
+    text = yaml.dump(data, Dumper=_Dumper, allow_unicode=True, sort_keys=False, width=10_000)
+    lines = text.splitlines()
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        top = i > 0 and line[:1].isalpha()
+        entry = line.startswith("  - id:") and out and not out[-1].endswith(":")
+        if top or entry:
+            out.append("")
+        out.append(line)
+    return "\n".join(out) + "\n"

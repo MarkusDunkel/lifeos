@@ -76,3 +76,14 @@ def test_new_entries_and_a_later_update_wins() -> None:
     fh = applied.master.education[0]
     assert (fh.id, fh.institution, fh.degree, fh.origin) == ("fh", "FH Beispiel", "MA Recht",
                                                             ORIGINS[2])  # fmt: skip
+
+
+def test_dump_is_readable_and_round_trips() -> None:
+    raw = data()
+    raw["notes"] = "Line one.\nLine two.\n"
+    text = dump(raw)
+    assert text.startswith("headline_examples:\n  - Data Engineering\n\nprofile_examples:")
+    assert "notes: |\n  Line one.\n  Line two.\n" in text
+    assert "positions:\n  - id: acme\n" in text  # lists indented, no blank line after the key
+    assert "\n\nskills:\n" in text
+    assert yaml.safe_load(text) == raw
