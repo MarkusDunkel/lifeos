@@ -24,16 +24,17 @@ def letter_markdown(draft: Draft) -> str:
 
 
 def cv_markdown(cv: dict[str, Any]) -> str:
-    """The resolved CV (``resolve_cv``) as Markdown: headline, profile, stations, skills."""
+    """The resolved CV (``resolve_cv``) as Markdown, with the section titles of the PDF."""
+    titles = cv.get("sections") or {}
     lines = [f"# {cv['headline']}", "", cv["profile"].strip(), ""]
     if cv["positions"]:
-        lines += ["## Experience", ""]
+        lines += [f"## {titles.get('experience', 'Experience')}", ""]
     for pos in cv["positions"]:
         where = ", ".join(p for p in (pos.get("company"), pos.get("place")) if p)
         lines += [f"### {pos['title']}", "", f"{where} · {pos.get('period', '')}".strip(" ·"), ""]
         lines += [f"- {b['text']}" for b in pos["bullets"]] + [""]
     if cv["education"]:
-        lines += ["## Education", ""]
+        lines += [f"## {titles.get('education', 'Education')}", ""]
     for edu in cv["education"]:
         where = f"{edu.get('institution', '')} · {edu.get('period', '')}".strip(" ·")
         lines += [f"### {edu.get('degree', '')}", "", where, ""]
@@ -42,17 +43,16 @@ def cv_markdown(cv: dict[str, Any]) -> str:
         lines += [f"- {b['text']}" for b in edu.get("bullets", [])]
         if edu.get("bullets"):
             lines.append("")
-    skills = dict(cv.get("skills") or {})
-    groups = skills.pop("groups", None) or []
-    if groups:
-        skills.pop("technical", None)  # the groups replace the single line
-    skills = {k: v for k, v in skills.items() if v}
-    if skills or groups:
-        lines += ["## Skills", ""]
-    if groups:
-        lines += ["- **technical:**"] + [f"  - {g['label']}: {g['items']}" for g in groups]
-    if skills or groups:
-        lines += [f"- **{k}:** {v}" for k, v in skills.items()] + [""]
+    rows = cv.get("rows") or []
+    if rows:
+        lines += [f"## {titles.get('more', 'More')}", ""]
+    for r in rows:
+        if not r["items"]:
+            lines.append(f"- **{r['label']}:**")
+        elif r.get("indent"):
+            lines.append(f"  - {r['label']}: {r['items']}")
+        else:
+            lines.append(f"- **{r['label']}:** {r['items']}")
     return "\n".join(lines).rstrip() + "\n"
 
 

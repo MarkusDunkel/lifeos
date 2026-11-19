@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, ValidationError
 from lifeos.modules.applications.model import MasterCv, SkillGroup
 
 Op = Literal[
+    "set_field",
     "set_period",
     "set_detail",
     "add_title_variant",
@@ -36,12 +37,15 @@ Op = Literal[
     "add_education",
 ]
 SKILL_FIELDS = ("technical", "interests", "languages")
+ENTRY_FIELDS = ("title", "company", "place", "period", "detail", "institution", "degree")
 
 
 class MasterUpdate(BaseModel):
     comment: int = Field(description="number of the owner comment that states this fact")
     op: Op = Field(
-        description="set_period / set_detail (education) / add_title_variant: `entry` + `text`;"
+        description="set_field: `entry`, `field` (title, company, place, period, detail,"
+        " institution, degree) + `text` – any fact of a position or education entry;"
+        " set_period / set_detail / add_title_variant: `entry` + `text`;"
         " add_bullet / edit_bullet: `entry`, `bullet` (id, new ids in kebab-case) and `text`;"
         " remove_bullet: `bullet`; confirm: `bullet` or `entry` (removes check);"
         " set_skills: `skill_field` (technical, interests, languages) + `text`;"
@@ -52,6 +56,7 @@ class MasterUpdate(BaseModel):
     entry: str = Field(default="", description="id of a position or education entry")
     bullet: str = Field(default="", description="id of a bullet")
     text: str = Field(default="", description="the new value (period, title, bullet text …)")
+    field: str = Field(default="", description="for set_field: the field of the entry")
     skill_field: str = ""
     groups: list[SkillGroup] = Field(default_factory=list)
     company: str = ""
@@ -60,7 +65,7 @@ class MasterUpdate(BaseModel):
 
     def key(self) -> tuple[str, ...]:
         """Later updates of the same thing replace earlier ones."""
-        return (self.op, self.entry, self.bullet, self.skill_field)
+        return (self.op, self.entry, self.bullet, self.field, self.skill_field)
 
 
 @dataclass
@@ -107,6 +112,25 @@ def _apply_one(data: dict[str, Any], u: MasterUpdate, origin: str) -> str:
         if not text:
             raise UpdateError("empty text")
 
+    if u.op == "set_field":
+        need_text()
+        target = entry()
+        if u.field not in ENTRY_FIELDS:
+            raise UpdateError(f"unknown field {u.field!r}")
+        is_position = "company" in target
+        if u.field in (
+            ("detail", "institution", "degree") if is_position else ("title", "company", "place")
+        ):
+            raise UpdateError(f"{u.entry!r} has no field {u.field!r}")
+        old = target.get(u.field)
+        if u.field == "title" and old and old != text:
+            variants = target.setdefault("title_variants", [])
+            if old not in variants:
+                variants.append(old)  # the old title stays available
+            if text in variants:
+                variants.remove(text)
+        target[u.field], target["origin"] = text, origin
+        return f"{u.field} of {u.entry} → {text}"
     if u.op in ("set_period", "set_detail"):
         need_text()
         target, name = entry(), u.op.removeprefix("set_")

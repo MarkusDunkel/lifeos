@@ -205,7 +205,19 @@ back from the writer as `master_updates` (`modules/applications/master.py`): the
 them to the master CV *before* the draft is checked and rendered, so the CV uses them in the
 same run, and writes `cv.yaml` back with `origin: <ticket> · <comment> · <date>` on every
 changed item. An update must cite the number of an owner comment, otherwise it is rejected;
-the report lists what was taken over and what not.
+the report lists what was taken over and what not. `set_field` corrects any fact of an entry
+(company, place, title, period, degree …).
+
+**Revisions** change content only where a comment asks for it; layout comments may change the
+whole document. On every revision the research is checked and completed (with web search),
+above all on what the comments ask about. The reviewer gets the previous draft, to see that
+uncommented content stayed, and the rendered pages as images (API: image blocks; Claude Code:
+PNG files and only the Read tool).
+
+**The draft shapes the CV**: section titles (`sections`), the rows of the last section
+(`more_rows`) and the layout (`layout.font_size`, `layout.fill_pages`). The template scales
+every vertical gap by `spread`; the renderer bisects the largest spread that keeps the page
+count, so the content is spread evenly and the last page is filled.
 
 ## AI teammates on the boards
 
@@ -241,7 +253,7 @@ agent). A round of the `agents` job (`LIFEOS_AGENTS_INTERVAL`, also `lifeos agen
 
 **The application writer** (`modules/applications/writer.py`, workflow
 `application-writer`) is a fixed sequence of model calls with Claude: research the
-company with web search (capped by `max_searches`, reused on a revision),
+company with web search (capped by `max_searches`; checked and completed on a revision),
 write a `Draft` plus notes as structured output, check it (ids against the master CV and
 page limits via Typst, then a separate reviewer call that answers the agent's checklist),
 revise at most `max_revisions` times (no further round once `budget_eur` is spent), and

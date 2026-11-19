@@ -125,7 +125,8 @@ def test_resolve_takes_facts_from_the_master(vault: Vault) -> None:
     )
     assert position["bullets"] == [{"text": "SQL-Modellierung für Analysen", "url": None}]
     assert cv["education"][0]["bullets"][0]["url"] == "https://example.org/thesis"
-    assert cv["skills"]["technical"] == "Python, SQL"
+    assert cv["rows"][0] == {"label": "Technische Kenntnisse", "items": "Python, SQL",
+                             "indent": False}  # fmt: skip
 
 
 @pytest.mark.parametrize(
@@ -204,5 +205,36 @@ def test_skill_groups_are_one_line_each_in_pdf_and_markdown(vault: Vault) -> Non
     assert "Technische Kenntnisse:" in cv and "Daten: SQL, dbt" in cv
     assert "Betrieb: Linux, Docker" in cv and "Python, SQL" not in cv  # replaces the line
     md = cv_markdown(resolve_cv(d.cv, profile.master))
-    assert "- **technical:**\n  - Daten: SQL, dbt\n  - Betrieb: Linux, Docker" in md
-    assert "Python, SQL" not in md and "- **languages:** Deutsch, Englisch" in md
+    assert "- **Technische Kenntnisse:**\n  - Daten: SQL, dbt\n  - Betrieb: Linux, Docker" in md
+    assert "Python, SQL" not in md and "- **Sprachen:** Deutsch, Englisch" in md
+
+
+def test_the_draft_names_sections_and_rows_and_sets_the_font_size(vault: Vault) -> None:
+    from lifeos.modules.applications.model import SkillGroup
+    from lifeos.modules.applications.render import render
+    from lifeos.modules.applications.review import cv_markdown
+
+    d = draft()
+    d.cv.sections.more = "Kenntnisse"
+    d.cv.more_rows = [SkillGroup(label="Application Management", items="Requirements"),
+                      SkillGroup(label="Sprachen", items="Deutsch")]  # fmt: skip
+    d.cv.layout.font_size = 11
+    profile = load_profile(vault)
+    text = PdfReader(io.BytesIO(render(d, profile).cv)).pages[0].extract_text()
+    assert "Kenntnisse" in text and "Weiteres zu meiner Person" not in text
+    assert "Application Management: Requirements" in text
+    assert "Technische Kenntnisse" not in text  # the draft's rows replace the defaults
+    md = cv_markdown(resolve_cv(d.cv, profile.master))
+    assert "## Kenntnisse\n\n- **Application Management:** Requirements" in md
+
+
+def test_the_cv_is_spread_over_the_page_and_pictured_for_the_reviewer(vault: Vault) -> None:
+    from lifeos.modules.applications.render import render
+
+    d = draft()
+    filled = render(d, load_profile(vault), images=True)
+    assert filled.spread > 1.5  # a short CV: much larger gaps fill the page
+    assert filled.pages["cv"] == 1 and len(filled.images["cv"]) == 1
+    assert filled.images["letter"][0].startswith(bytes([0x89]) + b"PNG")
+    d.cv.layout.fill_pages = False
+    assert render(d, load_profile(vault)).spread == 1.0

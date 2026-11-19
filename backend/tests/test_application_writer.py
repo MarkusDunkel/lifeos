@@ -54,13 +54,15 @@ class FakeLlm:
     def __init__(self, outputs: list[Any]) -> None:
         self.outputs = outputs
         self.calls: list[tuple[str, str, str]] = []  # (kind, system, prompt)
+        self.images: list[list[bytes]] = []  # per parse call
 
     def research(self, system, prompt, max_searches, effort):
         self.calls.append(("research", system, prompt))
         return "Beispiel AG builds data platforms.\n\nSources: https://example.org", Usage(0.05, 2)
 
-    def parse(self, system, prompt, schema, effort):
+    def parse(self, system, prompt, schema, effort, images=None):
         self.calls.append((schema.__name__, system, prompt))
+        self.images.append(images or [])
         out = self.outputs.pop(0)
         assert isinstance(out, schema), (schema, out)
         return out, Usage(0.10, 0)
@@ -184,19 +186,26 @@ def test_still_invalid_after_revisions_blocks(gh, vault) -> None:
     assert "made-up" in gh.comments[-1][1]
 
 
-def test_revision_uses_owner_feedback_and_reuses_research(gh, vault) -> None:
+def test_revision_uses_owner_feedback_and_updates_the_research(gh, vault) -> None:
     mirrored(gh, vault)
     item = gh.ticket(4, "Beispiel AG – Data Engineer", Status="Active")
     run(gh, vault, FakeLlm([output(), review()]))
-    gh.add_comment("I1", "Bitte die Einleitung kürzer.")  # the owner, no marker
+    gh.add_comment("I1", "Bitte die Einleitung kürzer und die Adresse recherchieren.")
     gh.values(item)["Status"] = "Active"
     llm = FakeLlm([output(), review()])
     run(gh, vault, llm)
-    assert [c[0] for c in llm.calls] == ["WriterOutput", "Review"]  # research reused
-    prompt = llm.calls[0][2]
+    assert [c[0] for c in llm.calls] == ["research", "WriterOutput", "Review"]
+    _, research_system, research_prompt = llm.calls[0]
+    assert "update the research notes" in research_system
+    assert "<research>" in research_prompt and "data platforms" in research_prompt  # so far
+    assert "Adresse recherchieren" in research_prompt  # the owner's comments steer it
+    prompt = llm.calls[1][2]
     assert "<owner_feedback>" in prompt and "Einleitung kürzer" in prompt
-    assert "<previous_draft>" in prompt
+    assert "<previous_draft>" in prompt and "leave everything nobody commented on" in prompt
     assert "Übernommen" not in prompt and comments.marker("writer") not in prompt
+    review_prompt = llm.calls[2][2]
+    assert "<previous_draft>" in review_prompt  # the reviewer checks what stayed
+    assert llm.images[1] and llm.images[1][0][1:4] == b"PNG"  # and sees the pages
 
 
 def test_feedback_is_reported_as_read_and_general_points_become_proposals(gh, vault) -> None:
@@ -216,7 +225,7 @@ def test_feedback_is_reported_as_read_and_general_points_become_proposals(gh, va
     ]  # fmt: skip
     llm = FakeLlm([output(feedback=read), review()])
     run(gh, vault, llm)
-    assert "Comment 1:\nEinleitung kürzer." in llm.calls[0][2]
+    assert "Comment 1:\nEinleitung kürzer." in llm.calls[1][2]
     report = gh.comments[-1][1]
     assert "“Einleitung kürzer” → for this ticket: Gekürzt." in report
     assert "“nie das Gehalt nennen” → general: Gilt künftig immer." in report
@@ -280,7 +289,7 @@ def test_writer_leaves_a_review_package(gh, vault) -> None:
     letter, cv = package["documents"][0], package["documents"][1]
     assert letter["source"].endswith("/Cover-Letter.md") and letter["view"] == "pdf-generated"
     assert letter["content"].startswith("# ") and "Mit freundlichen Grüßen" in letter["content"]
-    assert cv["content"].startswith("# ") and "## Experience" in cv["content"]
+    assert cv["content"].startswith("# ") and "## Arbeitserfahrung" in cv["content"]
 
 
 def test_review_feedback_is_read_from_the_rounds_and_answered(gh, vault) -> None:
@@ -315,7 +324,7 @@ def test_review_feedback_is_read_from_the_rounds_and_answered(gh, vault) -> None
     llm = FakeLlm([output(feedback=read), review()])
     run(gh, vault, llm)
 
-    prompt = llm.calls[0][2]
+    prompt = llm.calls[1][2]
     assert "Comment 1:\nUnd kürzer bitte." in prompt
     assert "Comment 2 (review page, Cover letter, Cover-Letter.md lines 1-1)" in prompt
     assert "Betreff zu lang." in prompt and "Comment 3 (review page, CV," in prompt
@@ -393,7 +402,7 @@ def test_sent_freezes_the_pdfs_and_keeps_the_letter_as_an_example(gh, vault) -> 
     example = vault.resolve(f"{EXAMPLES_DIR}/{folder.name}.md").read_text(encoding="utf-8")
     assert "company: Beispiel AG" in example and "Mit freundlichen Grüßen" in example
     cv = vault.resolve(f"{EXAMPLES_DIR}/CV/{folder.name}.md").read_text(encoding="utf-8")
-    assert "company: Beispiel AG" in cv and "## Experience" in cv
+    assert "company: Beispiel AG" in cv and "## Arbeitserfahrung" in cv
     assert "## Selection" in cv and '"base": "acme-sql"' in cv  # ids for the next selection
     history = (folder / "Application.md").read_text(encoding="utf-8")
     assert "sent; frozen: Cover-Letter.pdf, CV.pdf" in history
@@ -423,9 +432,9 @@ def test_owner_facts_update_the_master_and_the_reviewer_sees_the_comments(gh, va
     llm = FakeLlm([out, review()])
     run(gh, vault, llm)
 
-    review_prompt = llm.calls[1][2]
+    review_prompt = llm.calls[2][2]
     assert "<owner_feedback>" in review_prompt and "endet 2026" in review_prompt
-    assert "2024 – 2026" in llm.calls[1][1]  # the reviewer checks against the updated master
+    assert "2024 – 2026" in llm.calls[2][1]  # the reviewer checks against the updated master
     master = yaml.safe_load(vault.resolve(MASTER_FILE).read_text(encoding="utf-8"))
     acme = master["positions"][0]
     assert acme["period"] == "2024 – 2026"

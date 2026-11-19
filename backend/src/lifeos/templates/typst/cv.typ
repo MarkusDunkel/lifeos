@@ -1,21 +1,29 @@
 // CV in one column: name, headline, contacts and profile with a photo on the right,
 // then sections with a rule, entries with the period on the right and tight bullets.
 // All content comes from sys.inputs.data (JSON); nothing personal lives in this file.
+// `sp` scales every vertical gap: the code raises it until the last page is filled, so the
+// content is spread evenly over the page(s).
 #let d = json(bytes(sys.inputs.at("data")))
 #let p = d.personal
 #let cv = d.cv
+#let layout = cv.at("layout", default: (:))
+#let sp = float(sys.inputs.at("spread", default: "1"))
+#let size = layout.at("font_size", default: 10.0) * 1pt
+#let titles = cv.at("sections", default: (
+  experience: "Arbeitserfahrung", education: "Ausbildung", more: "Weiteres zu meiner Person",
+))
 
 #set document(title: p.name + " – Lebenslauf", author: p.name)
 #set page(paper: "a4", margin: (top: 1.45cm, bottom: 1.35cm, left: 1.8cm, right: 1.8cm))
-#set text(font: "XCharter", size: 10pt, lang: "de", hyphenate: false)
+#set text(font: "XCharter", size: size, lang: "de", hyphenate: false)
 #set par(justify: false, leading: 0.68em, spacing: 0.68em)
 #show link: it => it
 
 #let bar = h(4pt) + [|] + h(4pt)
 
 #let section(title) = block(
-  above: 0.45cm,
-  below: 0.25cm,
+  above: 0.45cm * sp,
+  below: 0.25cm * sp,
   sticky: true,
   width: 100%,
   inset: (bottom: 2.5pt),
@@ -24,16 +32,16 @@
 )
 
 #let points(items) = for b in items {
-  block(above: 0.16cm, below: 0pt, grid(
+  block(above: 0.16cm * sp, below: 0pt, grid(
     columns: (10pt, 1fr),
     text(size: 8pt)[•],
     if b.at("url", default: none) != none { link(b.url, b.text) } else { b.text },
   ))
 }
 
-#let entry(main, period, items: ()) = block(above: 0.3cm, below: 0pt, breakable: true, {
+#let entry(main, period, items: ()) = block(above: 0.3cm * sp, below: 0pt, breakable: true, {
   grid(columns: (1fr, 5cm), column-gutter: 0.2cm, main, align(right, period))
-  if items.len() > 0 { v(0.05cm) }
+  if items.len() > 0 { v(0.05cm * sp) }
   points(items)
 })
 
@@ -64,10 +72,10 @@
     align(center + top, move(dy: -4mm, image(d.photo, width: 37mm)))
   },
 )
-#v(4mm)
+#v(4mm * sp)
 
 // ---- work ----
-#section[Arbeitserfahrung]
+#section(titles.experience)
 #for pos in cv.positions {
   entry(
     [*#pos.title*, #pos.company#if pos.place != "" [ -- #pos.place]],
@@ -77,7 +85,7 @@
 }
 
 // ---- education ----
-#section[Ausbildung]
+#section(titles.education)
 #for e in cv.education {
   let head = if e.inline {
     [*#e.institution*, #e.degree]
@@ -88,21 +96,12 @@
 }
 
 // ---- more ----
-#section[Weiteres zu meiner Person]
-#v(0.1cm)
-#{
-  let rows = (
-    ("Technische Kenntnisse", cv.skills.technical),
-    ("Interessen", cv.skills.interests),
-    ("Sprachen", cv.skills.languages),
-  )
-  let groups = cv.skills.at("groups", default: ())
-  for (label, value) in rows {
-    if label == "Technische Kenntnisse" and groups.len() > 0 {
-      block(above: 0.12cm, below: 0pt)[*#label:*]
-      for g in groups {
-        block(above: 0.08cm, below: 0pt, inset: (left: 0.4cm))[#g.label: #g.items]
-      }
-    } else if value != "" { block(above: 0.12cm, below: 0pt)[*#label:* #value] }
+#if cv.rows.len() > 0 {
+  section(titles.more)
+  v(0.1cm * sp)
+  for r in cv.rows {
+    let body = if r.items == "" [*#r.label:*] else if r.indent [#r.label: #r.items] else [*#r.label:* #r.items]
+    block(above: 0.12cm * sp, below: 0pt,
+          inset: (left: if r.indent { 0.4cm } else { 0pt }), body)
   }
 }

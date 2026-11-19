@@ -118,6 +118,21 @@ class ChosenEducation(BaseModel):
     bullets: list[ChosenBullet] = Field(default_factory=list)
 
 
+class CvSections(BaseModel):
+    experience: str = "Arbeitserfahrung"
+    education: str = "Ausbildung"
+    more: str = "Weiteres zu meiner Person"
+
+
+class CvLayout(BaseModel):
+    """Layout of the CV; the template spreads the content evenly over the page(s) anyway."""
+
+    font_size: float = Field(default=10.0, ge=8.0, le=12.0, description="body text in pt")
+    fill_pages: bool = Field(
+        default=True, description="spread the content evenly so the last page is filled"
+    )
+
+
 class CvSelection(BaseModel):
     headline: str = Field(description="line under the name, tailored to the position")
     profile: str = Field(description="one or two sentences between the header rules")
@@ -128,6 +143,14 @@ class CvSelection(BaseModel):
         default_factory=list,
         description="technical skills in groups, one line each; empty = master groups",
     )
+    sections: CvSections = Field(default_factory=CvSections)
+    more_rows: list[SkillGroup] = Field(
+        default_factory=list,
+        description="the rows of the last section, each 'label: items' (e.g. 'Softwareentwicklung:"
+        " Python, SQL', 'Sprachen: …'); they replace the default rows (technical skills, "
+        "interests, languages); empty = default rows from the master",
+    )
+    layout: CvLayout = Field(default_factory=CvLayout)
 
 
 class Letter(BaseModel):
@@ -186,15 +209,35 @@ def resolve_cv(cv: CvSelection, master: MasterCv) -> dict:
             edu.model_dump(exclude={"bullets", "id", "check", "origin"})
             | {"bullets": _bullets(chosen.bullets, edu.bullets, edu.id)}
         )
-    skills = master.skills.model_dump(exclude={"origin"})
-    if cv.technical_skills.strip():
-        skills["technical"] = cv.technical_skills.strip()
-    if cv.skill_groups:
-        skills["groups"] = [g.model_dump() for g in cv.skill_groups]
     return {
         "headline": cv.headline,
         "profile": cv.profile,
         "positions": out_positions,
         "education": out_education,
-        "skills": skills,
+        "sections": cv.sections.model_dump(),
+        "rows": more_rows(cv, master),
+        "layout": cv.layout.model_dump(),
     }
+
+
+def more_rows(cv: CvSelection, master: MasterCv) -> list[dict]:
+    """Rows of the last section: ``{label, items, indent}``; a row without items is a heading.
+
+    The draft's own rows win; otherwise technical skills (grouped if there are groups),
+    interests and languages from the master, with the draft's tailored skills.
+    """
+    if cv.more_rows:
+        return [{"label": r.label, "items": r.items, "indent": False} for r in cv.more_rows]
+    skills = master.skills
+    groups = cv.skill_groups or skills.groups
+    technical = cv.technical_skills.strip() or skills.technical
+    rows: list[dict] = []
+    if groups:
+        rows.append({"label": "Technische Kenntnisse", "items": "", "indent": False})
+        rows += [{"label": g.label, "items": g.items, "indent": True} for g in groups]
+    elif technical:
+        rows.append({"label": "Technische Kenntnisse", "items": technical, "indent": False})
+    for label, value in (("Interessen", skills.interests), ("Sprachen", skills.languages)):
+        if value:
+            rows.append({"label": label, "items": value, "indent": False})
+    return rows

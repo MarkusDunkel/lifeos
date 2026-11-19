@@ -182,3 +182,19 @@ def test_llm_research_uses_web_tools_only(fake):
     assert args[args.index("--tools") + 1] == "WebSearch,WebFetch"
     assert args[args.index("--max-turns") + 1] == "10"
     assert text == "notes" and usage.searches == 1 and usage.usd == 0
+
+
+def test_llm_parse_shows_images_through_the_read_tool_only(fake):
+    llm = ClaudeCodeLlm("m", fake("structured", FAKE_ANSWERS='[{"value": 3}]'))
+    answer, _ = llm.parse("s", "check the layout", Answer, "high", images=[b"png1", b"png2"])
+    assert answer == Answer(value=3)
+    call = fake.calls()[0]
+    args = call["args"]
+    assert args[args.index("--tools") + 1] == "Read"
+    assert args[args.index("--allowedTools") + 1] == "Read"
+    assert sorted(call["cwd_files"]) == ["page-1.png", "page-2.png"]
+    assert call["prompt"].startswith("Look at these images with the Read tool first")
+    assert call["prompt"].endswith("check the layout")
+    llm.parse("s", "p", Answer, "high")  # without images: no tools, as before
+    args = fake.calls()[1]["args"]
+    assert args[args.index("--tools") + 1] == ""

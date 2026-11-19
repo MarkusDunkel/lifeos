@@ -87,3 +87,20 @@ def test_dump_is_readable_and_round_trips() -> None:
     assert "positions:\n  - id: acme\n" in text  # lists indented, no blank line after the key
     assert "\n\nskills:\n" in text
     assert yaml.safe_load(text) == raw
+
+
+def test_any_field_of_an_entry_can_be_corrected() -> None:
+    updates = [
+        MasterUpdate(comment=1, op="set_field", entry="acme", field="company",
+                     text="ACME Holding GmbH"),
+        MasterUpdate(comment=1, op="set_field", entry="acme", field="title", text="Lead"),
+        MasterUpdate(comment=2, op="set_field", entry="tu", field="degree", text="DI Informatik"),
+        MasterUpdate(comment=2, op="set_field", entry="acme", field="degree", text="x"),
+        MasterUpdate(comment=2, op="set_field", entry="acme", field="secret", text="x"),
+    ]  # fmt: skip
+    applied = apply_updates(data(), updates, ORIGINS)
+    acme = applied.master.positions[0]
+    assert (acme.company, acme.title) == ("ACME Holding GmbH", "Lead")
+    assert "Data Engineer" in acme.title_variants  # the old title stays usable
+    assert applied.master.education[0].degree == "DI Informatik"
+    assert len(applied.rejected) == 2  # a position has no degree; unknown field

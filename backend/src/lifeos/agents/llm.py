@@ -6,9 +6,12 @@ two calls: ``research`` (text, with web search) and ``parse`` (structured output
 
 from __future__ import annotations
 
+import base64
 import logging
 import shlex
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ValidationError
@@ -65,8 +68,13 @@ class Llm(Protocol):
         self, system: str, prompt: str, max_searches: int, effort: str
     ) -> tuple[str, Usage]: ...  # noqa: E501
     def parse(
-        self, system: str, prompt: str, schema: type[BaseModel], effort: str
-    ) -> tuple[Any, Usage]: ...  # noqa: E501
+        self,
+        system: str,
+        prompt: str,
+        schema: type[BaseModel],
+        effort: str,
+        images: list[bytes] | None = None,  # PNGs the model looks at, e.g. rendered pages
+    ) -> tuple[Any, Usage]: ...
 
 
 def usage_usd(model: str, usage: Any) -> Usage:
@@ -130,14 +138,26 @@ class AnthropicLlm:
         return text.strip(), total
 
     def parse(
-        self, system: str, prompt: str, schema: type[BaseModel], effort: str
-    ) -> tuple[Any, Usage]:  # noqa: E501
+        self,
+        system: str,
+        prompt: str,
+        schema: type[BaseModel],
+        effort: str,
+        images: list[bytes] | None = None,
+    ) -> tuple[Any, Usage]:
+        content: Any = prompt
+        if images:
+            content = [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                             "data": base64.b64encode(png).decode("ascii")}}
+                for png in images
+            ] + [{"type": "text", "text": prompt}]  # fmt: skip
         # streamed: long structured answers exceed the SDK's non-streaming time limit
         with self.client.beta.messages.stream(
             model=self.model,
             max_tokens=64000,
             system=self._system(system),
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": content}],
             output_format=schema,
             output_config={"effort": effort},
             betas=self.BETAS,
@@ -198,13 +218,45 @@ class ClaudeCodeLlm:
         return result.text.strip(), self._usage(result)
 
     def parse(
-        self, system: str, prompt: str, schema: type[BaseModel], effort: str
-    ) -> tuple[Any, Usage]:  # noqa: E501
+        self,
+        system: str,
+        prompt: str,
+        schema: type[BaseModel],
+        effort: str,
+        images: list[bytes] | None = None,
+    ) -> tuple[Any, Usage]:
+        with tempfile.TemporaryDirectory(prefix="lifeos-images-") as tmp:
+            extra: dict[str, Any] = {}
+            if images:
+                # Claude Code sees images through its Read tool: the pages as files in an
+                # otherwise empty working directory, and only Read allowed
+                names = []
+                for i, png in enumerate(images, 1):
+                    (Path(tmp) / f"page-{i}.png").write_bytes(png)
+                    names.append(f"page-{i}.png")
+                prompt = (
+                    "Look at these images with the Read tool first (in this order): "
+                    + ", ".join(names)
+                    + ".\n\n"
+                    + prompt
+                )
+                extra = {"tools": ("Read",), "workdir": Path(tmp),
+                         "max_turns": len(images) + 4}  # fmt: skip
+            return self._parse(system, prompt, schema, effort, extra)
+
+    def _parse(
+        self, system: str, prompt: str, schema: type[BaseModel], effort: str,
+        extra: dict[str, Any],
+    ) -> tuple[Any, Usage]:  # fmt: skip
         total = Usage()
         ask = prompt
         for attempt in range(self.RETRIES + 1):
             result = self._call(
-                system=system, prompt=ask, effort=effort, schema=schema.model_json_schema()
+                system=system,
+                prompt=ask,
+                effort=effort,
+                schema=schema.model_json_schema(),
+                **extra,
             )
             total += self._usage(result)
             try:
