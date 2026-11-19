@@ -98,8 +98,11 @@ the user's PC** (`lifeos jobsearch import`) and sends postings to the server:
 2. `POST /api/jobsearch/import/diff` with all ids: the server answers with the unknown ones
    and marks known postings that left the sitemap as gone.
 3. Fetch only the unknown posting pages (`/job/<id>`), at least one second or twice the
-   response time apart, and parse their JSON-LD `JobPosting`. Requests go through `curl`
-   with an honest User-Agent; if devjobs.at refuses them, the import stops and reports it.
+   response time apart, and parse their JSON-LD `JobPosting`. devjobs.at's Cloudflare
+   challenges non-browser clients, so requests go through a real Edge window (Playwright,
+   off-screen, persistent profile under `%LOCALAPPDATA%\LifeOS\jobsearch\browser-profile`;
+   headless Edge is stopped by the challenge). Without the `pc` extra it falls back to
+   `curl`. If devjobs.at still refuses, the import stops and reports it.
 4. `POST /import/postings` in batches, then `POST /import/finish` with the run's stats.
 
 The import routes accept `Authorization: Bearer <LIFEOS_JOBSEARCH_IMPORT_TOKEN>` (and only
@@ -357,7 +360,7 @@ The app needs `LIFEOS_APP_REPO` and `LIFEOS_DEPLOY_BRANCH` (same branch as the d
 | `templates/` | Agent commands installed into the vault by `init-vault` (e.g. `/uni-tasks`) |
 | `modules/moodle` | Status, connect, course selection and sync endpoints |
 | `modules/presentations` | Status, connect/disconnect and sync endpoints for the mirror |
-| `connectors/devjobs` | devjobs.at sitemap and posting pages (JSON-LD), polite client over `curl` |
+| `connectors/devjobs` | devjobs.at sitemap and posting pages (JSON-LD), polite client over Edge (Playwright) or `curl` |
 | `modules/jobsearch` | Posting model, store in `.lifeos/jobsearch/` with duplicate detection, import API, PC importer, autorun and Windows autostart |
 
 ## Editing safety

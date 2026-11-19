@@ -3,18 +3,22 @@
 Only what ``robots.txt`` allows is fetched: the job sitemap and single posting pages
 (``/job/<id>``), never the search pages. Between requests the client waits at least
 one second or twice the last response time, the rule devjobs.at states for its own
-crawler. devjobs.at blocks data-centre IPs, so this runs on the user's PC; requests go
-through ``curl`` (see :mod:`lifeos.connectors.devjobs.curl`) with an honest User-Agent.
+crawler. devjobs.at blocks data-centre IPs and challenges non-browser clients via
+Cloudflare, so this runs on the user's PC and requests go through a real Edge window
+(:mod:`lifeos.connectors.devjobs.browser`). Without Playwright installed it falls back
+to ``curl`` (:mod:`lifeos.connectors.devjobs.curl`), which Cloudflare may refuse.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from urllib import robotparser
 
 import httpx
 
+from lifeos.connectors.devjobs import browser
 from lifeos.connectors.devjobs.curl import CurlTransport
 from lifeos.connectors.devjobs.parse import BASE_URL, parse_posting, posting_url, sitemap_ids
 from lifeos.modules.jobsearch.model import Posting
@@ -24,6 +28,15 @@ SITEMAP = f"{BASE_URL}/sitemap-job.xml"
 MIN_DELAY = 1.0
 RETRY_DELAYS = (10.0, 30.0, 90.0)
 TRANSIENT_STATUS = {502, 503, 504}
+
+log = logging.getLogger(__name__)
+
+
+def default_transport() -> httpx.BaseTransport:
+    if browser.available():
+        return browser.BrowserTransport()
+    log.warning("playwright is not installed (uv sync --extra pc); falling back to curl")
+    return CurlTransport()
 
 
 class DevjobsError(Exception):
@@ -41,7 +54,7 @@ class DevjobsClient:
     ) -> None:
         self._http = httpx.Client(
             timeout=60,
-            transport=transport if transport is not None else CurlTransport(),
+            transport=transport if transport is not None else default_transport(),
             follow_redirects=True,
             headers={"User-Agent": USER_AGENT},
         )
@@ -94,11 +107,11 @@ class DevjobsClient:
                 raise problem
             self._sleep(RETRY_DELAYS[attempt])
         if response.status_code == 403:
-            raise DevjobsError(
-                "devjobs.at refused the request (HTTP 403); it blocks data-centre IPs, "
-                "run the import on a home connection",
-                403,
-            )
+            if response.headers.get("cf-mitigated") == "challenge":
+                reason = "the Cloudflare challenge was not passed"
+            else:
+                reason = "it blocks data-centre IPs, run the import on a home connection"
+            raise DevjobsError(f"devjobs.at refused the request (HTTP 403); {reason}", 403)
         if response.status_code in (404, 410):  # removed since the sitemap was read
             raise DevjobsError(f"not found: {url}", 404)
         if response.status_code >= 400:

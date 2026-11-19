@@ -24,7 +24,10 @@ dependencies = [
 
 [project.optional-dependencies]
 # On the user's PC only: notifications with buttons for `lifeos jobsearch autorun`.
-pc = ["win11toast>=0.36; sys_platform == 'win32'"]
+pc = [
+    "playwright>=1.48 ; sys_platform == 'win32'",
+    "win11toast>=0.36; sys_platform == 'win32'",
+]
 
 [project.scripts]
 lifeos = "lifeos.cli:main"
