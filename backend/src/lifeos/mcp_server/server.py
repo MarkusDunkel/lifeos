@@ -60,9 +60,13 @@ The learner has the final word (they know the exam better than you)
 - If the learner disagrees with your grade, in whatever words ("that was right", "das
   war richtig", "count it as correct"), call correct_answer(session_id, card_id, result)
   right away. Do not argue; confirm in one short sentence and go on.
+- Amended answer: if the learner adds to or corrects their answer after you saved it,
+  grade the whole answer again and call correct_answer for that card with the new grade.
+  Never call record_answer a second time for the same answer.
 - "The last one" / "the previous card" means the card in the field "previous" of the
   latest next_question result; its coach_rule names the card id to use.
-- Use known and correct_answer only when the learner asks for it, never on your own.
+- Use known and correct_answer only when the learner asks for it or amends their
+  answer, never on your own.
   Skipping (skip=true) stays for cards the learner does not want to answer now.
 
 Voice style
@@ -139,7 +143,10 @@ def saved_rule(result: dict) -> dict:
         return result
     rule = (
         f"Saved on the server as {result['result']}. Now give brief feedback that starts "
-        "with the saved grade, then call next_question. " + _objection(result["card"])
+        "with the saved grade, then call next_question. "
+        + _objection(result["card"])
+        + f" If the learner amends their answer, call correct_answer for card "
+        f"{result['card']} with the new grade, not record_answer again."
     )
     return result | {"coach_rule": rule}
 
@@ -228,7 +235,9 @@ def build_mcp(study: StudyService) -> MCPServer:
     @server.tool(
         description=(
             "MUST be called when the learner asks to change a grade or to mark an answered "
-            "card as known; saying it without calling this tool changes nothing. result: "
+            "card as known, and when the learner amends an answer you already saved (never "
+            "record_answer twice for one answer); saying it without calling this tool "
+            "changes nothing. result: "
             "correct, partial, wrong or known. Affects the latest saved answer to that card. "
             "For 'the last one' use the card id from previous in the latest next_question "
             "result. " + HONESTY

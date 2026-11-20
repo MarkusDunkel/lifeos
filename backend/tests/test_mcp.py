@@ -166,6 +166,8 @@ def test_tools_carry_coach_rules(tmp_path: Path) -> None:
             )
             assert saved["coach_rule"].startswith("Saved on the server as partial.")
             assert f"correct_answer for card {first}" in saved["coach_rule"]
+            assert "amends their answer" in saved["coach_rule"]
+            assert "not record_answer again" in saved["coach_rule"]
 
             nxt = payload(await client.call_tool("next_question", {"session_id": sid}))
             assert nxt["previous"]["card"] == first
