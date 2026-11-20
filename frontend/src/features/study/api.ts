@@ -63,6 +63,7 @@ export type StudyCard = {
   seen: number;
   wrong: number;
   partial: number;
+  known: number;
   lastAt: string | null;
   lastResult: string | null;
 };
@@ -88,3 +89,14 @@ export const subjectQuery = (key: string) =>
     queryKey: ["study", "subject", key],
     queryFn: () => api<SubjectDetail>(`/api/study/subjects/${encodeURIComponent(key)}`),
   });
+
+export type Grade = "correct" | "partial" | "wrong" | "known";
+
+export type GradeResult = { corrected: boolean; card: string; previous: string | null; result: Grade; status: CardStatus; box: number };
+
+/** Correct the latest grade of a card, or mark it as known (top box). */
+export const gradeCard = (subject: string, cardId: string, result: Grade) =>
+  api<GradeResult>(
+    `/api/study/${encodeURIComponent(subject)}/cards/${encodeURIComponent(cardId)}/grade`,
+    { method: "POST", json: { result } },
+  );

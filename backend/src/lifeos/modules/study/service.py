@@ -6,7 +6,7 @@ import random
 import threading
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -14,6 +14,7 @@ from lifeos.core.extract.text import front_matter
 from lifeos.core.vault import STATE, Vault
 from lifeos.modules.study.bank import (
     SUBJECT_FILE,
+    Card,
     Subject,
     load_subjects,
     material_files,
@@ -21,6 +22,8 @@ from lifeos.modules.study.bank import (
     sections,
 )
 from lifeos.modules.study.progress import (
+    CORRECTION,
+    PASSED,
     PROGRESS_FILE,
     RESULTS,
     Attempt,
@@ -28,6 +31,7 @@ from lifeos.modules.study.progress import (
     card_states,
     priority,
     readiness,
+    resolve_corrections,
     status,
 )
 
@@ -39,6 +43,7 @@ PENDING_HINT = (
     "The answer to this card is not saved yet. Call record_answer for it first; if the "
     "learner wants to move on without answering, call next_question with skip=true."
 )
+KNOWN_NOTE = "marked as known by the learner"
 
 Committer = Callable[[list[str], str], None]
 
@@ -59,6 +64,7 @@ class Session:
     repeats: list[tuple[str, int]] = field(default_factory=list)  # (card, ask after N answers)
     skipped: list[str] = field(default_factory=list)
     current: str | None = None  # card handed out and not yet answered or skipped
+    corrections: int = 0  # grades changed by the learner during this session
     ended: bool = False
     last_activity: datetime | None = None
 
@@ -134,6 +140,7 @@ class StudyService:
                         "seen": state.seen,
                         "wrong": state.wrong,
                         "partial": state.partial,
+                        "known": state.known,
                         "lastAt": state.last_at.isoformat() if state.last_at else None,
                         "lastResult": state.last_result,
                     }
@@ -200,12 +207,10 @@ class StudyService:
     ) -> dict:
         session = self._session(session_id)
         subject = self.subject(session.subject)
-        card = subject.card(card_id)
-        if card is None:
-            raise StudyError(f"unknown card '{card_id}' in {subject.key}")
-        result = result.strip().lower()
-        if result not in RESULTS:
-            raise StudyError(f"result must be one of: {', '.join(RESULTS)}")
+        card = self._card(subject, card_id)
+        result = self._result(result)
+        if result == "known" and not note.strip():
+            note = KNOWN_NOTE
         attempt = Attempt(
             ts=self.clock().isoformat(timespec="seconds"),
             card=card.id,
@@ -220,17 +225,90 @@ class StudyService:
             if session.current == card.id:
                 session.current = None
             repeated = sum(1 for a in session.answers if a.card == card.id)
-            if result != "correct" and repeated <= 2:
+            if result not in PASSED and repeated <= 2:
                 session.repeats.append((card.id, len(session.answers) + REPEAT_AFTER))
-        answered = len(session.answers)
-        return {
-            "recorded": True,
+        return {"recorded": True, "card": card.id, "result": result} | self._counts(session)
+
+    def correct(
+        self,
+        card_id: str,
+        result: str,
+        subject: str | None = None,
+        session_id: str | None = None,
+        note: str = "",
+    ) -> dict:
+        """Change the grade of the latest recorded answer to a card (the learner has the
+        final word). Without an earlier answer only ``known`` is allowed, which is then
+        recorded as a normal answer. Inside a session the session counts and repeats follow
+        the new grade; without a session (web UI) the change is committed right away."""
+        session = self._session(session_id) if session_id else None
+        subj = self.subject(session.subject if session else (subject or ""))
+        card = self._card(subj, card_id)
+        result = self._result(result)
+        if (
+            session is not None
+            and session.current == card.id
+            and not any(a.card == card.id for a in session.answers)
+        ):
+            raise StudyError(
+                "this card is not recorded yet: call record_answer for it "
+                "(result=known if the learner says it is trivial)"
+            )
+        log = self._log(subj)
+        # Effective answers: originals with earlier corrections applied (same ts).
+        originals = sorted(
+            resolve_corrections([a for a in log.read() if a.card == card.id]),
+            key=lambda a: a.at,
+        )
+        previous: str | None = None
+        if not originals:
+            if result != "known":
+                raise StudyError(f"'{card.id}' has no recorded answer yet; nothing to correct")
+            if session is not None:
+                return self.record(session.id, card.id, result, note) | {"corrected": True}
+            log.append(
+                Attempt(
+                    ts=self.clock().isoformat(timespec="seconds"),
+                    card=card.id,
+                    result=result,
+                    mode="web",
+                    note=note.strip()[:500] or KNOWN_NOTE,
+                )
+            )
+        else:
+            original = originals[-1]
+            previous = original.result
+            if previous != result:
+                log.append(
+                    Attempt(
+                        ts=self.clock().isoformat(timespec="seconds"),
+                        card=card.id,
+                        result=result,
+                        mode=CORRECTION,
+                        session=session.id if session else "",
+                        note=(note.strip() or f"corrected by learner (was {previous})")[:500],
+                        replaces=original.ts,
+                    )
+                )
+                if session is not None:
+                    self._apply_correction(session, card.id, original.ts, result)
+        changed = previous != result
+        if session is None and changed and self.committer is not None:
+            verb = "marked known" if result == "known" else f"corrected to {result}"
+            self.committer(
+                [f"{subj.folder}/{PROGRESS_FILE}"],
+                f"study: {subj.key} – {card.id} {verb}\n",
+            )
+        state = card_states([card.id], log.read())[card.id]
+        out = {
+            "corrected": changed,
             "card": card.id,
+            "previous": previous,
             "result": result,
-            "answered": answered,
-            "correct": sum(a.result == "correct" for a in session.answers),
-            "remaining": max(session.target - answered, 0) + len(session.repeats),
+            "status": status(state),
+            "box": state.box,
         }
+        return out | (self._counts(session) if session is not None else {})
 
     def end_session(self, session_id: str, skip_pending: bool = False) -> dict:
         """End a session. Refuses while a handed-out card is neither answered nor skipped."""
@@ -308,6 +386,48 @@ class StudyService:
 
     # -- internals ------------------------------------------------------------------
 
+    @staticmethod
+    def _card(subject: Subject, card_id: str) -> Card:
+        card = subject.card(card_id)
+        if card is None:
+            raise StudyError(f"unknown card '{card_id}' in {subject.key}")
+        return card
+
+    @staticmethod
+    def _result(result: str) -> str:
+        result = result.strip().lower()
+        if result not in RESULTS:
+            raise StudyError(f"result must be one of: {', '.join(RESULTS)}")
+        return result
+
+    @staticmethod
+    def _counts(session: Session) -> dict:
+        answered = len(session.answers)
+        return {
+            "answered": answered,
+            "correct": sum(a.result == "correct" for a in session.answers),
+            "known": sum(a.result == "known" for a in session.answers),
+            "remaining": max(session.target - answered, 0) + len(session.repeats),
+        }
+
+    def _apply_correction(self, session: Session, card_id: str, ts: str, result: str) -> None:
+        """Let the session counts and repeats follow a corrected grade."""
+        with self._lock:
+            session.corrections += 1
+            for i, a in enumerate(session.answers):
+                if a.card == card_id and a.ts == ts:
+                    session.answers[i] = replace(a, result=result)
+                    break
+            else:
+                return  # an answer from an earlier session: only the log changes
+            queued = [r for r in session.repeats if r[0] == card_id]
+            if result in PASSED:
+                session.repeats = [r for r in session.repeats if r[0] != card_id]
+            elif not queued and session.current != card_id:
+                repeated = sum(1 for a in session.answers if a.card == card_id)
+                if repeated <= 2:
+                    session.repeats.append((card_id, len(session.answers) + REPEAT_AFTER))
+
     def _log(self, subject: Subject) -> ProgressLog:
         return ProgressLog(
             self.vault.resolve(f"{subject.folder}/{PROGRESS_FILE}"),
@@ -337,7 +457,7 @@ class StudyService:
             session.ended = True
             self.sessions.pop(session.id, None)
         summary = self._summary(session, subject) | {"ended": True}
-        if session.answers and self.committer is not None:
+        if (session.answers or session.corrections) and self.committer is not None:
             self.committer(
                 [f"{subject.folder}/{PROGRESS_FILE}"],
                 self._commit_message(session, subject, automatic),
@@ -407,22 +527,26 @@ class StudyService:
         missed = []
         for a in answers:
             card = subject.card(a.card)
-            if a.result != "correct" and card and card.title not in missed:
+            if a.result not in PASSED and card and card.title not in missed:
                 missed.append(card.title)
         correct = sum(a.result == "correct" for a in answers)
+        known = sum(a.result == "known" for a in answers)
         progress = self._readiness(subject, self.clock())
+        known_text = f", {known} marked known" if known else ""
         return {
             "subject": subject.key,
             "answered": len(answers),
             "correct": correct,
+            "known": known,
             "partial": sum(a.result == "partial" for a in answers),
             "wrong": sum(a.result == "wrong" for a in answers),
             "skipped": len(session.skipped),
+            "corrections": session.corrections,
             "to_review": missed,
             "progress": progress,
             # Counted by the server from the saved answers; read it out word for word.
             "confirmation": (
-                f"{plural(len(answers), 'answer')} saved, {correct} correct. "
+                f"{plural(len(answers), 'answer')} saved, {correct} correct{known_text}. "
                 f"Readiness {progress['readiness']} percent."
             ),
         }
@@ -431,11 +555,14 @@ class StudyService:
         s = self._summary(session, subject)
         subject_line = (
             f"study: {subject.key} – {plural(s['answered'], 'answer')}, {s['correct']} correct"
+            + (f", {s['known']} known" if s["known"] else "")
         )
         body = [
             f"Readiness: {s['progress']['readiness']}% "
             f"({s['progress']['secure']}/{s['progress']['cards']} cards secure)"
         ]
+        if s["corrections"]:
+            body.append(f"Grades corrected by the learner: {s['corrections']}")
         if s["to_review"]:
             body.append("To review:\n" + "\n".join(f"- {t}" for t in s["to_review"]))
         if automatic:

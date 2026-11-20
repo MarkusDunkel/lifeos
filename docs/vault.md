@@ -191,10 +191,17 @@ ready/knowledge/Studium/<Subject>/lernstand.jsonl      progress log, one line pe
   So one subject can have several exams, each covering some topics. Repetition, due
   order and readiness use the exam of each card's bank; after an exam its cards fall
   back to the normal intervals.
-- Each answer is appended to `lernstand.jsonl` (`ts`, `card`, `result` = correct, partial or
-  wrong, `mode`, `session`, `note`). Card states are computed from it: Leitner boxes 0–4,
+- Each answer is appended to `lernstand.jsonl` (`ts`, `card`, `result` = correct, partial,
+  wrong or known, `mode`, `session`, `note`). Card states are computed from it: Leitner boxes 0–4,
   intervals 0 / 4 h / 1 d / 2 d / 4 d capped at half the time left before the exam; secure =
-  box 2+ with a correct last answer. Missed cards return within the same session.
+  box 2+ with a correct (or known) last answer. Missed cards return within the same session.
+- `known` means the learner marked the card as trivial: it goes straight to box 4 and only
+  comes back with the normal (exam-capped) interval.
+- The learner has the final word on grades. A correction never edits a line: it is a new
+  line with `mode: "correction"` and `replaces` = the `ts` of the original answer (same
+  card); the latest correction takes the original's place at the original's time. The
+  coach uses the MCP tool `correct_answer`; the study page uses
+  `POST /api/study/<subject>/cards/<card>/grade` (`{"result": …}`), committed right away.
 - Readiness (`GET /api/study/<subject>/progress`): secure share, new and due cards, weak
   cards, minutes still needed and per day until the next exam, and the same per topic
   with that topic's exam.

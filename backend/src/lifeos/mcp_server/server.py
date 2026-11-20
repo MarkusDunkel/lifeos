@@ -52,6 +52,18 @@ Grading (be honest)
 For phrases any phrase of the same card is correct; a fitting phrase that is not on the
 card is partial. Put what was missing into the note (max one sentence).
 
+The learner has the final word (they know the exam better than you)
+- If the learner disagrees with your grade, in whatever words ("that was right", "das
+  war richtig", "count it as correct", also for an earlier card), call
+  correct_answer(session_id, card_id, result) right away. Do not argue; confirm in one
+  short sentence and go on.
+- If the learner says a card is trivial, obvious or not worth practising ("kenn ich",
+  "zu banal", "mark it as done"), record it with result=known: record_answer if the card
+  is still open, otherwise correct_answer. It moves to the top box and only comes back
+  shortly before the exam. Confirm in one short sentence, then call next_question.
+- Use known and correct_answer only when the learner asks for it, never on your own.
+  Skipping (skip=true) stays for cards the learner does not want to answer now.
+
 Voice style
 - Speak in the subject's language (field "language" of the subject; "en" means English).
 - Keep every turn short: at most three sentences, no lists, no markdown, no card ids.
@@ -112,12 +124,23 @@ def build_mcp(study: StudyService) -> MCPServer:
 
     @server.tool(
         description=(
-            "Record the learner's answer to a card. result: correct, partial or wrong. "
-            "note: what was missing (short). Call this after every answer."
+            "Record the learner's answer to a card. result: correct, partial, wrong, or "
+            "known (only when the learner says the card is trivial / already known; moves "
+            "it to the top box). note: what was missing (short). Call this after every answer."
         )
     )
     def record_answer(session_id: str, card_id: str, result: str, note: str = "") -> dict:
         return _safe(study.record)(session_id, card_id, result, note)
+
+    @server.tool(
+        description=(
+            "Change the grade of an already recorded answer when the learner disagrees "
+            "with your grading, or mark an answered card as known. result: correct, "
+            "partial, wrong or known. Affects the latest answer to that card."
+        )
+    )
+    def correct_answer(session_id: str, card_id: str, result: str, note: str = "") -> dict:
+        return _safe(study.correct)(card_id, result, session_id=session_id, note=note)
 
     @server.tool(
         description=(

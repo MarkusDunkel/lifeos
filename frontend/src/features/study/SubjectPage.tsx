@@ -1,9 +1,9 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, CalendarClock, Pencil } from "lucide-react";
 import { useRef, useState } from "react";
 import { DocEditor, docBtn } from "../knowledge/DocEditor";
-import { type Bank, type Material, type StudyCard, subjectQuery, type SubjectDetail } from "./api";
+import { type Bank, type Grade, gradeCard, type Material, type StudyCard, subjectQuery, type SubjectDetail } from "./api";
 import {
   banksByExam,
   type CardFilter,
@@ -231,7 +231,7 @@ function QuestionsTab({ d, onSaved }: { d: SubjectDetail; onSaved: () => void })
             </h2>
           )}
           {group.banks.map((bank) => (
-            <BankCards key={bank.file} bank={bank} filter={filter} onEdit={() => setEditing(bank.file)} />
+            <BankCards key={bank.file} subject={d.key} bank={bank} filter={filter} onEdit={() => setEditing(bank.file)} />
           ))}
         </section>
       ))}
@@ -239,7 +239,17 @@ function QuestionsTab({ d, onSaved }: { d: SubjectDetail; onSaved: () => void })
   );
 }
 
-function BankCards({ bank, filter, onEdit }: { bank: Bank; filter: CardFilter; onEdit: () => void }) {
+function BankCards({
+  subject,
+  bank,
+  filter,
+  onEdit,
+}: {
+  subject: string;
+  bank: Bank;
+  filter: CardFilter;
+  onEdit: () => void;
+}) {
   const cards = filterCards(bank.cards, filter);
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
@@ -267,7 +277,7 @@ function BankCards({ bank, filter, onEdit }: { bank: Bank; filter: CardFilter; o
       ) : (
         <ul className="divide-y divide-slate-100 dark:divide-slate-800/70">
           {cards.map((c) => (
-            <CardRow key={c.id} card={c} />
+            <CardRow key={c.id} subject={subject} card={c} />
           ))}
         </ul>
       )}
@@ -278,12 +288,26 @@ function BankCards({ bank, filter, onEdit }: { bank: Bank; filter: CardFilter; o
 function practised(card: StudyCard): string {
   if (!card.lastAt) return "never practised";
   const when = new Date(card.lastAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const tally = [card.wrong && `${card.wrong}× wrong`, card.partial && `${card.partial}× partial`].filter(Boolean);
+  const tally = [
+    card.wrong && `${card.wrong}× wrong`,
+    card.partial && `${card.partial}× partial`,
+    card.known && "marked known",
+  ].filter(Boolean);
   return `${card.seen}× practised, last ${when}${tally.length ? ` (${tally.join(", ")})` : ""}`;
 }
 
-function CardRow({ card }: { card: StudyCard }) {
+const gradeBtn =
+  "rounded px-1.5 py-0.5 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200";
+
+function CardRow({ subject, card }: { subject: string; card: StudyCard }) {
   const fields = Object.entries(card.fields);
+  const queryClient = useQueryClient();
+  const grade = useMutation({
+    mutationFn: (result: Grade) => gradeCard(subject, card.id, result),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["study"] }),
+  });
+  const canCorrect = card.lastResult === "partial" || card.lastResult === "wrong";
+  const isKnown = card.lastResult === "known";
   return (
     <li className="space-y-1.5 px-3 py-3">
       <div className="flex items-start gap-2">
@@ -296,6 +320,29 @@ function CardRow({ card }: { card: StudyCard }) {
           <div className="text-xs text-slate-400">
             <span className="font-mono">{card.id}</span> · {STATUS_LABEL[card.status]} · {practised(card)}
           </div>
+          {grade.isError && <div className="text-xs text-red-600">{grade.error.message}</div>}
+        </div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+          {canCorrect && (
+            <button
+              className={gradeBtn}
+              disabled={grade.isPending}
+              onClick={() => grade.mutate("correct")}
+              title="The last answer was right after all: count it as correct"
+            >
+              Count as correct
+            </button>
+          )}
+          {!isKnown && (
+            <button
+              className={gradeBtn}
+              disabled={grade.isPending}
+              onClick={() => grade.mutate("known")}
+              title="Trivial or already known: move to the top box (asked again shortly before the exam)"
+            >
+              Mark known
+            </button>
+          )}
         </div>
       </div>
       {fields.length > 0 && (

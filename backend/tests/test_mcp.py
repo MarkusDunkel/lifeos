@@ -58,6 +58,7 @@ def test_tools_run_a_session(tmp_path: Path) -> None:
                 "start_session",
                 "next_question",
                 "record_answer",
+                "correct_answer",
                 "end_session",
                 "progress",
                 "read_material",

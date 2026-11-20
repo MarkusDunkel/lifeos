@@ -91,6 +91,7 @@ const card = (id: string, status: StudyCard["status"]): StudyCard => ({
   seen: 0,
   wrong: 0,
   partial: 0,
+  known: 0,
   lastAt: null,
   lastResult: null,
 });

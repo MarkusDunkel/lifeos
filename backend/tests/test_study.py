@@ -14,7 +14,7 @@ from lifeos.core.git_sync import GitSync
 from lifeos.core.vault import Vault
 from lifeos.main import create_app
 from lifeos.modules.study.bank import parse_cards
-from lifeos.modules.study.progress import Attempt, card_states, priority
+from lifeos.modules.study.progress import Attempt, card_states, priority, status
 from lifeos.modules.study.service import StudyError, StudyService
 from lifeos.worker.jobs import commit_study_leftovers
 
@@ -567,3 +567,155 @@ def test_activity_keeps_a_session_open(vault_root: Path) -> None:
     study.record(sid, started["question"]["card"]["id"], "correct")
     clock.now += timedelta(minutes=25)
     assert study.close_idle() == []
+
+
+# -- known cards and corrections --------------------------------------------------
+
+
+def test_known_moves_a_card_to_the_top_box_capped_by_the_exam() -> None:
+    t = datetime(2026, 11, 16, tzinfo=UTC)
+    state = card_states(["a"], [attempt("a", "known", t)])["a"]
+    assert state.box == 4
+    assert state.secure
+    assert status(state) == "secure"
+    assert state.due_at(None) == t + timedelta(days=4)
+    assert state.due_at(t + timedelta(days=2)) == t + timedelta(days=1)
+
+
+def correction(card: str, result: str, at: datetime, original: datetime) -> Attempt:
+    return Attempt(
+        ts=at.isoformat(),
+        card=card,
+        result=result,
+        mode="correction",
+        replaces=original.isoformat(),
+    )
+
+
+def test_a_correction_replaces_the_original_at_its_time() -> None:
+    t = datetime(2026, 11, 16, tzinfo=UTC)
+    later = t + timedelta(hours=5)
+    log = [
+        attempt("a", "correct", t),
+        attempt("a", "partial", later),
+        correction("a", "wrong", later + timedelta(minutes=1), later),
+        correction("a", "correct", later + timedelta(minutes=2), later),  # latest wins
+    ]
+    state = card_states(["a"], log)["a"]
+    assert (state.box, state.seen, state.correct, state.partial) == (2, 2, 2, 0)
+    assert state.last_at == later
+    # A correction without an original is ignored.
+    stray = correction("a", "wrong", t, t - timedelta(days=1))
+    assert card_states(["a"], [*log, stray])["a"].box == 2
+
+
+def test_old_log_lines_without_replaces_still_load(vault_root: Path) -> None:
+    log = vault_root / "ready/knowledge/Studium/Sample/lernstand.jsonl"
+    log.write_text(
+        '{"ts": "2026-11-15T10:00:00+00:00", "card": "SL-V-01", "result": "correct", '
+        '"mode": "voice", "session": "x", "note": ""}\n',
+        encoding="utf-8",
+    )
+    study = service(vault_root, Clock(datetime(2026, 11, 16, 12, tzinfo=UTC)))
+    assert study.progress("Sample")["seen"] == 1
+
+
+def test_known_in_a_session_counts_and_is_not_repeated(vault_root: Path) -> None:
+    clock = Clock(datetime(2026, 11, 16, 12, tzinfo=UTC))
+    committed: list = []
+    study = service(vault_root, clock, committed)
+    started = study.start_session("Sample", count=1)
+    sid, card = started["session_id"], started["question"]["card"]["id"]
+    out = study.record(sid, card, "known")
+    assert (out["known"], out["remaining"]) == (1, 0)
+    assert log_lines(vault_root)[0]["note"] == "marked as known by the learner"
+    assert study.next_question(sid)["done"] is True
+    summary = study.end_session(sid)
+    assert summary["confirmation"].startswith("1 answer saved, 0 correct, 1 marked known.")
+    assert summary["progress"]["secure"] == 1
+    assert committed[0][1].startswith("study: Sample – 1 answer, 0 correct, 1 known")
+
+
+def test_correcting_partial_to_correct_drops_the_repeat(vault_root: Path) -> None:
+    clock = Clock(datetime(2026, 11, 16, 12, tzinfo=UTC))
+    committed: list = []
+    study = service(vault_root, clock, committed)
+    started = study.start_session("Sample", count=1)
+    sid, card = started["session_id"], started["question"]["card"]["id"]
+    assert study.record(sid, card, "partial")["remaining"] == 1
+    clock.now += timedelta(seconds=30)
+    out = study.correct(card, "correct", session_id=sid)
+    assert out["corrected"] is True
+    assert (out["previous"], out["result"], out["box"]) == ("partial", "correct", 1)
+    assert (out["correct"], out["remaining"]) == (1, 0)
+    assert study.next_question(sid)["done"] is True
+    summary = study.end_session(sid)
+    assert (summary["correct"], summary["partial"], summary["to_review"]) == (1, 0, [])
+    lines = log_lines(vault_root)
+    assert lines[1]["mode"] == "correction"
+    assert lines[1]["replaces"] == lines[0]["ts"]
+    assert "Grades corrected by the learner: 1" in committed[0][1]
+
+
+def test_correcting_correct_to_wrong_schedules_a_repeat(vault_root: Path) -> None:
+    clock = Clock(datetime(2026, 11, 16, 12, tzinfo=UTC))
+    study = service(vault_root, clock)
+    started = study.start_session("Sample", count=1)
+    sid, card = started["session_id"], started["question"]["card"]["id"]
+    study.record(sid, card, "correct")
+    assert study.correct(card, "wrong", session_id=sid)["remaining"] == 1
+    # Correcting to the same grade again changes nothing.
+    assert study.correct(card, "wrong", session_id=sid)["corrected"] is False
+    assert len(log_lines(vault_root)) == 2
+
+
+def test_correct_refuses_an_unrecorded_card(vault_root: Path) -> None:
+    clock = Clock(datetime(2026, 11, 16, 12, tzinfo=UTC))
+    study = service(vault_root, clock)
+    started = study.start_session("Sample", count=2)
+    sid, card = started["session_id"], started["question"]["card"]["id"]
+    with pytest.raises(StudyError, match="record_answer"):
+        study.correct(card, "known", session_id=sid)
+    with pytest.raises(StudyError, match="no recorded answer"):
+        study.correct("SL-P-02" if card != "SL-P-02" else "SL-P-01", "correct", subject="Sample")
+    # The strict order stays: no new card while the current one is unanswered.
+    assert study.next_question(sid)["card"]["id"] == card
+
+
+def test_rest_grade_marks_known_and_corrects_with_a_commit(vault_root: Path) -> None:
+    committed: list = []
+    study = service(vault_root, Clock(datetime(2026, 11, 16, 12, tzinfo=UTC)), committed)
+    out = study.correct("SL-V-03", "known", subject="Sample")
+    assert (out["status"], out["box"]) == ("secure", 4)
+    assert log_lines(vault_root)[0]["mode"] == "web"
+    assert committed[-1][1] == "study: Sample – SL-V-03 marked known\n"
+
+    log = vault_root / "ready/knowledge/Studium/Sample/lernstand.jsonl"
+    with log.open("a", encoding="utf-8") as fh:
+        fh.write(
+            json.dumps(attempt("SL-V-02", "partial", datetime(2026, 11, 15, tzinfo=UTC)).__dict__)
+            + "\n"
+        )
+    settings = Settings(vault_root=vault_root, session_secret="x" * 40, auth_disabled=True)
+    client = TestClient(create_app(settings))
+    res = client.post("/api/study/Sample/cards/SL-V-02/grade", json={"result": "correct"})
+    assert res.status_code == 200
+    assert res.json()["status"] == "learning"
+    assert (
+        client.post("/api/study/Sample/cards/SL-P-02/grade", json={"result": "correct"}).status_code
+        == 400
+    )
+    assert (
+        client.post("/api/study/Sample/cards/NOPE/grade", json={"result": "known"}).status_code
+        == 404
+    )
+    assert (
+        client.post("/api/study/Sample/cards/SL-V-02/grade", json={"result": "maybe"}).status_code
+        == 422
+    )
+    cards = {
+        c["id"]: c
+        for b in client.get("/api/study/subjects/Sample").json()["banks"]
+        for c in b["cards"]
+    }
+    assert cards["SL-V-03"]["known"] == 1

@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from lifeos.modules.study.service import StudyError, StudyService
+
+
+class GradeBody(BaseModel):
+    result: Literal["correct", "partial", "wrong", "known"]
 
 
 def build_router(service: StudyService) -> APIRouter:
@@ -25,5 +32,19 @@ def build_router(service: StudyService) -> APIRouter:
             return service.progress(subject)
         except StudyError as exc:
             raise HTTPException(404, str(exc)) from exc
+
+    @router.post("/{subject}/cards/{card_id}/grade")
+    def grade(subject: str, card_id: str, body: GradeBody) -> dict:
+        """Correct the latest grade of a card, or mark it as known."""
+        try:
+            target = service.subject(subject)
+            if target.card(card_id) is None:
+                raise HTTPException(404, f"unknown card '{card_id}' in {target.key}")
+        except StudyError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        try:
+            return service.correct(card_id, body.result, subject=target.key)
+        except StudyError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     return router

@@ -4,9 +4,14 @@ Every answer is one JSON line in ``<subject>/lernstand.jsonl`` (append-only, so 
 never conflicts in git). The state of a card is always computed from the log:
 
 - box 0..4: correct moves one box up, partial stays, wrong drops to box 0
+- known (the learner marks a card as trivial / already known) moves it straight to box 4
 - a card is due again after 0 / 4 h / 1 day / 2 days / 4 days, but never later than half
   the time left until the exam, so everything is repeated shortly before it
-- a card counts as *secure* in box >= 2 with a correct last answer
+- a card counts as *secure* in box >= 2 with a correct (or known) last answer
+
+A grade is never edited in place. A correction is a new line with ``mode="correction"``
+and ``replaces`` set to the timestamp of the original attempt (same card); the latest
+correction takes the original's place, at the original's time.
 
 The exam date comes from the card's question bank (or the subject), so topics with
 different exams are paced separately.
@@ -16,7 +21,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -24,7 +29,9 @@ from lifeos.core.locks import FileLock
 from lifeos.modules.study.bank import Card
 
 PROGRESS_FILE = "lernstand.jsonl"
-RESULTS = ("correct", "partial", "wrong")
+RESULTS = ("correct", "partial", "wrong", "known")
+PASSED = ("correct", "known")  # results that count as a right answer
+CORRECTION = "correction"
 INTERVALS = [
     timedelta(0),
     timedelta(hours=4),
@@ -45,10 +52,32 @@ class Attempt:
     mode: str = "voice"
     session: str = ""
     note: str = ""
+    replaces: str = ""  # ts of the corrected attempt (corrections only)
 
     @property
     def at(self) -> datetime:
         return datetime.fromisoformat(self.ts)
+
+    @property
+    def is_correction(self) -> bool:
+        return bool(self.replaces)
+
+
+def resolve_corrections(attempts: list[Attempt]) -> list[Attempt]:
+    """The effective attempts: every corrected original replaced by its latest correction,
+    keeping the original's timestamp. Corrections without an original are dropped."""
+    latest: dict[tuple[str, str], Attempt] = {}
+    for a in sorted((a for a in attempts if a.is_correction), key=lambda a: a.at):
+        latest[(a.card, a.replaces)] = a
+    result = []
+    for a in attempts:
+        if a.is_correction:
+            continue
+        fix = latest.get((a.card, a.ts))
+        if fix is not None:
+            a = replace(a, result=fix.result, note=fix.note or a.note)
+        result.append(a)
+    return result
 
 
 class ProgressLog:
@@ -88,12 +117,13 @@ class CardState:
     correct: int = 0
     partial: int = 0
     wrong: int = 0
+    known: int = 0
     last_at: datetime | None = None
     last_result: str | None = None
 
     @property
     def secure(self) -> bool:
-        return self.box >= SECURE_BOX and self.last_result == "correct"
+        return self.box >= SECURE_BOX and self.last_result in PASSED
 
     def due_at(self, exam: datetime | None) -> datetime | None:
         """When the card should be asked again; ``None`` for a card never seen."""
@@ -107,7 +137,7 @@ class CardState:
 
 def card_states(card_ids: list[str], attempts: list[Attempt]) -> dict[str, CardState]:
     states = {cid: CardState(cid) for cid in card_ids}
-    for attempt in sorted(attempts, key=lambda a: a.at):
+    for attempt in sorted(resolve_corrections(attempts), key=lambda a: a.at):
         state = states.get(attempt.card)
         if state is None:
             continue  # card was removed from the bank
@@ -117,6 +147,9 @@ def card_states(card_ids: list[str], attempts: list[Attempt]) -> dict[str, CardS
         if attempt.result == "correct":
             state.correct += 1
             state.box = min(state.box + 1, MAX_BOX)
+        elif attempt.result == "known":
+            state.known += 1
+            state.box = MAX_BOX
         elif attempt.result == "partial":
             state.partial += 1
         else:
