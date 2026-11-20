@@ -719,3 +719,18 @@ def test_rest_grade_marks_known_and_corrects_with_a_commit(vault_root: Path) -> 
         for c in b["cards"]
     }
     assert cards["SL-V-03"]["known"] == 1
+
+
+def test_next_question_names_the_previous_saved_card(vault_root: Path) -> None:
+    clock = Clock(datetime(2026, 11, 16, 12, tzinfo=UTC))
+    study = service(vault_root, clock)
+    started = study.start_session("Sample", count=3)
+    sid, first = started["session_id"], started["question"]["card"]["id"]
+    assert "previous" not in started["question"]
+    study.record(sid, first, "partial")
+    nxt = study.next_question(sid)
+    assert nxt["previous"]["card"] == first
+    assert nxt["previous"]["result"] == "partial"
+    assert nxt["previous"]["title"]
+    study.correct(first, "correct", session_id=sid)
+    assert study.next_question(sid)["previous"]["result"] == "correct"

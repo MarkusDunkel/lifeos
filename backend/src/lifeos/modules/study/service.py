@@ -477,7 +477,7 @@ class StudyService:
         assert card is not None
         states = card_states([current], [a for a in self._log(subject).read() if a.card == current])
         state = states[current]
-        return {
+        question = {
             "done": False,
             "position": len(session.answers) + 1,
             "of": session.target,
@@ -486,6 +486,16 @@ class StudyService:
             "last_result": state.last_result,
             "card": card.as_dict(),
         }
+        if session.answers:
+            # The last saved answer (corrections applied), so "the last one" is unambiguous.
+            last = session.answers[-1]
+            last_card = subject.card(last.card)
+            question["previous"] = {
+                "card": last.card,
+                "title": last_card.title if last_card else last.card,
+                "result": last.result,
+            }
+        return question
 
     def _pick(self, session: Session, subject: Subject) -> str | None:
         answered = len(session.answers)

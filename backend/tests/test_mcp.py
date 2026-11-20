@@ -131,3 +131,68 @@ def test_access_log_masks_the_token() -> None:
     MaskPath(TOKEN).filter(record)
     assert TOKEN not in record.getMessage()
     assert "/mcp/***/" in record.getMessage()
+
+
+def test_tools_carry_coach_rules(tmp_path: Path) -> None:
+    root = make_vault(tmp_path)
+    study = StudyService(
+        Vault.open(root),
+        "Europe/Vienna",
+        clock=lambda: datetime(2026, 11, 16, 12, tzinfo=UTC),
+        rng=random.Random(0),
+    )
+    server = build_mcp(study)
+
+    async def scenario() -> None:
+        async with Client(server) as client:
+            tools = {t.name: t.description for t in (await client.list_tools()).tools}
+            assert "MUST be called after every answer" in tools["record_answer"]
+            assert "MUST be called" in tools["correct_answer"]
+            for name in ("record_answer", "correct_answer", "end_session"):
+                assert "Never say saved" in tools[name]
+
+            started = payload(
+                await client.call_tool("start_session", {"subject": "sample", "count": 2})
+            )
+            sid = started["session_id"]
+            first = started["question"]["card"]["id"]
+            assert "call record_answer BEFORE" in started["coach_rule"]
+            assert "previous" not in started["question"]
+
+            saved = payload(
+                await client.call_tool(
+                    "record_answer", {"session_id": sid, "card_id": first, "result": "partial"}
+                )
+            )
+            assert saved["coach_rule"].startswith("Saved on the server as partial.")
+            assert f"correct_answer for card {first}" in saved["coach_rule"]
+
+            nxt = payload(await client.call_tool("next_question", {"session_id": sid}))
+            assert nxt["previous"]["card"] == first
+            assert nxt["previous"]["result"] == "partial"
+            assert f"Previous card {first} was saved as partial" in nxt["coach_rule"]
+            assert "call record_answer BEFORE" in nxt["coach_rule"]
+
+            fixed = payload(
+                await client.call_tool(
+                    "correct_answer", {"session_id": sid, "card_id": first, "result": "known"}
+                )
+            )
+            assert fixed["coach_rule"].startswith(
+                f"Changed on the server: card {first} is now known"
+            )
+            again = payload(await client.call_tool("next_question", {"session_id": sid}))
+            assert again["previous"]["result"] == "known"
+
+            bad = payload(
+                await client.call_tool(
+                    "record_answer", {"session_id": "nope", "card_id": first, "result": "correct"}
+                )
+            )
+            assert bad["coach_rule"].startswith("The tool failed: nothing was saved")
+
+            open_end = payload(await client.call_tool("end_session", {"session_id": sid}))
+            assert open_end["ended"] is False
+            assert "NOT saved" in open_end["coach_rule"]
+
+    anyio.run(scenario)
