@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
-import { type Goal, weekQuery } from "./api";
+import { editBlock, type Goal, weekQuery } from "./api";
+import { PlannerCard } from "./EveningTab";
+import { PlannerNote } from "./PlannerNote";
 import { addDays, amountText, categoryHue, dayLabel, isoDay, progress } from "./format";
 import { Timeline } from "./Timeline";
 
@@ -10,6 +12,7 @@ export function WeekTab() {
   const today = isoDay(new Date());
   const [start, setStart] = useState<string | undefined>(undefined);
   const week = useQuery(weekQuery(start));
+  const queryClient = useQueryClient();
   const w = week.data;
   const go = (days: number) => w && setStart(addDays(w.start, days));
   return (
@@ -28,6 +31,7 @@ export function WeekTab() {
           </button>
         )}
       </div>
+      <PlannerCard />
       {!!w?.goals.length && (
         <GoalBars
           goals={w.goals}
@@ -48,7 +52,13 @@ export function WeekTab() {
             className={`space-y-2 rounded-xl border p-3 ${day.date === today ? "border-teal-600" : "border-slate-200 dark:border-slate-800"}`}
           >
             <h3 className="text-sm font-semibold">{dayLabel(day.date, today)}</h3>
-            <Timeline day={day} />
+            <PlannerNote day={day.date} thread={day.thread} readOnly={day.date < today} />
+            <Timeline
+              day={day}
+              onEdit={(block, title, text) =>
+                editBlock(block.id, title, text).then(() => queryClient.invalidateQueries({ queryKey: ["planning"] }))
+              }
+            />
           </section>
         ))}
       </div>

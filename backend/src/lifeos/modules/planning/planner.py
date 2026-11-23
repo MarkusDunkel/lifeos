@@ -310,7 +310,7 @@ class Planner:
         queued = False
         # a new or changed note in a day thread: plan right away so the owner gets an answer
         if self.new_notes(store, state):
-            notes_sig = _sig(sorted((t["date"], t["owner"]) for t in store.get("threads", [])))
+            notes_sig = _notes_signature(store)
             if state.get("notes_signature") != notes_sig:
                 state = state | {"notes_signature": notes_sig}
                 self._write(STATE_FILE, state)
@@ -324,6 +324,20 @@ class Planner:
             self.enqueue(CALENDAR_CHANGED)
             return True
         return queued
+
+    def write_note(self, day: str, text: str, base: str | None) -> tuple[bool, str]:
+        """A note typed in the app: written to the day's thread, but it does not start a run
+        (the owner starts it with "plan again"); the sync must not take it for a phone note."""
+        written, current = self.calendar.write_note(day, text, base)
+        with self._lock:
+            self._write(STATE_FILE, self.state() | {
+                "notes_signature": _notes_signature(self.calendar.store())
+            })  # fmt: skip
+        return written, current
+
+    def pending_notes(self) -> list[str]:
+        """Days whose note no run has answered yet."""
+        return self.new_notes(self.calendar.store())
 
     def notes(self, store: dict[str, Any]) -> list[dict[str, Any]]:
         """Owner notes of the day threads from yesterday to the end of the horizon."""
@@ -734,3 +748,7 @@ def _sig(value: Any) -> str:
 def _one_line(text: str, limit: int = 400) -> str:
     flat = " / ".join(line.strip() for line in text.splitlines() if line.strip())
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+
+
+def _notes_signature(store: dict[str, Any]) -> str:
+    return _sig(sorted((t["date"], t["owner"]) for t in store.get("threads", [])))

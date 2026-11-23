@@ -8,8 +8,10 @@ from datetime import date, datetime, time, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from lifeos.connectors.google.sync import answer_lines
 from lifeos.core.vault import KNOWLEDGE, revision_of, write_checked
 from lifeos.modules.planning import goals as goals_mod
 from lifeos.modules.planning.journal import Entry
@@ -54,6 +56,11 @@ class JournalIn(BaseModel):
     good: str = ""
     bad: str = ""
     notes: str = ""
+
+
+class NoteIn(BaseModel):
+    text: str = Field(max_length=8000)
+    base: str | None = None  # the note as the app showed it; None = overwrite
 
 
 class WishIn(BaseModel):
@@ -136,6 +143,20 @@ def build_router(planner: Planner, committer: Committer | None = None) -> APIRou
                 if b.start < day_end and b.end > day_start
             ],
             "allDay": [a["title"] for a in all_day if a["start"] <= iso < a["end"]],
+            "thread": _thread_view(store, iso),
+        }
+
+    def _thread_view(store: dict[str, Any], iso: str) -> dict[str, Any] | None:
+        """The day's "💬 Planner" entry: the owner's note and the planner's answers."""
+        thread = next((t for t in store.get("threads", []) if t["date"] == iso), None)
+        if thread is None:
+            return None
+        texts = planner.calendar.config()["thread"]
+        return {
+            "owner": thread.get("owner", ""),
+            "answers": answer_lines(thread.get("planner", ""), texts),
+            "pending": iso in planner.new_notes(store),
+            "title": texts["title"],
         }
 
     @router.get("/day/{day}")
@@ -214,6 +235,15 @@ def build_router(planner: Planner, committer: Committer | None = None) -> APIRou
 
     # -- wishes and runs ------------------------------------------------------------------------
 
+    @router.put("/notes/{day}")
+    def put_note(day: str, body: NoteIn) -> JSONResponse:
+        """Save the owner's note for a day into its "💬 Planner" entry. It does not start a
+        run; "plan again" does. 409 if the calendar changed meanwhile (current note sent)."""
+        written, current = planner.write_note(_day(day).isoformat(), body.text, body.base)
+        status = 200 if written else 409
+        detail = "" if written else "changed in the calendar meanwhile"
+        return JSONResponse({"owner": current, "detail": detail}, status_code=status)
+
     @router.post("/wishes")
     def add_wish(body: WishIn) -> dict[str, Any]:
         wish = journal.add_wish(_day(body.day).isoformat(), body.text, planner.now())
@@ -242,6 +272,7 @@ def build_router(planner: Planner, committer: Committer | None = None) -> APIRou
             "changes": data.get("changes", []),
             "now": planner.now().isoformat(timespec="minutes"),
             "running": planner.running(),
+            "pendingNotes": planner.pending_notes(),
             **planner.limits(),
         }
 

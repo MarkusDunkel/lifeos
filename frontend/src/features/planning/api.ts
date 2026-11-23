@@ -94,7 +94,15 @@ export type Wish = {
   answered?: string;
 };
 
-export type DayView = { date: string; blocks: PlanBlock[]; appointments: Appointment[]; allDay: string[] };
+export type DayThread = { owner: string; answers: string[]; pending: boolean; title: string };
+
+export type DayView = {
+  date: string;
+  blocks: PlanBlock[];
+  appointments: Appointment[];
+  allDay: string[];
+  thread: DayThread | null;
+};
 export type DayDetail = DayView & { journal: JournalEntry; wishes: Wish[] };
 
 export type GoalUnit = "hours" | "sessions" | "percent";
@@ -138,6 +146,7 @@ export type PlannerStatus = {
   changes: string[];
   now: string;
   running: { since: string; reason: string } | null;
+  pendingNotes: string[];
   runsToday: number;
   dailyLimit: number;
   limitReached: boolean;
@@ -187,5 +196,8 @@ export const addWish = (day: string, text: string) =>
   api<Wish>("/api/planning/wishes", { method: "POST", json: { day, text } });
 
 export const deleteWish = (id: string) => api(`/api/planning/wishes/${id}`, { method: "DELETE" });
+
+export const saveNote = (day: string, text: string, base: string) =>
+  api<{ owner: string }>(`/api/planning/notes/${day}`, { method: "PUT", json: { text, base } });
 
 export const replan = () => api<PlannerStatus>("/api/planning/replan", { method: "POST" });

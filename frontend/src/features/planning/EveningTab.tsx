@@ -14,6 +14,7 @@ import {
 } from "./api";
 import { btn } from "./CalendarsTab";
 import { addDays, dayLabel, isoDay } from "./format";
+import { PlannerNote } from "./PlannerNote";
 import { Timeline } from "./Timeline";
 
 const card = "space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800";
@@ -39,7 +40,7 @@ function useRefresh() {
   return () => queryClient.invalidateQueries({ queryKey: ["planning"] });
 }
 
-function PlannerCard() {
+export function PlannerCard() {
   const refresh = useRefresh();
   const status = useQuery({
     ...plannerStatusQuery,
@@ -83,6 +84,12 @@ function PlannerCard() {
       {!s?.running && waiting && !blocked && (
         <p className="text-xs text-slate-500">
           Waiting: {s?.queue.map((q) => q.reason).join(", ")} — the planner picks this up within a minute.
+        </p>
+      )}
+      {!!s?.pendingNotes.length && !busy && (
+        <p className="rounded bg-sky-50 px-2 py-1 text-xs text-sky-800 dark:bg-sky-950 dark:text-sky-200">
+          {s.pendingNotes.length === 1 ? "1 note is" : `${s.pendingNotes.length} notes are`} not planned yet (
+          {s.pendingNotes.join(", ")}) – press “Plan again”.
         </p>
       )}
       {s?.limitReached && (
@@ -141,7 +148,10 @@ function TodayCard({ day }: { day: string }) {
       <h2 className="font-semibold">Today – how did it go?</h2>
       <p className="text-xs text-slate-500">Unmarked blocks count as done.</p>
       {data.data ? (
-        <Timeline day={data.data} onStatus={(block, status) => check.mutate({ block, status })} />
+        <>
+          <PlannerNote day={day} thread={data.data.thread} />
+          <Timeline day={data.data} onStatus={(block, status) => check.mutate({ block, status })} />
+        </>
       ) : (
         <p className="text-sm text-slate-400">{data.error ? data.error.message : "Loading…"}</p>
       )}
@@ -160,7 +170,10 @@ function DayCard({ day, today }: { day: string; today: string }) {
         lets them guide the next sessions.
       </p>
       {data.data ? (
-        <Timeline day={data.data} onEdit={(block, title, text) => editBlock(block.id, title, text).then(refresh)} />
+        <>
+          <PlannerNote day={day} thread={data.data.thread} />
+          <Timeline day={data.data} onEdit={(block, title, text) => editBlock(block.id, title, text).then(refresh)} />
+        </>
       ) : (
         <p className="text-sm text-slate-400">{data.error ? data.error.message : "Loading…"}</p>
       )}

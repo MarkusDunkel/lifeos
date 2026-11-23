@@ -669,3 +669,48 @@ def test_appointment_and_all_day_notes_reach_the_planner(planner, fake):
     planner.run(lambda agent: llm, LlmSettings())
     assert "Reise [Privat] — note: Zug, Laptop dabei" in llm.prompts[0]
     assert "- all day: Unterwegs — note: nur Sport" in llm.prompts[0]
+
+
+# -- notes written in the app ---------------------------------------------------------------
+
+
+def test_a_note_saved_in_the_app_waits_for_plan_again(planner, fake):
+    planner.calendar.sync()
+    planner.notice_calendar()
+    planner.run(lambda agent: FakeLlm([PlanResult(blocks=[], summary="")]), LlmSettings())
+    written, current = planner.write_note("2026-11-25", "Mittwoch erst ab 10.", base="")
+    assert written and current == "Mittwoch erst ab 10."
+    assert _thread_descriptions(planner, fake)["thread-2026-11-25"].startswith(
+        "Mittwoch erst ab 10."
+    )
+    # the sync sees the new note but must not start a run for it
+    planner.calendar.sync()
+    assert planner.notice_calendar() is False and planner.queue() == []
+    assert planner.pending_notes() == ["2026-11-25"]
+    # "plan again" answers it
+    from lifeos.modules.planning.planner import DayNote
+
+    llm = FakeLlm([PlanResult(blocks=[], day_notes=[DayNote(date="2026-11-25", text="Ok.")],
+                              summary="")])  # fmt: skip
+    planner.run(lambda agent: llm, LlmSettings(), "plan again")
+    assert "- Wed 2026-11-25 NEW: the owner wrote: Mittwoch erst ab 10." in llm.prompts[0]
+    assert planner.pending_notes() == []
+    thread = next(t for t in planner.calendar.store()["threads"] if t["date"] == "2026-11-25")
+    assert thread["planner"].endswith("Ok.")  # shown in the app before the next sync
+
+
+def test_a_note_changed_on_the_phone_meanwhile_is_not_overwritten(planner, fake):
+    planner.calendar.sync()
+    _write_note(planner, fake, "2026-11-25", "Vom Handy")
+    written, current = planner.write_note("2026-11-25", "Aus der App", base="")
+    assert not written and current == "Vom Handy"
+    assert _thread_descriptions(planner, fake)["thread-2026-11-25"].startswith("Vom Handy")
+
+
+def test_note_api(client, settings):
+    # without Google there is no planner entry for the day
+    r = client.put("/api/planning/notes/2026-11-25", json={"text": "x", "base": ""})
+    assert r.status_code in (400, 404)
+    view = client.get("/api/planning/day/2026-11-25").json()
+    assert view["thread"] is None
+    assert client.get("/api/planning/status").json()["pendingNotes"] == []

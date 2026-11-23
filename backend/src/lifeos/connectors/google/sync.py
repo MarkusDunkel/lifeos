@@ -72,6 +72,11 @@ def split_thread(description: str, separator: str) -> tuple[str, str]:
     return text, ""
 
 
+def answer_lines(planner: str, texts: dict[str, str]) -> list[str]:
+    """The planner's answers in a thread (without the empty-state hint)."""
+    return [ln for ln in planner.splitlines() if ln.strip() and ln.strip() != texts["hint"]]
+
+
 def join_thread(owner: str, planner_lines: list[str], texts: dict[str, str]) -> str:
     below = "\n".join(planner_lines) if planner_lines else texts["hint"]
     return (owner.strip() + "\n\n" if owner.strip() else "\n") + texts["separator"] + "\n" + below
@@ -398,10 +403,41 @@ class CalendarSync:
         texts = self.config()["thread"]
         fresh = api.get_event(target, thread["id"])
         owner, planner = split_thread(fresh.get("description") or "", texts["separator"])
-        old = [ln for ln in planner.splitlines() if ln.strip() and ln.strip() != texts["hint"]]
-        kept = (old + lines)[-THREAD_KEEP_LINES:]
+        kept = (answer_lines(planner, texts) + lines)[-THREAD_KEEP_LINES:]
         api.patch_event(target, thread["id"], {"description": join_thread(owner, kept, texts)})
+        self._remember_thread(day, owner, "\n".join(kept))
         return True
+
+    def write_note(self, day: str, text: str, base: str | None) -> tuple[bool, str]:
+        """The owner's note for ``day``, written from the app. ``base`` is the note as the app
+        showed it: if the calendar holds something else by now (typed on the phone meanwhile),
+        nothing is written. Returns (written, the note now in the calendar)."""
+        thread = next((t for t in self.store().get("threads", []) if t["date"] == day), None)
+        if thread is None:
+            raise GoogleError(f"no planner entry for {day} (only today and the next days)", 404)
+        api = self._client()
+        target = self.config()["target"]
+        texts = self.config()["thread"]
+        fresh = api.get_event(target, thread["id"])
+        owner, planner = split_thread(fresh.get("description") or "", texts["separator"])
+        if base is not None and owner.strip() != base.strip():
+            self._remember_thread(day, owner, planner)
+            return False, owner
+        kept = answer_lines(planner, texts)
+        api.patch_event(target, thread["id"], {"description": join_thread(text, kept, texts)})
+        self._remember_thread(day, text.strip(), "\n".join(kept))
+        return True, text.strip()
+
+    def _remember_thread(self, day: str, owner: str, planner: str) -> None:
+        """Update one thread in the local copy, so the app shows it before the next sync."""
+        with self._lock, FileLock(self.vault.resolve(LOCK_FILE)):
+            store = self.store()
+            for t in store.get("threads", []):
+                if t["date"] == day:
+                    t["owner"], t["planner"] = owner, planner
+            write_atomic(
+                self.vault.resolve(EVENTS_FILE), json.dumps(store, indent=1, ensure_ascii=False)
+            )
 
     # -- read side ------------------------------------------------------------------
 

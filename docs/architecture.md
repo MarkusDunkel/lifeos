@@ -468,7 +468,12 @@ separator line, the planner answers below it (`CalendarSync.answer_thread` re-re
 right before writing, so text typed meanwhile is kept). Notes from yesterday to the end of the
 horizon go into the prompt (`<day_notes>`, changed ones marked NEW); a changed note queues a
 re-plan right away, and the model's `day_notes` answers are written to the threads of the days
-they concern. Descriptions of appointments and all-day events reach the planner too.
+they concern. Descriptions of appointments and all-day events reach the planner too. The plan
+page shows each day's thread (Evening: today and tomorrow; Week: every day) and can write the
+note (`PUT /api/planning/notes/{day}` with the note it showed as `base`; 409 and nothing written
+if the calendar holds another text by now). A note saved in the app does *not* queue a run: it
+updates `notes_signature`, so the sync does not take it for a phone note, and stays NEW until
+"plan again" (`pendingNotes` in the status).
 
 **Owner changes in Google.** The calendar sync reconciles after each run: a plan event moved by
 hand moves its block and *pins* it (its time is fixed, it is planned around like a running

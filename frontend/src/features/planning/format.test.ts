@@ -36,6 +36,7 @@ describe("planning format", () => {
       blocks: [block("10:00", "11:00"), block("08:00", "09:00"), block("12:00", "13:00", "removed")],
       appointments: [{ start: "09:00", end: "10:00", title: "Dentist", calendar: "Private" }],
       allDay: [],
+      thread: null,
     };
     expect(timeline(day).map((i) => i.start)).toEqual(["08:00", "09:00", "10:00"]);
   });
