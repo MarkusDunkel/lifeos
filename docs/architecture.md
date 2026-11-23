@@ -411,6 +411,15 @@ quickest, a soft factor); sorting by fit or recommendation multiplies the score 
 factor: 1 up to the home's `comfort_minutes`, down to 0.5 at `max_minutes` (flagged beyond),
 1 for unknown times and remote postings.
 
+**Dashboard** (`modules/career/dashboard.py`, `GET /api/jobsearch/dashboard`, cached 5 min,
+`?refresh=true`): tab "Dashboard" of the job list. Funnel (active → near/remote → prefilter →
+assessed with verdicts → in application, backlog in days at the daily limit), demand per
+profile (postings with fit ≥ 50, share vs. the profile's weight, new by publication date
+this week vs. last), profile × place (homes, remote, top cities; median commute), AI quality
+(hit rate, best-profile agreement, prefilter-vs-AI offset with a scatter plot, verdicts per
+profile, stale/failed, tokens) and gaps (skills of fitting postings near the homes with the
+own level, skills the AI names missing).
+
 ## Backend layout (`backend/src/lifeos`)
 
 | Module | Responsibility |

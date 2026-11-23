@@ -233,6 +233,22 @@ def build_router(
             items.append(row)
         return {"total": len(rows), "offset": offset, "items": items}
 
+    dashboard_cache: dict[str, Any] = {}
+
+    @router.get("/dashboard")
+    def dashboard(refresh: bool = False) -> dict:
+        """Funnel, demand per profile, profile × place, AI quality and gaps (cached 5 min)."""
+        if fit is None:
+            raise HTTPException(503, "the job profiles are not set up")
+        from lifeos.modules.career.dashboard import build_dashboard
+
+        now = datetime.now(UTC)
+        cached = dashboard_cache.get("value")
+        if refresh or not cached or now - dashboard_cache["at"] > timedelta(minutes=5):
+            cached = build_dashboard(store, fit, matcher, commute, now=now)
+            dashboard_cache.update(value=cached, at=now)
+        return cached
+
     @router.get("/matcher")
     def matcher_status() -> dict:
         """Today's assessments against the daily limits, and the queue."""

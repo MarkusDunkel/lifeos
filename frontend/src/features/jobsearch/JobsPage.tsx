@@ -20,6 +20,7 @@ import {
   postingsQuery,
   startApplication,
 } from "./api";
+import { DashboardView } from "./Dashboard";
 import { ago, formatEmployment, formatSalary } from "./format";
 
 const btn =
@@ -35,7 +36,9 @@ const PERIODS: [string, number | null][] = [
   ["last 30 days", 30],
 ];
 
-export function JobsPage() {
+export type JobsView = "postings" | "dashboard";
+
+export function JobsPage({ view = "postings", onView }: { view?: JobsView; onView?: (view: JobsView) => void }) {
   const [text, setText] = useState("");
   const [filter, setFilter] = useState<PostingsFilter>({
     q: "",
@@ -71,6 +74,23 @@ export function JobsPage() {
         whether to import, or run <code className="text-xs">lifeos jobsearch import</code> there. Postings for the same
         job are grouped; postings that went offline are kept for a year.
       </p>
+      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800" role="tablist">
+        {(["postings", "dashboard"] as const).map((v) => (
+          <button
+            key={v}
+            role="tab"
+            aria-selected={view === v}
+            onClick={() => onView?.(v)}
+            className={`-mb-px border-b-2 px-3 py-1.5 text-sm capitalize ${view === v ? "border-teal-600 font-medium" : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+      {view === "dashboard" ? (
+        <DashboardView />
+      ) : (
+        <>
       <StatusCard />
       <MatcherLine />
       <section className="space-y-3">
@@ -160,6 +180,8 @@ export function JobsPage() {
         </div>
         <Results filter={filter} pages={pages} onMore={() => setPages(pages + 1)} />
       </section>
+        </>
+      )}
     </div>
   );
 }

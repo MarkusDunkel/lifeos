@@ -190,6 +190,66 @@ export const requestAssessment = (key: string) => {
   return api<{ queued: boolean; position: number }>(`/api/jobsearch/postings/${source}/${id}/assess`, { method: "POST" });
 };
 
+export type Verdicts = { apply: number; maybe: number; no: number };
+
+export type Dashboard = {
+  generatedAt: string;
+  goodFit: number;
+  funnel: {
+    active: number;
+    reach: number;
+    passed: number;
+    assessed: number;
+    verdicts: Verdicts;
+    applied: number;
+    open: number;
+    daysLeft: number | null;
+    matcher: MatcherStatus;
+  };
+  demand: {
+    slug: string;
+    title: string;
+    good: number;
+    near: number;
+    share: number;
+    weight: number;
+    newWeek: number;
+    newWeekBefore: number;
+  }[];
+  places: {
+    columns: string[];
+    homes: string[];
+    rows: { slug: string; title: string; counts: Record<string, number> }[];
+    commuteMedian: Record<string, number | null>;
+  };
+  quality: {
+    points: { key: string; title: string; prefilter: number; ai: number | null; recommendation: Recommendation | null }[];
+    prefilterMean: number | null;
+    aiMean: number | null;
+    offset: number | null;
+    sameProfile: number | null;
+    hitRate: number;
+    byProfile: { slug: string; title: string; counts: Verdicts }[];
+    stale: number;
+    failed: number;
+    tokensMean: number | null;
+    listEurMean: number | null;
+    listEurTotal: number;
+  } | null;
+  gaps: {
+    missing: { skill: string; count: number }[];
+    wanted: { skill: string; count: number; level: number | null }[];
+    basis: number;
+  };
+};
+
+export const dashboardQuery = (refresh: boolean) =>
+  queryOptions({
+    queryKey: ["jobsearch", "dashboard", refresh],
+    queryFn: () => api<Dashboard>(`/api/jobsearch/dashboard${refresh ? "?refresh=true" : ""}`),
+    staleTime: refresh ? 0 : 60_000,
+  });
+
 export type ApplicationStarted = { issue: number; url: string; folder: string };
 
 export const startApplication = (posting: string) =>
