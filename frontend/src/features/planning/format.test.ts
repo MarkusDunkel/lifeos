@@ -14,6 +14,7 @@ const block = (start: string, end: string, status: PlanBlock["status"] = "planne
   status,
   minutes_done: null,
   minutes: 60,
+  edited: false,
 });
 
 describe("planning format", () => {

@@ -40,6 +40,11 @@ class StatusIn(BaseModel):
     note: str = ""
 
 
+class BlockEdit(BaseModel):
+    title: str | None = Field(default=None, max_length=300)
+    description: str | None = Field(default=None, max_length=8000)
+
+
 class JournalIn(BaseModel):
     mood: int | None = Field(default=None, ge=1, le=5)
     energy: int | None = Field(default=None, ge=1, le=5)
@@ -150,8 +155,23 @@ def build_router(planner: Planner, committer: Committer | None = None) -> APIRou
         return {
             "start": first.isoformat(),
             "days": [_day_view(first + timedelta(days=n), blocks, store) for n in range(7)],
-            "goals": planner.targets() if first == week_start(planner.now().date()) else [],
+            "goals": planner.targets(first),
         }
+
+    @router.patch("/blocks/{block_id}")
+    def edit_block(block_id: str, body: BlockEdit) -> dict[str, Any]:
+        """The owner's own title and description; written to Google right away."""
+        try:
+            block = planner.plans.edit(block_id, body.title, body.description)
+        except KeyError as exc:
+            raise HTTPException(404, f"no block {block_id}") from exc
+        if block.gid and planner.calendar.api is not None:
+            target = planner.calendar.config()["target"]
+            if target:
+                planner.calendar.api().patch_event(
+                    target, block.gid, {"summary": block.title, "description": block.reason}
+                )
+        return asdict(block) | {"minutes": block.minutes}
 
     @router.post("/blocks/{block_id}/status")
     def set_status(block_id: str, body: StatusIn) -> dict[str, Any]:

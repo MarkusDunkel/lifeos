@@ -13,7 +13,8 @@ import hashlib
 import json
 import secrets
 import threading
-from collections.abc import Iterator
+import time as time_module
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time, timedelta
@@ -56,6 +57,8 @@ class Block:
     minutes_done: int | None = None  # for partial
     gid: str | None = None  # Google event id
     created: str = ""
+    edited: bool = False  # the owner set title or description: the planner keeps them
+    touched: str = ""  # when LifeOS last changed it (ISO); newer than a sync = sync is stale
 
     def span(self, tz: ZoneInfo) -> tuple[datetime, datetime]:
         d = date.fromisoformat(self.date)
@@ -89,15 +92,21 @@ def color_for(category: str) -> str:
     return PALETTE[digest % len(PALETTE)]
 
 
+LEGACY_LINES = ("Goal: ", "Planned by LifeOS")
+
+
+def owner_text(description: str) -> str:
+    """The description of a plan event without the lines older versions appended."""
+    lines = [ln for ln in description.splitlines() if not ln.startswith(LEGACY_LINES)]
+    return "\n".join(lines).strip()
+
+
 def event_body(block: Block, tz: ZoneInfo) -> dict[str, Any]:
+    """The Google event of a block: title and description exactly as on the plan page."""
     start, end = block.span(tz)
-    lines = [block.reason] if block.reason else []
-    if block.goal:
-        lines.append(f"Goal: {block.goal}")
-    lines.append("Planned by LifeOS – move or delete it here, the planner adapts.")
     return {
         "summary": block.title,
-        "description": "\n".join(lines),
+        "description": block.reason,
         "start": {"dateTime": start.isoformat(), "timeZone": str(tz)},
         "end": {"dateTime": end.isoformat(), "timeZone": str(tz)},
         "colorId": color_for(block.category),
@@ -210,10 +219,16 @@ class ApplyReport:
 
 
 class PlanStore:
-    def __init__(self, vault: Vault, timezone: str) -> None:
+    def __init__(
+        self, vault: Vault, timezone: str, clock: Callable[[], float] = time_module.time
+    ) -> None:
         self.vault = vault
         self.tz = ZoneInfo(timezone)
+        self._clock = clock
         self._lock = threading.Lock()
+
+    def _stamp(self) -> str:
+        return datetime.fromtimestamp(self._clock(), self.tz).isoformat()
 
     @contextmanager
     def locked(self) -> Iterator[None]:
@@ -245,11 +260,16 @@ class PlanStore:
             self.save(blocks)
             return block
 
-    def reconcile(self, google_plans: list[dict[str, Any]], window: dict[str, str]) -> list[str]:
-        """Adopt what the owner changed in Google: moved events move their block, deleted
-        events (inside the synced window) mark it removed. Returns one line per change."""
+    def reconcile(
+        self, google_plans: list[dict[str, Any]], window: dict[str, str], synced_at: str = ""
+    ) -> list[str]:
+        """Adopt what the owner changed in Google: moved events move their block, edited ones
+        take the new title and description, deleted events (inside the synced window) mark it
+        removed. Blocks LifeOS changed after ``synced_at`` are skipped (the sync is older).
+        Returns one line per change."""
         if not window:
             return []
+        seen = datetime.fromisoformat(synced_at) if synced_at else None
         w_start, w_end = _parse_dt(window["start"], self.tz), _parse_dt(window["end"], self.tz)
         by_id = {e["lifeos_id"]: e for e in google_plans if e.get("lifeos_id")}
         changes: list[str] = []
@@ -257,6 +277,8 @@ class PlanStore:
             blocks = self.blocks()
             for block in blocks:
                 if not block.gid or block.status == REMOVED:
+                    continue
+                if seen and block.touched and datetime.fromisoformat(block.touched) > seen:
                     continue
                 start, _ = block.span(self.tz)
                 if not (w_start <= start < w_end):
@@ -281,11 +303,30 @@ class PlanStore:
                         f"{s:%H:%M}",
                         f"{e:%H:%M}",
                     )
-                if event.get("title") and event["title"] != block.title:
-                    block.title = event["title"]
+                title = (event.get("title") or "").strip()
+                text = owner_text(event.get("description") or "")
+                if (title and title != block.title) or text != block.reason.strip():
+                    changes.append(f"edited by you: {title or block.title}")
+                    block.title, block.reason, block.edited = title or block.title, text, True
             if changes:
                 self.save(blocks)
         return changes
+
+    def edit(self, block_id: str, title: str | None, description: str | None) -> Block:
+        """The owner's own title or description for a block (kept by the planner)."""
+        with self.locked():
+            blocks = self.blocks()
+            block = next((b for b in blocks if b.id == block_id), None)
+            if block is None:
+                raise KeyError(block_id)
+            if title is not None and title.strip():
+                block.title = title.strip()
+            if description is not None:
+                block.reason = description.strip()
+            block.edited = True
+            block.touched = self._stamp()
+            self.save(blocks)
+            return block
 
     def apply(
         self,
@@ -301,19 +342,16 @@ class PlanStore:
         old = {b.id: b for b in self.blocks()}
         keep_ids = {b.id for b in keep}
         wanted_ids = {b.id for b in wanted}
+        stamp = self._stamp()
         for block in wanted:
             before = old.get(block.id)
+            block.touched = stamp
             body = event_body(block, self.tz)
             try:
                 if before is not None and before.gid:
                     block.gid = before.gid
-                    if (before.date, before.start, before.end, before.title, before.category) != (
-                        block.date,
-                        block.start,
-                        block.end,
-                        block.title,
-                        block.category,
-                    ):
+                    fields = ("date", "start", "end", "title", "category", "reason")
+                    if any(getattr(before, f) != getattr(block, f) for f in fields):
                         api.patch_event(target, before.gid, body)
                         report.moved += 1
                 else:

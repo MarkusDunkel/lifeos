@@ -276,6 +276,12 @@ def calendar_job(settings: Settings) -> Callable[[], JobResult]:
         )
         if report.errors:
             return JobResult("error", summary + "; " + "; ".join(report.errors))
+        store = sync.store()
+        adopted = planner.plans.reconcile(
+            store.get("plans", []), store.get("window", {}), store.get("synced_at") or ""
+        )
+        if adopted:
+            summary += f"; adopted {len(adopted)} change(s) made in Google"
         if planner.notice_calendar():
             summary += "; re-plan queued"
         return JobResult("ok", summary)

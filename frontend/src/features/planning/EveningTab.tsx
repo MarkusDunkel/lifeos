@@ -1,14 +1,12 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Send, Trash2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   type BlockStatus,
   type JournalEntry,
   type PlanBlock,
-  type Wish,
-  addWish,
   dayQuery,
-  deleteWish,
+  editBlock,
   plannerStatusQuery,
   replan,
   saveJournal,
@@ -20,7 +18,7 @@ import { Timeline } from "./Timeline";
 
 const card = "space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800";
 
-/** The evening screen: check off today, write the journal, look at tomorrow, send wishes. */
+/** The evening screen: check off today, write the journal, plan tomorrow. */
 export function EveningTab() {
   const today = isoDay(new Date());
   const tomorrow = addDays(today, 1);
@@ -32,7 +30,6 @@ export function EveningTab() {
         <DayCard day={tomorrow} today={today} />
       </div>
       <JournalCard day={today} />
-      <WishesCard today={today} />
     </div>
   );
 }
@@ -153,12 +150,17 @@ function TodayCard({ day }: { day: string }) {
 }
 
 function DayCard({ day, today }: { day: string; today: string }) {
+  const refresh = useRefresh();
   const data = useQuery(dayQuery(day));
   return (
     <section className={card}>
-      <h2 className="font-semibold">{dayLabel(day, today)}</h2>
+      <h2 className="font-semibold">{dayLabel(day, today)} – what exactly will you do?</h2>
+      <p className="text-xs text-slate-500">
+        Edit a block (✎) to say what you plan for it. Title and text go to your calendar; the planner keeps them and
+        lets them guide the next sessions.
+      </p>
       {data.data ? (
-        <Timeline day={data.data} />
+        <Timeline day={data.data} onEdit={(block, title, text) => editBlock(block.id, title, text).then(refresh)} />
       ) : (
         <p className="text-sm text-slate-400">{data.error ? data.error.message : "Loading…"}</p>
       )}
@@ -281,86 +283,5 @@ function TextArea({ label, value, onChange }: { label: string; value: string; on
         className="mt-1 w-full rounded border border-slate-300 bg-transparent px-2 py-1 dark:border-slate-700"
       />
     </label>
-  );
-}
-
-function WishesCard({ today }: { today: string }) {
-  const refresh = useRefresh();
-  const days = Array.from({ length: 7 }, (_, i) => addDays(today, i));
-  const [day, setDay] = useState(days[1]);
-  const [text, setText] = useState("");
-  const send = useMutation({
-    mutationFn: () => addWish(day, text),
-    onSuccess: () => {
-      setText("");
-      refresh();
-    },
-  });
-  const remove = useMutation({ mutationFn: deleteWish, onSettled: refresh });
-  const results = useQueries({ queries: days.map((d) => dayQuery(d)) });
-  const wishes = days.flatMap((d, i) =>
-    (results[i].data?.wishes ?? []).map((w) => ({ ...w, label: dayLabel(d, today) })),
-  );
-  return (
-    <section className={card}>
-      <h2 className="font-semibold">Change wishes</h2>
-      <p className="text-xs text-slate-500">
-        Tell the planner what to change, e.g. "start at 10", "no sport, knee hurts", "more time for the application to X".
-      </p>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <select
-          value={day}
-          onChange={(e) => setDay(e.target.value)}
-          className="rounded border border-slate-300 bg-transparent px-2 py-1 text-sm dark:border-slate-700"
-        >
-          {days.map((d) => (
-            <option key={d} value={d}>
-              {dayLabel(d, today)}
-            </option>
-          ))}
-        </select>
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && text.trim() && send.mutate()}
-          placeholder="Your wish…"
-          className="min-w-0 flex-1 rounded border border-slate-300 bg-transparent px-2 py-1 text-sm dark:border-slate-700"
-        />
-        <button className={btn} onClick={() => send.mutate()} disabled={!text.trim() || send.isPending}>
-          <Send className="size-4" /> Send
-        </button>
-      </div>
-      {send.error && <p className="text-sm text-red-600">{send.error.message}</p>}
-      <WishList wishes={wishes} onDelete={(id) => remove.mutate(id)} />
-    </section>
-  );
-}
-
-function WishList({ wishes, onDelete }: { wishes: (Wish & { label: string })[]; onDelete: (id: string) => void }) {
-  if (!wishes.length) return null;
-  return (
-    <ul className="space-y-1 text-sm">
-      {wishes.map((w) => (
-        <li key={w.id} className="flex items-start gap-2">
-          <span className="w-20 shrink-0 text-slate-500">{w.label}</span>
-          <span className="min-w-0 flex-1">
-            {w.text}
-            {w.status === "open" ? (
-              <span className="ml-2 text-xs text-amber-600">open</span>
-            ) : (
-              <span className={`block text-xs ${w.status === "done" ? "text-emerald-600" : "text-slate-500"}`}>
-                {w.status === "done" ? "✓ " : "✗ "}
-                {w.answer}
-              </span>
-            )}
-          </span>
-          {w.status === "open" && (
-            <button aria-label="Delete wish" onClick={() => onDelete(w.id)} className="text-slate-400 hover:text-red-600">
-              <Trash2 className="size-4" />
-            </button>
-          )}
-        </li>
-      ))}
-    </ul>
   );
 }

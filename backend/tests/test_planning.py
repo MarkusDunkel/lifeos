@@ -460,3 +460,86 @@ def test_running_marker_exists_only_during_a_run(planner):
     assert seen[0]["reason"] == "wish" and planner.running() is None
     planner.run(lambda agent: FakeLlm([RuntimeError("boom")]), LlmSettings(), "wish")
     assert planner.running() is None
+
+
+def _two_blocks(planner):
+    llm = FakeLlm([
+        PlanResult(blocks=[block("2026-11-24", "10:00", "11:00", "A"),
+                           block("2026-11-25", "10:00", "11:00", "B")], summary="1"),
+    ])  # fmt: skip
+    planner.run(lambda agent: llm, LlmSettings())
+    return planner.plans.blocks()
+
+
+def test_google_description_is_exactly_the_block_text(planner, fake):
+    a, _ = _two_blocks(planner)
+    target = planner.calendar.config()["target"]
+    assert fake.items[target][a.gid]["description"] == "r"
+
+
+def test_owner_edit_is_written_to_google_and_kept_by_the_planner(planner, fake, client):
+    a, _ = _two_blocks(planner)
+    planner.plans.edit(a.id, "LifeOS: Kalender-Tab bauen", "Wochenansicht einspaltig")
+    target = planner.calendar.config()["target"]  # like the API: Google gets it right away
+    fake.patch_event(target, a.gid, {"summary": "LifeOS: Kalender-Tab bauen",
+                                     "description": "Wochenansicht einspaltig"})  # fmt: skip
+    edited = {b.id: b for b in planner.plans.blocks()}[a.id]
+    assert edited.edited and edited.reason == "Wochenansicht einspaltig"
+    llm = FakeLlm([
+        PlanResult(blocks=[block("2026-11-24", "10:00", "11:00", "Something else", id=a.id)],
+                   summary="2"),
+    ])  # fmt: skip
+    planner.run(lambda agent: llm, LlmSettings())
+    assert "SET BY THE OWNER" in llm.prompts[0] and "Wochenansicht einspaltig" in llm.prompts[0]
+    kept = {b.id: b for b in planner.plans.blocks()}[a.id]
+    assert (kept.title, kept.reason) == ("LifeOS: Kalender-Tab bauen", "Wochenansicht einspaltig")
+    target = planner.calendar.config()["target"]
+    assert fake.items[target][a.gid]["summary"] == "LifeOS: Kalender-Tab bauen"
+
+
+def test_owner_block_survives_when_the_model_drops_it(planner):
+    a, b = _two_blocks(planner)
+    planner.plans.edit(b.id, None, "mein Plan")
+    llm = FakeLlm([PlanResult(blocks=[block("2026-11-24", "10:00", "11:00", "A", id=a.id)],
+                              summary="2")])  # fmt: skip
+    planner.run(lambda agent: llm, LlmSettings())
+    assert b.id in {x.id for x in planner.plans.blocks()}
+
+
+def test_edits_in_google_are_adopted_but_old_footers_are_not_edits(planner, fake):
+    a, b = _two_blocks(planner)
+    target = planner.calendar.config()["target"]
+    fake.items[target][a.gid]["description"] = "r\nGoal: Programmieren\nPlanned by LifeOS – x"
+    fake.items[target][b.gid]["description"] = "Kapitel 3 lesen"
+    planner.calendar.sync()
+    store = planner.calendar.store()
+    changes = planner.plans.reconcile(store["plans"], store["window"], store["synced_at"])
+    by_id = {x.id: x for x in planner.plans.blocks()}
+    assert not by_id[a.id].edited
+    assert by_id[b.id].edited and by_id[b.id].reason == "Kapitel 3 lesen"
+    assert changes == ["edited by you: B"]
+
+
+def test_a_sync_older_than_the_last_change_is_ignored(planner, fake):
+    a, _ = _two_blocks(planner)
+    target = planner.calendar.config()["target"]
+    del fake.items[target][a.gid]
+    store = planner.calendar.store() | {"plans": [], "synced_at": "2000-01-01T00:00:00+01:00"}
+    assert planner.plans.reconcile(store["plans"], store["window"], store["synced_at"]) == []
+
+
+def test_edit_block_api(client, settings):
+    from lifeos.modules.planning.plan import PlanStore
+
+    PlanStore(Vault.open(settings.vault_root), settings.timezone).save(
+        [Block("b1", "2026-11-24", "08:00", "09:00", "lifeos", "LifeOS", "Alt", "alt")]
+    )
+    r = client.patch("/api/planning/blocks/b1", json={"title": "Neu", "description": "Plan"})
+    assert r.status_code == 200 and r.json()["edited"] is True
+    assert (r.json()["title"], r.json()["reason"]) == ("Neu", "Plan")
+    assert client.patch("/api/planning/blocks/x", json={"title": "y"}).status_code == 404
+
+
+def test_week_goals_for_a_past_week(client):
+    past = client.get("/api/planning/week?start=2026-11-02").json()
+    assert past["start"] == "2026-11-02" and isinstance(past["goals"], list)

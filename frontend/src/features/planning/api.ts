@@ -66,6 +66,7 @@ export type PlanBlock = {
   status: BlockStatus;
   minutes_done: number | null;
   minutes: number;
+  edited: boolean;
 };
 
 export type Appointment = { start: string; end: string; title: string; calendar: string };
@@ -171,6 +172,9 @@ export type GoalInput = Pick<Goal, "name" | "group" | "amount" | "unit" | "prior
 
 export const saveGoals = (goals: GoalInput[], rules: string, revision: string | null) =>
   api<GoalsData>("/api/planning/goals", { method: "PUT", json: { goals, rules, revision } });
+
+export const editBlock = (id: string, title: string, description: string) =>
+  api<PlanBlock>(`/api/planning/blocks/${id}`, { method: "PATCH", json: { title, description } });
 
 export const setBlockStatus = (id: string, status: BlockStatus, minutes?: number) =>
   api<PlanBlock>(`/api/planning/blocks/${id}/status`, { method: "POST", json: { status, minutes } });

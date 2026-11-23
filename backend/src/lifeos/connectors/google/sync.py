@@ -92,6 +92,7 @@ def normalize(raw: dict[str, Any], calendar_id: str, label: str) -> dict[str, An
         "all_day": all_day,
         "busy": raw.get("transparency") != "transparent",
         "location": raw.get("location") or "",
+        "description": raw.get("description") or "",
         "kind": private.get("lifeos_kind") or "",
         "lifeos_id": private.get("lifeos_id") or "",
         "hash": private.get("lifeos_hash") or "",

@@ -1,4 +1,5 @@
-import { Check, Minus, X } from "lucide-react";
+import { Check, Minus, Pencil, X } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import type { BlockStatus, DayView, PlanBlock } from "./api";
 import { categoryHue, timeline } from "./format";
 
@@ -10,15 +11,20 @@ const STATUS_STYLE: Record<BlockStatus, string> = {
   removed: "hidden",
 };
 
-/** One day: appointments (grey) and planned blocks (coloured by category). With ``onStatus``
- * every block gets check-in buttons (done / partly / skipped). */
+const field = "w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900";
+
+/** One day: appointments (grey) and planned blocks (coloured by goal). With ``onStatus`` every
+ * block gets check-in buttons (done / partly / skipped); with ``onEdit`` its title and
+ * description can be changed (they are the Google event's title and notes). */
 export function Timeline({
   day,
   onStatus,
+  onEdit,
   compact = false,
 }: {
   day: DayView;
   onStatus?: (block: PlanBlock, status: BlockStatus) => void;
+  onEdit?: (block: PlanBlock, title: string, description: string) => Promise<unknown>;
   compact?: boolean;
 }) {
   const items = timeline(day);
@@ -39,57 +45,140 @@ export function Timeline({
             <span className="w-24 shrink-0 tabular-nums text-slate-400">
               {item.start}–{item.end}
             </span>
-            <span className="min-w-0 flex-1 truncate">{item.appointment.title}</span>
+            <span className="min-w-0 flex-1">{item.appointment.title}</span>
             {!compact && <span className="shrink-0 text-xs text-slate-400">{item.appointment.calendar}</span>}
           </li>
         ) : (
-          <li
-            key={item.block.id}
-            className={`flex items-start gap-2 rounded px-2 py-1 text-sm ${STATUS_STYLE[item.block.status]}`}
-            style={{
-              background: `hsl(${categoryHue(item.block.category)} 70% 50% / 0.14)`,
-              borderLeft: `3px solid hsl(${categoryHue(item.block.category)} 65% 45%)`,
-            }}
-            title={item.block.reason}
-          >
-            <span className="w-24 shrink-0 tabular-nums">
-              {item.start}–{item.end}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">{item.block.title}</span>
-              {!compact && item.block.reason && (
-                <span className="block truncate text-xs text-slate-500">{item.block.reason}</span>
-              )}
-            </span>
-            {onStatus && (
-              <span className="flex shrink-0 gap-1">
-                <StatusButton active={item.block.status === "done"} label="Done" onClick={() => onStatus(item.block, "done")}>
-                  <Check className="size-4" />
-                </StatusButton>
-                <StatusButton
-                  active={item.block.status === "partial"}
-                  label="Partly"
-                  onClick={() => onStatus(item.block, "partial")}
-                >
-                  <Minus className="size-4" />
-                </StatusButton>
-                <StatusButton
-                  active={item.block.status === "skipped"}
-                  label="Skipped"
-                  onClick={() => onStatus(item.block, "skipped")}
-                >
-                  <X className="size-4" />
-                </StatusButton>
-              </span>
-            )}
-          </li>
+          <BlockItem key={item.block.id} block={item.block} compact={compact} onStatus={onStatus} onEdit={onEdit} />
         ),
       )}
     </ul>
   );
 }
 
-function StatusButton({
+function BlockItem({
+  block,
+  compact,
+  onStatus,
+  onEdit,
+}: {
+  block: PlanBlock;
+  compact: boolean;
+  onStatus?: (block: PlanBlock, status: BlockStatus) => void;
+  onEdit?: (block: PlanBlock, title: string, description: string) => Promise<unknown>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(block.title);
+  const [text, setText] = useState(block.reason);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const hue = categoryHue(block.category);
+  const style = { background: `hsl(${hue} 70% 50% / 0.14)`, borderLeft: `3px solid hsl(${hue} 65% 45%)` };
+
+  if (editing && onEdit) {
+    const save = async () => {
+      setSaving(true);
+      setError(null);
+      try {
+        await onEdit(block, title, text);
+        setEditing(false);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setSaving(false);
+      }
+    };
+    return (
+      <li className="space-y-2 rounded px-2 py-2 text-sm" style={style}>
+        <div className="flex items-center gap-2">
+          <span className="w-24 shrink-0 tabular-nums">
+            {block.start}–{block.end}
+          </span>
+          <input className={field} value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Title" autoFocus />
+        </div>
+        <textarea
+          className={field}
+          rows={3}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          aria-label="Description"
+          placeholder="What exactly do you want to do? (shown as notes in your calendar)"
+        />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={save}
+            disabled={saving || !title.trim()}
+            className="rounded bg-teal-600 px-3 py-1 text-white hover:bg-teal-700 disabled:opacity-50"
+          >
+            Save
+          </button>
+          <button
+            onClick={() => {
+              setTitle(block.title);
+              setText(block.reason);
+              setEditing(false);
+            }}
+            className="rounded border border-slate-300 px-3 py-1 dark:border-slate-600"
+          >
+            Cancel
+          </button>
+          {error && <span className="text-xs text-red-600">{error}</span>}
+        </div>
+      </li>
+    );
+  }
+
+  return (
+    <li className={`flex items-start gap-2 rounded px-2 py-1 text-sm ${STATUS_STYLE[block.status]}`} style={style}>
+      <span className="w-24 shrink-0 tabular-nums">
+        {block.start}–{block.end}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium">
+          {block.title}
+          {block.edited && (
+            <span className="ml-1 text-xs font-normal text-teal-700 dark:text-teal-400" title="Set by you – the planner keeps it">
+              ✎
+            </span>
+          )}
+        </span>
+        {!compact && block.reason && <span className="block whitespace-pre-line text-xs text-slate-500">{block.reason}</span>}
+      </span>
+      {(onStatus || onEdit) && (
+        <span className="flex shrink-0 gap-1">
+          {onEdit && (
+            <IconButton
+              active={false}
+              label="Edit title and description"
+              onClick={() => {
+                setTitle(block.title);
+                setText(block.reason);
+                setEditing(true);
+              }}
+            >
+              <Pencil className="size-4" />
+            </IconButton>
+          )}
+          {onStatus && (
+            <>
+              <IconButton active={block.status === "done"} label="Done" onClick={() => onStatus(block, "done")}>
+                <Check className="size-4" />
+              </IconButton>
+              <IconButton active={block.status === "partial"} label="Partly" onClick={() => onStatus(block, "partial")}>
+                <Minus className="size-4" />
+              </IconButton>
+              <IconButton active={block.status === "skipped"} label="Skipped" onClick={() => onStatus(block, "skipped")}>
+                <X className="size-4" />
+              </IconButton>
+            </>
+          )}
+        </span>
+      )}
+    </li>
+  );
+}
+
+function IconButton({
   active,
   label,
   onClick,
@@ -98,7 +187,7 @@ function StatusButton({
   active: boolean;
   label: string;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button

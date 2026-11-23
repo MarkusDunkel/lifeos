@@ -117,6 +117,8 @@ How to plan:
   shorter focus blocks, more buffer). Skipped blocks in <checkins> hint at bad slots.
 - Exams in <exams> make study urgent; nearer exam and lower readiness = more study.
 - Answer every wish in <wishes>.
+- Blocks marked SET BY THE OWNER carry the owner's own plan in their text. Keep them, and
+  let them guide related blocks (e.g. continue that topic in the next session of the goal).
 - Titles are concrete ("Bewerbung Firma X: Anschreiben", "Laufen 40 min locker"), in the
   language of the goals and rules. Write summary, reasons and answers in that language too.
 - Propose a rule only for a pattern you see several times; never invent evidence.
@@ -158,7 +160,7 @@ class Planner:
         self.calendar = calendar
         self.study_overview = study_overview
         self.planning_dir = planning_dir
-        self.plans = PlanStore(vault, timezone)
+        self.plans = PlanStore(vault, timezone, clock)
         self.journal = Journal(vault, planning_dir)
         self._clock = clock
         self._lock = threading.Lock()
@@ -184,12 +186,13 @@ class Planner:
             log.exception("study overview failed")
             return 0.0, []
 
-    def targets(self) -> list[dict[str, Any]]:
-        """Each goal with its weekly target (auto resolved) and this week's progress."""
+    def targets(self, week: date | None = None) -> list[dict[str, Any]]:
+        """Each goal with its weekly target (auto resolved) and the progress in ``week`` (any
+        day of it; default: this week). Past weeks are measured against today's goals."""
         goal_list, _ = self.goals()
         auto_hours, _ = self.auto_study()
         now = self.now()
-        monday = week_start(now.date())
+        monday = week_start(week or now.date())
         sunday = monday + timedelta(days=6)
         blocks = [
             b
@@ -332,7 +335,9 @@ class Planner:
         if report.errors and not self.calendar.store().get("synced_at"):
             return RunOutcome("error", "calendar sync failed: " + "; ".join(report.errors))
         store = self.calendar.store()
-        changes = self.plans.reconcile(store.get("plans", []), store.get("window", {}))
+        changes = self.plans.reconcile(
+            store.get("plans", []), store.get("window", {}), store.get("synced_at") or ""
+        )
 
         freeze_until = round_up(now, 15)
         horizon_end = now.date() + timedelta(days=HORIZON_DAYS - 1)
@@ -352,7 +357,7 @@ class Planner:
         started = clock_time.monotonic()
         try:
             result, used = llm.parse(system, prompt, PlanResult, effort)
-            wanted = self._blocks(result, open_blocks, now)
+            wanted = self._with_owner_blocks(self._blocks(result, open_blocks, now), open_blocks)
             valid, errors = validate(wanted, busy, frozen, self.tz, freeze_until, horizon_end)
             if errors:
                 retry = prompt + tag(
@@ -362,7 +367,9 @@ class Planner:
                 )
                 result, more = llm.parse(system, retry, PlanResult, effort)
                 used = used + more
-                wanted = self._blocks(result, open_blocks, now)
+                wanted = self._with_owner_blocks(
+                    self._blocks(result, open_blocks, now), open_blocks
+                )
                 valid, errors = validate(wanted, busy, frozen, self.tz, freeze_until, horizon_end)
         except Exception as exc:
             self._log_run(now, reason, "error", str(exc), Usage(), 0)
@@ -396,6 +403,12 @@ class Planner:
             [p.model_dump() for p in result.rule_proposals],
         )
 
+    @staticmethod
+    def _with_owner_blocks(wanted: list[Block], open_blocks: list[Block]) -> list[Block]:
+        """Blocks the owner edited stay even if the model left them out."""
+        ids = {b.id for b in wanted}
+        return wanted + [b for b in open_blocks if b.edited and b.id not in ids]
+
     def _blocks(self, result: PlanResult, open_blocks: list[Block], now: datetime) -> list[Block]:
         known = {b.id: b for b in open_blocks}
         goal_list = self.goals()[0]
@@ -416,11 +429,15 @@ class Planner:
                     end=p.end[:5],
                     category=goal_names.get(p.goal, goals_mod.slug(p.category or "pause")),
                     goal=p.goal if p.goal in goal_names else "",
-                    title=p.title.strip() or p.goal or "Block",
-                    reason=p.reason.strip(),
+                    # the owner's own title and description stay, whatever the model says
+                    title=before.title
+                    if before and before.edited
+                    else (p.title.strip() or p.goal or "Block"),
+                    reason=before.reason if before and before.edited else p.reason.strip(),
                     status=before.status if before else "planned",
                     gid=before.gid if before else None,
                     created=before.created if before else now.isoformat(timespec="seconds"),
+                    edited=bool(before and before.edited),
                 )
             )
         return out
@@ -486,6 +503,12 @@ class Planner:
             days.append("\n".join(lines))
         current = [
             f"- id {b.id}: {b.date} {b.start}–{b.end} {b.title} (goal {b.goal or '-'})"
+            + (
+                f" — SET BY THE OWNER, keep it (title and text stay; move only if a new "
+                f"appointment forces it); the owner's plan for it: {b.reason or '(no text)'}"
+                if b.edited
+                else ""
+            )
             for b in open_blocks
         ]
         wishes = [

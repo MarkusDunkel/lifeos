@@ -28,16 +28,27 @@ export function WeekTab() {
           </button>
         )}
       </div>
-      {!!w?.goals.length && <GoalBars goals={w.goals} />}
+      {!!w?.goals.length && (
+        <GoalBars
+          goals={w.goals}
+          title={
+            w.days.some((d) => d.date === today)
+              ? "This week"
+              : w.days[6].date < today
+                ? `Week of ${dayLabel(w.start, today)} – how far the goals got`
+                : `Week of ${dayLabel(w.start, today)}`
+          }
+        />
+      )}
       {week.error && <p className="text-sm text-red-600">{week.error.message}</p>}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="space-y-3">
         {w?.days.map((day) => (
           <section
             key={day.date}
             className={`space-y-2 rounded-xl border p-3 ${day.date === today ? "border-teal-600" : "border-slate-200 dark:border-slate-800"}`}
           >
             <h3 className="text-sm font-semibold">{dayLabel(day.date, today)}</h3>
-            <Timeline day={day} compact />
+            <Timeline day={day} />
           </section>
         ))}
       </div>
@@ -45,10 +56,24 @@ export function WeekTab() {
   );
 }
 
-export function GoalBars({ goals }: { goals: Goal[] }) {
+export function GoalBars({ goals, title = "This week" }: { goals: Goal[]; title?: string }) {
   return (
     <section className="space-y-2 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-      <h2 className="font-semibold">This week</h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="font-semibold">{title}</h2>
+        <span className="flex items-center gap-3 text-xs text-slate-500">
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-4 rounded bg-slate-500" /> done
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-4 rounded bg-slate-500/30" /> still planned
+          </span>
+        </span>
+      </div>
+      <p className="text-xs text-slate-500">
+        The dark part grows as blocks pass (unmarked ones count as done, skipped ones not); the light part is what
+        the plan still holds. Together they show how much of the goal fits into the week.
+      </p>
       <ul className="space-y-2">
         {goals.map((g) => {
           const p = progress(g);
