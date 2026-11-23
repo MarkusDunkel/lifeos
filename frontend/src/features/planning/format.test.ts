@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { DayView, Goal, PlanBlock } from "./api";
-import { addDays, amountText, dayLabel, progress, timeline } from "./format";
+import type { DayView, Goal, GoalInput, PlanBlock } from "./api";
+import { addDays, amountText, dayLabel, progress, resolveGoals, timeline } from "./format";
 
 const block = (start: string, end: string, status: PlanBlock["status"] = "planned"): PlanBlock => ({
   id: start,
@@ -43,5 +43,32 @@ describe("planning format", () => {
     expect(progress(goal)).toEqual({ done: 0.25, planned: 1 });
     expect(amountText(2.5, "hours")).toBe("2.5 h");
     expect(amountText(6, "sessions")).toBe("6×");
+  });
+
+  it("resolves groups like the backend: percentages of what fixed members leave", () => {
+    const goal = (name: string, amount: number | null, unit: GoalInput["unit"], group = ""): GoalInput => ({
+      name,
+      amount,
+      unit,
+      group,
+      priority: "mittel",
+      note: "",
+    });
+    const goals = [
+      goal("Sport", 6, "sessions"),
+      goal("LifeOS", 20, "percent", "Arbeit"),
+      goal("Arbeit", 30, "hours"),
+      goal("Uni", null, "hours", "Arbeit"),
+      goal("Bewerben", 60, "percent", "Arbeit"),
+      goal("Portfolio", 20, "percent", "Arbeit"),
+    ];
+    const r = resolveGoals(goals, 6);
+    expect(r.get("Arbeit")).toMatchObject({ target: 30, isGroup: true, warnings: [] });
+    expect(r.get("Uni")?.target).toBe(6);
+    expect(r.get("LifeOS")?.target).toBe(4.8);
+    expect(r.get("Bewerben")?.target).toBe(14.4);
+    expect(r.get("Sport")).toMatchObject({ target: 6, unit: "sessions" });
+    goals[4] = goal("Bewerben", 10, "percent", "Arbeit");
+    expect(resolveGoals(goals, 0).get("Arbeit")?.warnings[0]).toMatch(/only 50 %/);
   });
 });

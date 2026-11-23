@@ -54,12 +54,14 @@ export function GoalBars({ goals }: { goals: Goal[] }) {
           const p = progress(g);
           const hue = categoryHue(g.category);
           return (
-            <li key={g.name} className="text-sm">
+            <li key={g.name} className={`text-sm ${g.group && !g.isGroup && goals.some((x) => x.isGroup && x.name === g.group) ? "ml-4 border-l-2 border-slate-200 pl-3 dark:border-slate-700" : ""}`}>
               <div className="flex justify-between gap-2">
-                <span className="font-medium">{g.name}</span>
+                <span className={g.isGroup ? "font-semibold" : "font-medium"}>{g.name}</span>
                 <span className="tabular-nums text-slate-500">
-                  {amountText(g.done, g.unit)} done · {amountText(g.planned, g.unit)} planned / {amountText(g.target, g.unit)}
+                  {amountText(g.done, g.targetUnit)} done · {amountText(g.planned, g.targetUnit)} planned /{" "}
+                  {amountText(g.target, g.targetUnit)}
                   {g.auto && " (auto)"}
+                  {g.unit === "percent" && g.amount !== null && ` (${g.amount} %)`}
                 </span>
               </div>
               <div

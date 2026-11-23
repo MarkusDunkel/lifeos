@@ -70,7 +70,7 @@ class PlannedBlock(BaseModel):
     start: str = Field(description="HH:MM, local time")
     end: str = Field(description="HH:MM, local time, same day")
     goal: str = Field(description="exact goal name from <goals>, or empty for a pause")
-    category: str = Field(description="category of that goal, or 'pause'")
+    category: str = Field(description="'pause' for a break without goal, else empty")
     title: str = Field(description="short calendar title, concrete (what exactly to do)")
     reason: str = Field(description="one short sentence why this block is here")
 
@@ -196,21 +196,21 @@ class Planner:
             if monday.isoformat() <= b.date <= sunday.isoformat() and b.status != REMOVED
         ]
         out = []
-        for g in goal_list:
-            target = auto_hours if g.auto else (g.amount or 0)
-            mine = [b for b in blocks if b.goal == g.name]
+        for row in goals_mod.resolve(goal_list, auto_hours):
+            names = set(row["members"]) if row["isGroup"] else {row["name"]}
+            mine = [b for b in blocks if b.goal in names]
             past = [b for b in mine if b.span(self.tz)[1] <= now]
             future = [b for b in mine if b.span(self.tz)[1] > now]
-            if g.unit == goals_mod.SESSIONS:
+            if row["targetUnit"] == goals_mod.SESSIONS:
                 done = sum(1 for b in past if b.status not in (SKIPPED, REMOVED))
                 planned = len(future)
             else:
                 done = round(sum(b.done_minutes() for b in past) / 60, 2)
                 planned = round(sum(b.minutes for b in future) / 60, 2)
+            target = row["target"]
             out.append(
-                goals_mod.goal_dict(g)
+                row
                 | {
-                    "target": target,
                     "done": done,
                     "planned": planned,
                     "remaining": max(round(target - done, 2), 0),
@@ -363,7 +363,10 @@ class Planner:
 
     def _blocks(self, result: PlanResult, open_blocks: list[Block], now: datetime) -> list[Block]:
         known = {b.id: b for b in open_blocks}
-        goal_names = {g.name: g.category for g in self.goals()[0]}
+        goal_list = self.goals()[0]
+        groups = {g.group for g in goal_list} & {g.name for g in goal_list}
+        # blocks belong to plain goals or group members, never to a group itself
+        goal_names = {g.name: g.category for g in goal_list if g.name not in groups}
         out: list[Block] = []
         seen: set[str] = set()
         for p in result.blocks:
@@ -403,14 +406,25 @@ class Planner:
         _, exams = self.auto_study()
         targets = self.targets()
         unit = {goals_mod.HOURS: "h", goals_mod.SESSIONS: "sessions"}
-        goal_lines = [
-            f"- {t['name']} (category {t['category']}, priority {t['priority']}): "
-            f"{t['target']:g} {unit[t['unit']]}/week"
-            + (" (auto from exams)" if t["auto"] else "")
-            + f"; this week done {t['done']:g}, remaining {t['remaining']:g}"
-            + (f"; note: {t['note']}" if t["note"] else "")
-            for t in targets
-        ]
+        goal_lines = []
+        for t in targets:
+            how = " (auto from exams)" if t["auto"] else ""
+            if t["unit"] == goals_mod.PERCENT:
+                how = f" ({t['amount']:g} % of the group's free share)"
+            line = (
+                f"{t['target']:g} {unit[t['targetUnit']]}/week{how}; this week done "
+                f"{t['done']:g}, remaining {t['remaining']:g}"
+                + (f"; note: {t['note']}" if t["note"] else "")
+            )
+            if t["isGroup"]:
+                goal_lines.append(
+                    f"- GROUP {t['name']} (priority {t['priority']}): {line}. Total of its "
+                    f"members below; never use the group name as a block goal."
+                )
+            elif t["group"] and t["group"] in {x["name"] for x in targets if x["isGroup"]}:
+                goal_lines.append(f"  - {t['name']} (priority {t['priority']}): {line}")
+            else:
+                goal_lines.append(f"- {t['name']} (priority {t['priority']}): {line}")
         days = []
         for n in range((horizon_end - now.date()).days + 1):
             d = now.date() + timedelta(days=n)

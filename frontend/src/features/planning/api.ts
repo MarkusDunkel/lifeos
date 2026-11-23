@@ -95,16 +95,21 @@ export type Wish = {
 export type DayView = { date: string; blocks: PlanBlock[]; appointments: Appointment[]; allDay: string[] };
 export type DayDetail = DayView & { journal: JournalEntry; wishes: Wish[] };
 
-export type GoalUnit = "hours" | "sessions";
+export type GoalUnit = "hours" | "sessions" | "percent";
 export type Goal = {
   name: string;
+  group: string;
   category: string;
   amount: number | null;
   unit: GoalUnit;
   priority: string;
   note: string;
   auto: boolean;
+  isGroup: boolean;
+  members: string[];
   target: number;
+  targetUnit: "hours" | "sessions";
+  warnings: string[];
   done: number;
   planned: number;
   remaining: number;
@@ -158,7 +163,7 @@ export const journalQuery = queryOptions({
   queryFn: () => api<JournalEntry[]>("/api/planning/journal?days=90"),
 });
 
-export type GoalInput = Pick<Goal, "name" | "category" | "amount" | "unit" | "priority" | "note">;
+export type GoalInput = Pick<Goal, "name" | "group" | "amount" | "unit" | "priority" | "note">;
 
 export const saveGoals = (goals: GoalInput[], rules: string, revision: string | null) =>
   api<GoalsData>("/api/planning/goals", { method: "PUT", json: { goals, rules, revision } });

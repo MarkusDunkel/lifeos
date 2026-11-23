@@ -151,9 +151,51 @@ def test_goals_parse_and_render_roundtrip():
 
 
 def test_render_into_empty_file_uses_template():
-    text = g.render("", [g.Goal("Lesen", "lesen", 2, g.HOURS)], "- abends")
+    text = g.render("", [g.Goal("Lesen", 2, g.HOURS)], "- abends")
     goals, rules = g.parse(text)
     assert goals[0].name == "Lesen" and rules == "- abends"
+
+
+def work_goals() -> list[g.Goal]:
+    return [
+        g.Goal("Sport", 6, g.SESSIONS),
+        g.Goal("LifeOS", 20, g.PERCENT, group="Arbeit"),
+        g.Goal("Arbeit", 30, g.HOURS),
+        g.Goal("Uni", None, g.HOURS, group="Arbeit"),
+        g.Goal("Bewerben", 60, g.PERCENT, group="Arbeit"),
+        g.Goal("Portfolio", 20, g.PERCENT, group="Arbeit"),
+    ]
+
+
+def test_groups_split_percentages_of_what_fixed_members_leave():
+    rows = {r["name"]: r for r in g.resolve(work_goals(), auto_hours=6)}
+    assert rows["Arbeit"]["isGroup"] and rows["Arbeit"]["target"] == 30
+    assert rows["Uni"]["target"] == 6  # auto
+    # 24 h left for 20 / 60 / 20 %
+    assert (rows["LifeOS"]["target"], rows["Bewerben"]["target"]) == (4.8, 14.4)
+    assert rows["Arbeit"]["warnings"] == [] and rows["Sport"]["targetUnit"] == "sessions"
+    order = [r["name"] for r in g.resolve(work_goals(), 6)]
+    assert order == ["Sport", "Arbeit", "LifeOS", "Uni", "Bewerben", "Portfolio"]
+
+
+def test_group_warnings_and_scaling():
+    goals = work_goals()
+    goals[4].amount = 100  # 140 %
+    rows = {r["name"]: r for r in g.resolve(goals, auto_hours=40)}
+    assert any("more than 30 h" in w for w in rows["Arbeit"]["warnings"])
+    assert any("scaled down" in w for w in rows["Arbeit"]["warnings"])
+    assert rows["LifeOS"]["target"] == 0  # nothing left after 40 h of study
+    goals[4].amount = 10
+    rows = {r["name"]: r for r in g.resolve(goals, auto_hours=0)}
+    assert any("only 50 %" in w for w in rows["Arbeit"]["warnings"])
+
+
+def test_groups_roundtrip_through_markdown():
+    text = g.render(GOALS, work_goals(), "- r")
+    assert "| Ziel | Gruppe | Menge | Einheit |" in text and "| LifeOS | Arbeit | 20 | % |" in text
+    assert text.index("| Arbeit |") < text.index("| LifeOS |")  # members under their group
+    again, _ = g.parse(text)
+    assert {x.name: (x.group, x.unit) for x in again}["Uni"] == ("Arbeit", "hours")
 
 
 def test_auto_study_hours_from_upcoming_exams():
@@ -223,7 +265,7 @@ def test_run_writes_valid_blocks_and_retries_rejected_ones(planner, fake, vault)
     events = plan_events(fake, planner)
     assert sorted(e["summary"] for e in events) == ["Laufen", "LifeOS: Planer bauen"]
     blocks = planner.plans.blocks()
-    assert {b.category for b in blocks} == {"programming", "sport"}
+    assert {b.category for b in blocks} == {"programmieren", "sport"}
     assert all(b.gid for b in blocks)
     assert planner.journal.wishes()[0]["status"] == "done"
     assert planner.plans.load()["summary"] == "Dienstag ab 10."
@@ -370,3 +412,20 @@ def test_checkin_updates_block_and_appends_log(client, settings):
     stored = json.loads((settings.vault_root / PLAN_FILE).read_text(encoding="utf-8"))
     assert stored["blocks"][0]["status"] == "partial"
     assert not (settings.vault_root / QUEUE_FILE).exists()
+
+
+def test_planner_sees_groups_and_never_plans_the_group_itself(planner, vault):
+    path = vault.resolve("ready/knowledge/Planning/Goals.md")
+    path.write_text(g.render("", work_goals(), "- r"), encoding="utf-8")
+    llm = FakeLlm([
+        PlanResult(blocks=[block("2026-11-24", "10:00", "11:00", "x", goal="Arbeit"),
+                           block("2026-11-24", "11:00", "12:00", "y", goal="LifeOS")],
+                   summary="s"),
+    ])  # fmt: skip
+    planner.run(lambda agent: llm, LlmSettings())
+    assert "- GROUP Arbeit (priority mittel): 30 h/week" in llm.prompts[0]
+    assert "  - LifeOS (priority mittel): " in llm.prompts[0]
+    by_title = {b.title: b for b in planner.plans.blocks()}
+    assert by_title["x"].goal == "" and by_title["y"].goal == "LifeOS"
+    t = {x["name"]: x for x in planner.targets()}
+    assert t["Arbeit"]["planned"] == 1  # members count for their group

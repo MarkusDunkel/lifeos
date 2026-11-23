@@ -21,9 +21,9 @@ Committer = Callable[[list[str], str], None]
 
 class GoalIn(BaseModel):
     name: str = Field(min_length=1)
-    category: str = ""
-    amount: float | None = None  # None = auto
-    unit: Literal["hours", "sessions"] = "hours"
+    group: str = ""  # name of the parent goal; "" = top level
+    amount: float | None = Field(default=None, ge=0)  # None = auto
+    unit: Literal["hours", "sessions", "percent"] = "hours"
     priority: str = "mittel"
     note: str = ""
 
@@ -90,14 +90,17 @@ def build_router(planner: Planner, committer: Committer | None = None) -> APIRou
     def put_goals(body: GoalsIn) -> dict[str, Any]:
         path = planner.goals_path
         text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        names = [g.name.strip() for g in body.goals]
+        if len(set(names)) != len(names):
+            raise HTTPException(400, "every goal needs its own name")
         goals = [
             goals_mod.Goal(
                 name=g.name.strip(),
-                category=goals_mod.slug(g.category or g.name),
                 amount=g.amount,
                 unit=g.unit,
                 priority=g.priority.strip() or "mittel",
                 note=g.note.strip(),
+                group=g.group.strip(),
             )
             for g in body.goals
         ]
