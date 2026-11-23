@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Briefcase, ChevronDown, ChevronRight, Copy, ExternalLink, Globe, MapPin, Search, Send, Target } from "lucide-react";
+import { Bot, Briefcase, ChevronDown, ChevronRight, Copy, ExternalLink, Globe, MapPin, Search, Send, Target } from "lucide-react";
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  type AssessmentDetail,
+  type AssessmentSummary,
   type Fit,
+  matcherQuery,
+  requestAssessment,
   fitOptionsQuery,
   type ImportRun,
   jobsearchStatusQuery,
@@ -43,6 +47,7 @@ export function JobsPage() {
     home: "",
     reach: false,
     passed: false,
+    recommended: false,
   });
   const options = useQuery(fitOptionsQuery);
   const select = "rounded-lg border border-slate-300 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-900";
@@ -66,6 +71,7 @@ export function JobsPage() {
         job are grouped; postings that went offline are kept for a year.
       </p>
       <StatusCard />
+      <MatcherLine />
       <section className="space-y-3">
         <div className="relative">
           <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-slate-400" />
@@ -100,10 +106,11 @@ export function JobsPage() {
               onChange={(e) => {
                 const v = e.target.value;
                 if (v.startsWith("profile:")) setFilter({ ...filter, sort: "fit", profile: v.slice(8) });
-                else setFilter({ ...filter, sort: v as "new" | "fit", profile: "" });
+                else setFilter({ ...filter, sort: v as "new" | "fit" | "match", profile: "" });
               }}
             >
               <option value="new">newest first</option>
+              <option value="match">AI recommendation</option>
               <option value="fit">best fit (any profile)</option>
               {options.data?.profiles.map((p) => (
                 <option key={p.slug} value={`profile:${p.slug}`}>
@@ -128,6 +135,10 @@ export function JobsPage() {
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={filter.reach} onChange={(e) => setFilter({ ...filter, reach: e.target.checked })} />
             Near a home or remote
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={filter.recommended} onChange={(e) => setFilter({ ...filter, recommended: e.target.checked })} />
+            AI recommends applying
           </label>
           <label className="flex items-center gap-2" title="Near a home or remote and a fit of at least 35">
             <input type="checkbox" checked={filter.passed} onChange={(e) => setFilter({ ...filter, passed: e.target.checked })} />
@@ -283,6 +294,105 @@ function PostingItem({ row }: { row: PostingRow }) {
   );
 }
 
+const VERDICT = {
+  apply: { label: "apply", style: "bg-emerald-600 text-white dark:bg-emerald-700" },
+  maybe: { label: "maybe", style: "bg-amber-400 text-amber-950 dark:bg-amber-600 dark:text-white" },
+  no: { label: "no", style: "bg-slate-300 text-slate-700 dark:bg-slate-700 dark:text-slate-200" },
+} as const;
+
+function MatcherLine() {
+  const status = useQuery(matcherQuery);
+  const s = status.data;
+  if (!s?.configured) return null;
+  return (
+    <p className="flex items-center gap-2 text-xs text-slate-500">
+      <Bot className="size-4" /> AI matcher today: {s.autoToday}/{s.dailyLimit} automatic, {s.manualToday}/{s.manualLimit} on
+      request{s.queued ? ` · ${s.queued} waiting` : ""} · runs every 10 minutes on the best prefiltered postings
+    </p>
+  );
+}
+
+function VerdictBadge({ a }: { a: AssessmentSummary }) {
+  if (!a.recommendation) return <span className={`${badge} bg-red-100 text-red-700`}>AI failed</span>;
+  const v = VERDICT[a.recommendation];
+  return (
+    <span className={`${badge} inline-flex items-center gap-1 font-medium ${v.style}`} title={a.summary}>
+      <Bot className="size-3" /> {v.label}
+      {a.fit !== null && ` · ${a.fit}`}
+      {a.stale && " · outdated"}
+    </span>
+  );
+}
+
+function AssessmentPanel({ postingKey, a, queued }: { postingKey: string; a?: AssessmentDetail; queued?: boolean }) {
+  const queryClient = useQueryClient();
+  const ask = useMutation({
+    mutationFn: () => requestAssessment(postingKey),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["jobsearch"] }),
+  });
+  const waiting = queued || ask.isSuccess;
+  const button = (
+    <button className={btn} disabled={ask.isPending || waiting} onClick={() => ask.mutate()}>
+      <Bot className="size-4" /> {waiting ? "Queued – the AI assesses it within minutes" : a ? "Assess again" : "Assess with AI"}
+    </button>
+  );
+  const d = a?.detail;
+  if (!a || !d) {
+    return (
+      <div className="flex flex-wrap items-center gap-3">
+        {button}
+        {a?.error && <span className="text-xs text-red-600">Last attempt failed: {a.error}</span>}
+        {ask.error && <span className="text-xs text-red-600">{ask.error.message}</span>}
+      </div>
+    );
+  }
+  const list = (title: string, items: string[]) =>
+    items.length > 0 && (
+      <div>
+        <div className="font-medium">{title}</div>
+        <ul className="list-disc pl-5">
+          {items.map((i) => (
+            <li key={i}>{i}</li>
+          ))}
+        </ul>
+      </div>
+    );
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 p-3 text-xs dark:border-slate-800">
+      <div className="flex flex-wrap items-center gap-2">
+        <VerdictBadge a={a} />
+        <span className="text-slate-500">
+          assessed {a.at ? new Date(a.at).toLocaleString() : ""}
+          {a.stale && " – the profiles changed since"}
+        </span>
+      </div>
+      <p className="text-sm">{d.summary}</p>
+      <div className="flex flex-wrap gap-x-4">
+        {d.profiles.map((p) => (
+          <span key={p.slug} title={p.reason}>
+            {p.slug}: <span className="tabular-nums">{p.fit}</span>
+          </span>
+        ))}
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {list("Strengths", d.strengths)}
+        {list("Gaps", d.gaps)}
+        {list("Red flags", d.red_flags)}
+        {list("To clarify", d.questions)}
+      </div>
+      {d.company && <p className="text-slate-600 dark:text-slate-300">{d.company}</p>}
+      {d.missing_skills.length > 0 && <p className="text-slate-500">Not in any profile: {d.missing_skills.join(", ")}</p>}
+      <details>
+        <summary className="cursor-pointer text-slate-500">Research</summary>
+        <div className="prose prose-xs prose-slate mt-1 max-w-none dark:prose-invert">
+          <Markdown remarkPlugins={[remarkGfm]}>{a.research}</Markdown>
+        </div>
+      </details>
+      {button}
+    </div>
+  );
+}
+
 function fitStyle(fit: number): string {
   if (fit >= 70) return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300";
   if (fit >= 50) return "bg-teal-50 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300";
@@ -340,6 +450,7 @@ function FitDetails({ fit }: { fit: Fit }) {
 function Badges({ row }: { row: PostingRow }) {
   return (
     <>
+      {row.assessment && <VerdictBadge a={row.assessment} />}
       {row.fit && <FitBadges fit={row.fit} />}
       {row.goneAt && <span className={`${badge} bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300`}>offline</span>}
       {row.duplicateOf && (
@@ -407,6 +518,7 @@ function PostingDetails({ postingKey }: { postingKey: string }) {
           </a>
         )}
       </div>
+      <AssessmentPanel postingKey={postingKey} a={d.assessment} queued={d.queued} />
       {d.fit && <FitDetails fit={d.fit} />}
       <p className="text-xs text-slate-500">
         {dates.join(" · ")}

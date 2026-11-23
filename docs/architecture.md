@@ -390,8 +390,20 @@ profiles, overview and homes, warmed in the background at start and after each i
 `GET /api/jobsearch/postings` takes `sort=fit`, `profile`, `home`, `reach` and `passed`;
 `GET /api/jobsearch/fit/options` lists profiles and homes for the filters.
 
-Planned next: an AI job matcher with web research and a daily limit for postings that pass,
-commute times (manual, estimated for car/bike) and sorting by the AI recommendation.
+**AI job matcher** (`modules/career/matcher.py`, agent file `agents/job-matcher.md` with
+`runner: job`): worker job `job-matcher` every 10 minutes (registered with the agents, at
+most three postings per round). Queued requests ("Assess" in the job list, `manual_limit`
+per day) come first, then the best prefiltered postings without an assessment up to
+`daily_limit`. Per posting: research with web search, then a structured `Assessment`
+(apply / maybe / no, fit per profile, strengths, gaps, red flags, questions, skills no
+profile lists). Stored in `.lifeos/jobsearch/assessments/<source>/<id>.json` with a
+signature of profiles and overview; changed profiles mark it outdated (not redone
+automatically). Skills named missing in `propose_after` assessments become one inbox
+proposal each. The job list sorts by `sort=match` (recommendation, then fit) and filters by
+`recommended` / `assessed`; `POST /api/jobsearch/postings/{source}/{id}/assess` queues one,
+`GET /api/jobsearch/matcher` shows today's counts.
+
+Planned next: commute times (manual, estimated for car/bike) in the sorting.
 
 ## Backend layout (`backend/src/lifeos`)
 
@@ -420,7 +432,7 @@ commute times (manual, estimated for car/bike) and sorting by the AI recommendat
 | `modules/moodle` | Status, connect, course selection and sync endpoints |
 | `modules/presentations` | Status, connect/disconnect and sync endpoints for the mirror |
 | `connectors/devjobs` | devjobs.at sitemap and posting pages (JSON-LD), polite client over Edge (Playwright) or `curl` |
-| `modules/career` | Job profiles and overview (Markdown tables), target curriculum, profile designer workflow, market statistics, posting prefilter (fit, homes, cache) |
+| `modules/career` | Job profiles and overview (Markdown tables), target curriculum, profile designer workflow, market statistics, posting prefilter (fit, homes, cache), AI job matcher |
 | `modules/jobsearch` | Posting model, store in `.lifeos/jobsearch/` with duplicate detection, import API, PC importer, autorun and Windows autostart |
 
 ## Editing safety

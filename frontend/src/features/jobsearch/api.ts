@@ -51,6 +51,45 @@ export type FitOptions = {
   homes: { label: string; lat: number; lon: number; radius_km: number }[];
 };
 
+export type Recommendation = "apply" | "maybe" | "no";
+
+export type AssessmentSummary = {
+  recommendation: Recommendation | null;
+  fit: number | null;
+  bestProfile: string | null;
+  summary: string;
+  at: string | null;
+  stale: boolean;
+};
+
+export type AssessmentDetail = AssessmentSummary & {
+  detail: {
+    recommendation: Recommendation;
+    fit: number;
+    best_profile: string;
+    summary: string;
+    profiles: { slug: string; fit: number; reason: string }[];
+    strengths: string[];
+    gaps: string[];
+    red_flags: string[];
+    questions: string[];
+    company: string;
+    missing_skills: string[];
+  } | null;
+  research: string;
+  error: string | null;
+  usage: { eur: number; tokens: number; searches: number; listEur: number } | null;
+};
+
+export type MatcherStatus = {
+  configured: boolean;
+  dailyLimit?: number;
+  manualLimit?: number;
+  autoToday?: number;
+  manualToday?: number;
+  queued?: number;
+};
+
 export type PostingRow = {
   key: string;
   source: string;
@@ -73,9 +112,16 @@ export type PostingRow = {
   application: string | null;
   duplicateCount?: number;
   fit?: Fit;
+  assessment?: AssessmentSummary;
 };
 
-export type PostingDetail = PostingRow & { description: string; benefits: string[]; related: PostingRow[] };
+export type PostingDetail = Omit<PostingRow, "assessment"> & {
+  description: string;
+  benefits: string[];
+  related: PostingRow[];
+  assessment?: AssessmentDetail;
+  queued?: boolean;
+};
 
 export type PostingsPage = { total: number; offset: number; items: PostingRow[] };
 
@@ -85,11 +131,12 @@ export type PostingsFilter = {
   gone: boolean;
   applied: boolean;
   days: number | null;
-  sort: "new" | "fit";
+  sort: "new" | "fit" | "match";
   profile: string;
   home: string;
   reach: boolean;
   passed: boolean;
+  recommended: boolean;
 };
 
 export const PAGE_SIZE = 50;
@@ -114,6 +161,7 @@ export const postingsQuery = (filter: PostingsFilter, offset: number) =>
       if (filter.home) params.home = filter.home;
       if (filter.reach) params.reach = "true";
       if (filter.passed) params.passed = "true";
+      if (filter.recommended) params.recommended = "true";
       return api<PostingsPage>(`/api/jobsearch/postings?${qs(params)}`);
     },
     placeholderData: keepPreviousData,
@@ -123,6 +171,16 @@ export const fitOptionsQuery = queryOptions({
   queryKey: ["jobsearch", "fit-options"],
   queryFn: () => api<FitOptions>("/api/jobsearch/fit/options"),
 });
+
+export const matcherQuery = queryOptions({
+  queryKey: ["jobsearch", "matcher"],
+  queryFn: () => api<MatcherStatus>("/api/jobsearch/matcher"),
+});
+
+export const requestAssessment = (key: string) => {
+  const [source, id] = key.split(":");
+  return api<{ queued: boolean; position: number }>(`/api/jobsearch/postings/${source}/${id}/assess`, { method: "POST" });
+};
 
 export type ApplicationStarted = { issue: number; url: string; folder: string };
 

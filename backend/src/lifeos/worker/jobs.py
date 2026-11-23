@@ -179,6 +179,59 @@ def agents_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]:
     return run
 
 
+def job_matcher_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]:
+    """Assess queued and the best prefiltered postings with the AI (``agents/job-matcher.md``,
+    daily limit there), then file skills that keep missing from the profiles as proposals."""
+    from lifeos.agents.config import load_config
+    from lifeos.agents.inbox import assistant_option, create_inbox_ticket
+    from lifeos.agents.workflows import llm_settings
+    from lifeos.connectors.github.client import GitHubClient, GitHubError
+    from lifeos.modules.career.matcher import AGENT, Matcher, default_llm_for
+    from lifeos.modules.career.prefilter import FitIndex
+    from lifeos.modules.jobsearch.store import JobStore
+
+    vault = Vault.open(settings.vault_root)
+    store = JobStore(vault)
+    matcher = Matcher(vault, store, FitIndex(vault, store), settings.timezone)
+    model = llm_settings(settings)
+
+    def run() -> JobResult:
+        cfg = load_config(vault)
+        agent = cfg.agents.get(AGENT)
+        if agent is None:
+            return JobResult("skipped", f"no agents/{AGENT}.md in the vault")
+        events = matcher.run(default_llm_for(model), model)
+        at_least = int(agent.raw.get("propose_after", 3))
+        missing = matcher.missing_skills(at_least) if settings.github_token else []
+        if missing:
+            repo = next(iter(settings.github_repo_list), None)
+            lines = [
+                f"- **{skill}** – in {len(keys)} assessed postings: "
+                + ", ".join(f"`{k}`" for k in keys[:8])
+                for skill, keys in missing
+            ]
+            body = (
+                "The AI job matcher found skills that postings stress but none of the job "
+                "profiles lists:\n\n" + "\n".join(lines) + "\n\nApprove (move to Todo) to "
+                "add them to the fitting profiles, or close the ticket if they do not matter."
+            )
+            try:
+                url = create_inbox_ticket(
+                    GitHubClient(settings.github_token), cfg, repo,
+                    "Profile schärfen: " + ", ".join(s for s, _ in missing[:4]), body,
+                    author=AGENT, responsible=assistant_option(cfg),
+                )  # fmt: skip
+                if url:
+                    matcher.mark_proposed([s for s, _ in missing])
+                    events.append(f"proposal {url}")
+            except GitHubError as exc:
+                events.append(f"proposal failed: {exc}")
+        failed = any(" failed" in e for e in events)
+        return JobResult("error" if failed else "ok", "; ".join(events) or "nothing to assess")
+
+    return run
+
+
 def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
     jobs: list[Job] = []
     if settings.moodle_sync_at:
@@ -200,6 +253,7 @@ def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
         )
     if settings.agents_interval > 0:
         jobs.append(Job("agents", Every(settings.agents_interval), agents_job(settings, git)))
+        jobs.append(Job("job-matcher", Every(600), job_matcher_job(settings, git)))
     if settings.git_sync_interval > 0:
         jobs.append(Job("git-sync", Every(settings.git_sync_interval), git_sync_job(git)))
     return jobs

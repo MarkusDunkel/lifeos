@@ -19,6 +19,7 @@ from lifeos.modules.jobsearch.model import ID_PATTERN, SOURCE_PATTERN, Posting
 from lifeos.modules.jobsearch.store import JobStore
 
 MAX_IDS = 50_000
+RANK = {"apply": 0, "maybe": 1, None: 2, "no": 3}  # order of sort=match
 MAX_POSTINGS = 200
 
 
@@ -43,9 +44,12 @@ class FinishRequest(BaseModel):
     errors: list[str] = Field(default_factory=list, max_length=20)
 
 
-def build_router(store: JobStore, timezone: str, fit: Any | None = None) -> APIRouter:
+def build_router(
+    store: JobStore, timezone: str, fit: Any | None = None, matcher: Any | None = None
+) -> APIRouter:
     """``fit`` (a :class:`lifeos.modules.career.prefilter.FitIndex`) adds the profile fit
-    and home labels to the rows and allows sorting and filtering by them."""
+    and home labels to the rows and allows sorting and filtering by them; ``matcher`` (a
+    :class:`lifeos.modules.career.matcher.Matcher`) adds the AI assessments."""
     router = APIRouter(prefix="/api/jobsearch", tags=["jobsearch"])
     tz = ZoneInfo(timezone)
 
@@ -111,16 +115,21 @@ def build_router(store: JobStore, timezone: str, fit: Any | None = None) -> APIR
         days: int | None = Query(default=None, ge=1),
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=50, ge=1, le=200),
-        sort: str = Query(default="new", pattern="^(new|fit)$"),
+        sort: str = Query(default="new", pattern="^(new|fit|match)$"),
         profile: str | None = None,
         home: str | None = None,
         reach: bool = False,
         passed: bool = False,
+        recommended: bool = False,
+        assessed: bool = False,
     ) -> dict:
         """Imported postings, newest first (``sort=fit``: best profile fit first). ``q``
         matches title, company, place and skills (all words must match). ``profile`` sorts
         by the fit to that profile; ``home`` keeps postings near that home, ``reach`` those
-        near any home or remote, ``passed`` those that pass the prefilter."""
+        near any home or remote, ``passed`` those that pass the prefilter. ``sort=match``:
+        the AI recommendation first (apply, maybe, not assessed, no), then the fit;
+        ``recommended`` keeps those the AI recommends to apply for, ``assessed`` those with
+        an assessment."""
         words = q.lower().split()
         since = (datetime.now(UTC) - timedelta(days=days)).isoformat() if days else None
         index = store.index()
@@ -148,8 +157,17 @@ def build_router(store: JobStore, timezone: str, fit: Any | None = None) -> APIR
                     continue
             rows.append((key, entry))
         rows.sort(key=lambda kv: (kv[1].get("firstSeen", ""), kv[0]), reverse=True)
+        verdicts: dict[str, Any] = {}
+        if matcher is not None and (sort == "match" or recommended or assessed):
+            verdicts = matcher.summaries([k for k, _ in rows])
+            if recommended:
+                rows = [
+                    kv for kv in rows if verdicts.get(kv[0], {}).get("recommendation") == "apply"
+                ]
+            if assessed:
+                rows = [kv for kv in rows if verdicts.get(kv[0], {}).get("recommendation")]
         fits: dict[str, Any] = {}
-        if fit is not None and (sort == "fit" or profile or home or reach or passed):
+        if fit is not None and (sort in ("fit", "match") or profile or home or reach or passed):
             fits = fit.all([k for k, _ in rows])
 
             def keep(key: str) -> bool:
@@ -163,7 +181,15 @@ def build_router(store: JobStore, timezone: str, fit: Any | None = None) -> APIR
                 return not passed or f.passed
 
             rows = [kv for kv in rows if keep(kv[0])]
-            if sort == "fit" or profile:
+            if sort == "match":
+
+                def rank(key: str) -> tuple[int, int]:
+                    v = verdicts.get(key) or {}
+                    score = v.get("fit") if v.get("fit") is not None else fits[key].fit
+                    return (RANK.get(v.get("recommendation"), 2), -score)
+
+                rows.sort(key=lambda kv: rank(kv[0]))
+            elif sort == "fit" or profile:
 
                 def value(key: str) -> int:
                     f = fits[key]
@@ -175,6 +201,8 @@ def build_router(store: JobStore, timezone: str, fit: Any | None = None) -> APIR
         page = rows[offset : offset + limit]
         if fit is not None and not fits:
             fits = fit.all([k for k, _ in page])
+        if matcher is not None and not verdicts:
+            verdicts = matcher.summaries([k for k, _ in page])
         items = []
         for key, entry in page:
             posting = store.posting(key)
@@ -183,8 +211,27 @@ def build_router(store: JobStore, timezone: str, fit: Any | None = None) -> APIR
             row = _row(key, entry, posting) | {"duplicateCount": dupes.get(key, 0)}
             if key in fits:
                 row["fit"] = asdict(fits[key])
+            if key in verdicts:
+                row["assessment"] = verdicts[key]
             items.append(row)
         return {"total": len(rows), "offset": offset, "items": items}
+
+    @router.get("/matcher")
+    def matcher_status() -> dict:
+        """Today's assessments against the daily limits, and the queue."""
+        if matcher is None:
+            return {"configured": False}
+        return matcher.status()
+
+    @router.post("/postings/{source}/{posting_id}/assess")
+    def assess(source: str, posting_id: str) -> dict:
+        """Queue a posting for the AI matcher (the worker assesses it within minutes)."""
+        key = f"{_source(source)}:{posting_id}"
+        if matcher is None:
+            raise HTTPException(503, "the AI matcher is not set up")
+        if not ID_PATTERN.match(posting_id) or key not in store.index():
+            raise HTTPException(404, "posting not found")
+        return matcher.enqueue(key)
 
     @router.get("/fit/options")
     def fit_options() -> dict:
@@ -211,6 +258,17 @@ def build_router(store: JobStore, timezone: str, fit: Any | None = None) -> APIR
         if fit is not None:
             found_fit = fit.all([key]).get(key)
             extra = {"fit": asdict(found_fit)} if found_fit else {}
+        if matcher is not None:
+            record = matcher.load([key]).get(key)
+            if record:
+                summary = matcher.summaries([key]).get(key, {})
+                extra["assessment"] = summary | {
+                    "detail": record.get("assessment"),
+                    "research": record.get("research", ""),
+                    "error": record.get("error"),
+                    "usage": record.get("usage"),
+                }
+            extra["queued"] = key in matcher.queue()
         return (
             _row(key, entry, found)
             | extra

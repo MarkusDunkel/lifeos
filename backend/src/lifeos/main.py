@@ -29,6 +29,7 @@ from lifeos.mcp_server.http import mount_mcp
 from lifeos.mcp_server.server import build_mcp
 from lifeos.modules.applications.router import build_router as applications_router
 from lifeos.modules.applications.service import ApplicationError, Applications
+from lifeos.modules.career.matcher import Matcher
 from lifeos.modules.career.prefilter import FitIndex
 from lifeos.modules.career.router import CareerService
 from lifeos.modules.career.router import build_router as career_router
@@ -146,7 +147,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     jobs = JobStore(vault)
     fit = FitIndex(vault, jobs)
     fit.warm()
-    app.include_router(jobsearch_router(jobs, settings.timezone, fit))
+    matcher = Matcher(vault, jobs, fit, settings.timezone)
+    app.include_router(jobsearch_router(jobs, settings.timezone, fit, matcher))
     applications = Applications(
         vault,
         jobs,
