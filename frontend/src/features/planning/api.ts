@@ -135,6 +135,10 @@ export type PlannerStatus = {
   rejected: string[];
   changes: string[];
   now: string;
+  running: { since: string; reason: string } | null;
+  runsToday: number;
+  dailyLimit: number;
+  limitReached: boolean;
 };
 
 export type WeekView = { start: string; days: DayView[]; goals: Goal[] };

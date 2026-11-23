@@ -436,3 +436,27 @@ def test_saving_twice_does_not_add_blank_lines():
     once = g.render(GOALS, goals, rules)
     assert g.render(once, goals, rules) == once
     assert "## Regeln\n\n- Arbeit" in once
+
+
+def test_status_reports_the_daily_limit(planner):
+    assert planner.limits() == {"runsToday": 0, "dailyLimit": 3, "limitReached": False}
+    for _ in range(3):
+        planner.run(lambda agent: FakeLlm([PlanResult(blocks=[], summary="")]), LlmSettings())
+    planner.enqueue("wish")
+    assert planner.limits()["limitReached"] is True
+    assert planner.run(lambda agent: FakeLlm([]), LlmSettings()).status == "skipped"
+    assert [q["reason"] for q in planner.queue()] == ["wish"]  # waits for tomorrow
+
+
+def test_running_marker_exists_only_during_a_run(planner):
+    seen = []
+
+    class Watching(FakeLlm):
+        def parse(self, system, prompt, schema, effort, images=None):
+            seen.append(planner.running())
+            return super().parse(system, prompt, schema, effort, images)
+
+    planner.run(lambda agent: Watching([PlanResult(blocks=[], summary="")]), LlmSettings(), "wish")
+    assert seen[0]["reason"] == "wish" and planner.running() is None
+    planner.run(lambda agent: FakeLlm([RuntimeError("boom")]), LlmSettings(), "wish")
+    assert planner.running() is None

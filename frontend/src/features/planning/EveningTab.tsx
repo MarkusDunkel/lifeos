@@ -46,33 +46,58 @@ function PlannerCard() {
   const refresh = useRefresh();
   const status = useQuery({
     ...plannerStatusQuery,
-    // while something is queued, the worker plans within a minute: look again regularly
-    refetchInterval: (q) => (q.state.data?.queue.length ? 10_000 : false),
+    // while something is queued or running, look again regularly
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      return d && (d.running || (d.queue.length && !d.limitReached)) ? 10_000 : false;
+    },
   });
+  const s = status.data;
+  const waiting = !!s?.queue.length;
+  const blocked = waiting && !!s?.limitReached && !s?.running;
+  const busy = !!s?.running || (waiting && !blocked);
   const [wasBusy, setWasBusy] = useState(false);
-  const busy = !!status.data?.queue.length;
   useEffect(() => {
     if (wasBusy && !busy) refresh();
     setWasBusy(busy);
   }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const again = useMutation({ mutationFn: replan, onSettled: refresh });
-  const s = status.data;
   const last = s?.runs[0];
   return (
     <section className={card}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-semibold">Planner</h2>
-        <button className={btn} onClick={() => again.mutate()} disabled={again.isPending || busy}>
+        <button
+          className={btn}
+          onClick={() => again.mutate()}
+          disabled={again.isPending || busy || !!s?.limitReached}
+          title={s?.limitReached ? "Daily limit reached – runs again tomorrow" : undefined}
+        >
           {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
           {busy ? "Planning…" : "Plan again"}
         </button>
       </div>
-      {s?.summary ? <p className="text-sm">{s.summary}</p> : <p className="text-sm text-slate-400">No plan yet.</p>}
-      {busy && (
+      {s?.running && (
+        <p className="text-xs text-slate-500">
+          Planning now ({s.running.reason}), started {new Date(s.running.since).toLocaleTimeString()} – usually 1–2
+          minutes.
+        </p>
+      )}
+      {!s?.running && waiting && !blocked && (
         <p className="text-xs text-slate-500">
           Waiting: {s?.queue.map((q) => q.reason).join(", ")} — the planner picks this up within a minute.
         </p>
       )}
+      {s?.limitReached && (
+        <p className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+          Daily limit reached ({s.runsToday}/{s.dailyLimit} runs).{" "}
+          {blocked
+            ? `Waiting until tomorrow: ${s.queue.map((q) => q.reason).join(", ")}.`
+            : "New changes are planned tomorrow."}{" "}
+          The limit is <code>daily_limit</code> in agents/calendar-planner.md.
+        </p>
+      )}
+      {s?.summary ? <p className="text-sm">{s.summary}</p> : <p className="text-sm text-slate-400">No plan yet.</p>}
       {!!s?.changes.length && (
         <ul className="list-disc pl-5 text-xs text-slate-500">
           {s.changes.map((c) => (

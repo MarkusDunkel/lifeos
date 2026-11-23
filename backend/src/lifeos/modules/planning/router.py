@@ -221,6 +221,8 @@ def build_router(planner: Planner, committer: Committer | None = None) -> APIRou
             "rejected": data.get("rejected", []),
             "changes": data.get("changes", []),
             "now": planner.now().isoformat(timespec="minutes"),
+            "running": planner.running(),
+            **planner.limits(),
         }
 
     return router

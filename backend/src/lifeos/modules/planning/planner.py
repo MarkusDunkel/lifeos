@@ -52,6 +52,7 @@ AGENT = "calendar-planner"
 QUEUE_FILE = f"{ROOT}/queue.json"
 STATE_FILE = f"{ROOT}/planner.json"
 RUNS_FILE = f"{ROOT}/runs.jsonl"
+RUNNING_FILE = f"{ROOT}/running.json"
 HORIZON_DAYS = 7
 CALENDAR_PAUSE = 1800  # seconds between re-plans caused by calendar changes
 KEEP_HISTORY_DAYS = 60
@@ -239,6 +240,14 @@ class Planner:
     def state(self) -> dict[str, Any]:
         return self._read(STATE_FILE, {})
 
+    def limits(self) -> dict[str, Any]:
+        """Runs today and the daily limit from the agent file (0 = no agent file)."""
+        agent = load_config(self.vault).agents.get(AGENT)
+        limit = int(agent.raw.get("daily_limit", 8)) if agent else 0
+        today = self.now().date().isoformat()
+        runs = self.state().get("runs", {}).get(today, 0)
+        return {"runsToday": runs, "dailyLimit": limit, "limitReached": runs >= limit}
+
     def due_from_queue(self) -> str | None:
         """The reasons to run now, or None. Calendar changes wait for ``CALENDAR_PAUSE``."""
         queue = self.queue()
@@ -292,7 +301,33 @@ class Planner:
             return RunOutcome("skipped", f"daily limit of {limit} runs reached")
         queued = self.queue()
         self._write(QUEUE_FILE, [])
+        # the page shows "planning…" while this file exists (the queue is already empty)
+        running = self.vault.resolve(RUNNING_FILE)
+        write_atomic(running, json.dumps({"since": now.isoformat(timespec="seconds"),
+                                          "reason": reason}))  # fmt: skip
+        try:
+            return self._plan(agent, llm_for, now, today, reason, queued)
+        finally:
+            running.unlink(missing_ok=True)
 
+    def running(self) -> dict[str, Any] | None:
+        """The run in progress, if any (a marker older than an hour is a crashed run)."""
+        path = self.vault.resolve(RUNNING_FILE)
+        if not path.is_file():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        since = datetime.fromisoformat(data["since"])
+        return data if (self.now() - since).total_seconds() < 3600 else None
+
+    def _plan(
+        self,
+        agent: AgentDef,
+        llm_for: Callable[[AgentDef], Llm],
+        now: datetime,
+        today: str,
+        reason: str,
+        queued: list[dict[str, Any]],
+    ) -> RunOutcome:
         report = self.calendar.sync()
         if report.errors and not self.calendar.store().get("synced_at"):
             return RunOutcome("error", "calendar sync failed: " + "; ".join(report.errors))
