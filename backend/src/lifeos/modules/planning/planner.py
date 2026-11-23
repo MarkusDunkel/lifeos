@@ -313,6 +313,20 @@ class Planner:
         finally:
             running.unlink(missing_ok=True)
 
+    def recover(self) -> str | None:
+        """At worker start: a run marker left over means the worker died mid-run (e.g. a
+        restart). Queue that run again and drop the marker; returns its reason."""
+        path = self.vault.resolve(RUNNING_FILE)
+        if not path.is_file():
+            return None
+        try:
+            reason = json.loads(path.read_text(encoding="utf-8")).get("reason") or "restart"
+        except ValueError:
+            reason = "restart"
+        path.unlink(missing_ok=True)
+        self.enqueue(reason)
+        return reason
+
     def running(self) -> dict[str, Any] | None:
         """The run in progress, if any (a marker older than an hour is a crashed run)."""
         path = self.vault.resolve(RUNNING_FILE)

@@ -543,3 +543,15 @@ def test_edit_block_api(client, settings):
 def test_week_goals_for_a_past_week(client):
     past = client.get("/api/planning/week?start=2026-11-02").json()
     assert past["start"] == "2026-11-02" and isinstance(past["goals"], list)
+
+
+def test_a_run_cut_off_by_a_restart_is_queued_again(planner, vault):
+    from lifeos.modules.planning.planner import RUNNING_FILE
+
+    marker = vault.resolve(RUNNING_FILE)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text('{"since": "2026-11-23T18:00:00+01:00", "reason": "calendar changed"}')
+    assert planner.recover() == "calendar changed"
+    assert planner.running() is None
+    assert [q["reason"] for q in planner.queue()] == ["calendar changed"]
+    assert planner.recover() is None

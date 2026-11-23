@@ -304,6 +304,8 @@ def planner_job(settings: Settings, git: GitSync, *, queue_only: bool) -> Callab
     sync, auth, missing = build_calendar(settings, vault)
     planner = build_planner(settings, vault, sync)
     model = llm_settings(settings)
+    if queue_only:  # built once when the worker starts: pick up a run a restart cut off
+        planner.recover()
 
     def run() -> JobResult:
         if missing or auth is None or not auth.connected:
