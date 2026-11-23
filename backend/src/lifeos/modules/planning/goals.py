@@ -182,7 +182,8 @@ def resolve(goals: list[Goal], auto_hours: float) -> list[dict[str, Any]]:
 
 def _rules_span(text: str) -> tuple[int, int] | None:
     heads = "|".join(re.escape(h) for h in RULE_HEADINGS)
-    match = re.search(rf"^##\s+({heads})\s*$", text, re.M)
+    # [ \t] not \s: the match must end on the heading line, or every save adds blank lines
+    match = re.search(rf"^##[ \t]+({heads})[ \t]*$", text, re.M)
     if not match:
         return None
     rest = text[match.end() :]

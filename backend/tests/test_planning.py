@@ -429,3 +429,10 @@ def test_planner_sees_groups_and_never_plans_the_group_itself(planner, vault):
     assert by_title["x"].goal == "" and by_title["y"].goal == "LifeOS"
     t = {x["name"]: x for x in planner.targets()}
     assert t["Arbeit"]["planned"] == 1  # members count for their group
+
+
+def test_saving_twice_does_not_add_blank_lines():
+    goals, rules = g.parse(GOALS)
+    once = g.render(GOALS, goals, rules)
+    assert g.render(once, goals, rules) == once
+    assert "## Regeln\n\n- Arbeit" in once
