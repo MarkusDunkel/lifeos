@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -24,11 +25,13 @@ from zoneinfo import ZoneInfo
 from lifeos.connectors.google.auth import GoogleError
 from lifeos.connectors.google.client import CalendarApi
 from lifeos.core.extract.text import dump_front, front_matter
+from lifeos.core.locks import FileLock
 from lifeos.core.vault import KNOWLEDGE, STATE, Vault, write_atomic
 
 CONFIG_FILE = "Calendars.md"
 EVENTS_FILE = f"{STATE}/calendar/events.json"
 REPORT_FILE = f"{STATE}/calendar/last-sync.json"
+LOCK_FILE = f"{STATE}/calendar/sync.lock"
 TARGET_NAME = "LifeOS"
 DAYS_BACK = 7
 DAYS_AHEAD = 35
@@ -138,6 +141,7 @@ class CalendarSync:
         self.tz = ZoneInfo(timezone)
         self.planning_dir = planning_dir
         self._clock = clock
+        self._lock = threading.Lock()
 
     # -- configuration in the vault -----------------------------------------------
 
@@ -208,11 +212,14 @@ class CalendarSync:
         return target
 
     def sync(self) -> SyncReport:
-        report = SyncReport(at=datetime.fromtimestamp(self._clock(), self.tz).isoformat())
-        try:
-            self._sync(report)
-        except GoogleError as exc:
-            report.errors.append(str(exc))
+        # one sync at a time across the web app and the worker: overlapping runs would both
+        # see a mirror missing and both create it
+        with self._lock, FileLock(self.vault.resolve(LOCK_FILE)):
+            report = SyncReport(at=datetime.fromtimestamp(self._clock(), self.tz).isoformat())
+            try:
+                self._sync(report)
+            except GoogleError as exc:
+                report.errors.append(str(exc))
         write_atomic(self.vault.resolve(REPORT_FILE), json.dumps(asdict(report), indent=2))
         return report
 
@@ -240,7 +247,15 @@ class CalendarSync:
         in_target = [
             e for r in api.events(target, *window) if (e := normalize(r, target, TARGET_NAME))
         ]
-        mirrors = {e["lifeos_id"]: e for e in in_target if e["kind"] == MIRROR}
+        mirrors: dict[str, dict[str, Any]] = {}
+        for e in in_target:
+            if e["kind"] != MIRROR:
+                continue
+            if e["lifeos_id"] in mirrors:  # a copy, e.g. from an earlier overlapping sync
+                api.delete_event(target, e["id"])
+                report.deleted += 1
+            else:
+                mirrors[e["lifeos_id"]] = e
         manual = [e for e in in_target if not e["kind"]]
         plans = [e for e in in_target if e["kind"] == PLAN]
         report.manual = len(manual)

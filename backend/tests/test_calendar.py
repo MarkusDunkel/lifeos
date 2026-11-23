@@ -249,3 +249,40 @@ def test_connect_returns_google_url(settings: Settings, tmp_path):
     assert "redirect_uri=http%3A%2F%2Ftestserver%2Fapi%2Fcalendar%2Fgoogle%2Fcallback" in url
     r = c.get("/api/calendar/google/callback?state=x&code=y", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].startswith("/plan?")
+
+
+def test_duplicate_mirrors_are_cleaned_up(sync, fake):
+    fake.add("primary", "Dentist", "2026-11-24T09:00:00+01:00", "2026-11-24T10:00:00+01:00")
+    sync.sync()
+    target = sync.config()["target"]
+    [mirror] = fake.items[target].values()
+    fake.insert_event(target, {k: v for k, v in mirror.items() if k != "id"})  # an earlier race
+    report = sync.sync()
+    assert report.deleted == 1 and report.created == 0
+    assert len(fake.items[target]) == 1
+
+
+def test_overlapping_syncs_do_not_duplicate(sync, fake):
+    import threading
+
+    for n in range(5):
+        fake.add("primary", f"E{n}", f"2026-11-2{n}T09:00:00+01:00", f"2026-11-2{n}T10:00:00+01:00")
+    sync.sync()  # creates the target
+    target = sync.config()["target"]
+    for e in list(fake.items[target]):
+        del fake.items[target][e]
+    slow = fake.insert_event
+
+    def insert(cal, body):
+        import time
+
+        time.sleep(0.01)
+        return slow(cal, body)
+
+    fake.insert_event = insert
+    threads = [threading.Thread(target=sync.sync) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(fake.items[target]) == 5
