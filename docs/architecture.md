@@ -403,7 +403,13 @@ proposal each. The job list sorts by `sort=match` (recommendation, then fit) and
 `recommended` / `assessed`; `POST /api/jobsearch/postings/{source}/{id}/assess` queues one,
 `GET /api/jobsearch/matcher` shows today's counts.
 
-Planned next: commute times (manual, estimated for car/bike) in the sorting.
+**Commute** (`modules/career/commute.py`): worker job `commute` (hourly, only with
+`LIFEOS_ORS_API_KEY`) fetches car and bike times from each home to the posting locations
+within its radius via the OpenRouteService matrix API, cached per home and rounded
+coordinate in `.lifeos/jobsearch/commute.json`. Rows get `commute` (times per home, the
+quickest, a soft factor); sorting by fit or recommendation multiplies the score by the
+factor: 1 up to the home's `comfort_minutes`, down to 0.5 at `max_minutes` (flagged beyond),
+1 for unknown times and remote postings.
 
 ## Backend layout (`backend/src/lifeos`)
 

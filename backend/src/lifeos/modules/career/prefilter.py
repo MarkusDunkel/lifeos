@@ -47,7 +47,7 @@ SKILL_CAP = 12.0  # share points for a full skill match (four core skills)
 SKILL_PART, TITLE_PART = 0.6, 0.4
 DESCRIPTION_WEIGHT = 0.7
 PASS_FIT = 35
-VERSION = 1  # bump when the scoring changes
+VERSION = 2  # bump when the scoring changes
 
 REMOTE = re.compile(
     r"\b(100\s?%\s?remote|full[ -]?remote|fully remote|remote[- ]first|komplett remote|"
@@ -64,12 +64,16 @@ class Home:
     lat: float
     lon: float
     radius_km: float = 40.0
+    comfort_minutes: float = 30.0  # commute without penalty
+    max_minutes: float = 75.0  # half the score at this commute; longer is flagged
 
 
 @dataclass
 class Near:
     label: str
     km: float
+    lat: float | None = None  # the posting's location nearest to the home
+    lon: float | None = None
 
 
 @dataclass
@@ -107,7 +111,9 @@ def load_homes(vault: Vault) -> list[Home]:
     for raw in data.get("homes") or []:
         try:
             out.append(Home(str(raw["label"]), float(raw["lat"]), float(raw["lon"]),
-                            float(raw.get("radius_km", 40))))  # fmt: skip
+                            float(raw.get("radius_km", 40)),
+                            float(raw.get("comfort_minutes", 30)),
+                            float(raw.get("max_minutes", 75))))  # fmt: skip
         except (KeyError, TypeError, ValueError):
             continue
     return out
@@ -185,9 +191,9 @@ class Scorer:
             for home in self.homes:
                 km = round(haversine(home.lat, home.lon, loc.lat, loc.lon), 1)
                 if best is None or km < best.km:
-                    best = Near(home.label, km)
+                    best = Near(home.label, km, loc.lat, loc.lon)
                 if km <= home.radius_km and (home.label not in near or km < near[home.label].km):
-                    near[home.label] = Near(home.label, km)
+                    near[home.label] = Near(home.label, km, loc.lat, loc.lon)
         fit.nearest = best
         fit.homes = sorted(near.values(), key=lambda n: n.km)
 

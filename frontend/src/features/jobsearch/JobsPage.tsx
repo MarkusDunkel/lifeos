@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  type Commute,
   type AssessmentDetail,
   type AssessmentSummary,
   type Fit,
@@ -400,7 +401,12 @@ function fitStyle(fit: number): string {
   return "bg-slate-50 text-slate-400 dark:bg-slate-900 dark:text-slate-500";
 }
 
-function FitBadges({ fit }: { fit: Fit }) {
+function minutes(m: number | null | undefined): string | null {
+  if (m === null || m === undefined) return null;
+  return m >= 60 ? `${Math.floor(m / 60)} h ${Math.round(m % 60)} min` : `${Math.round(m)} min`;
+}
+
+function FitBadges({ fit, commute }: { fit: Fit; commute?: Commute }) {
   return (
     <>
       {fit.profile_title && (
@@ -408,11 +414,26 @@ function FitBadges({ fit }: { fit: Fit }) {
           <Target className="size-3" /> {fit.fit} · {fit.profile_title}
         </span>
       )}
-      {fit.homes.map((n) => (
-        <span key={n.label} className={`${badge} inline-flex items-center gap-1 bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300`}>
-          <MapPin className="size-3" /> {n.label} · {Math.round(n.km)} km
-        </span>
-      ))}
+      {fit.homes.map((n) => {
+        const c = commute?.homes[n.label];
+        const car = minutes(c?.car);
+        const bike = minutes(c?.bike);
+        const style = c?.tooFar
+          ? "bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300"
+          : "bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300";
+        return (
+          <span
+            key={n.label}
+            className={`${badge} inline-flex items-center gap-1 ${style}`}
+            title={c ? "Estimated with OpenRouteService" : "Commute not estimated yet"}
+          >
+            <MapPin className="size-3" /> {n.label} · {Math.round(n.km)} km
+            {car && ` · 🚗 ${car}`}
+            {bike && ` · 🚲 ${bike}`}
+            {c?.tooFar && " · long commute"}
+          </span>
+        );
+      })}
       {fit.remote && (
         <span className={`${badge} inline-flex items-center gap-1 bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300`}>
           <Globe className="size-3" /> remote
@@ -451,7 +472,7 @@ function Badges({ row }: { row: PostingRow }) {
   return (
     <>
       {row.assessment && <VerdictBadge a={row.assessment} />}
-      {row.fit && <FitBadges fit={row.fit} />}
+      {row.fit && <FitBadges fit={row.fit} commute={row.commute} />}
       {row.goneAt && <span className={`${badge} bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300`}>offline</span>}
       {row.duplicateOf && (
         <span className={`${badge} inline-flex items-center gap-1 bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300`}>

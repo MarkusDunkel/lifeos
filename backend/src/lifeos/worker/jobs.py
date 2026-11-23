@@ -232,6 +232,28 @@ def job_matcher_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]
     return run
 
 
+def commute_job(settings: Settings) -> Callable[[], JobResult]:
+    """Fetch missing commute times (car, bike) from the homes to the postings near them."""
+    from lifeos.modules.career.commute import Commutes, OrsClient
+    from lifeos.modules.career.prefilter import FitIndex
+    from lifeos.modules.jobsearch.store import JobStore, is_active
+
+    vault = Vault.open(settings.vault_root)
+    store = JobStore(vault)
+    fit = FitIndex(vault, store)
+    commutes = Commutes(vault)
+
+    def run() -> JobResult:
+        if not settings.ors_api_key:
+            return JobResult("skipped", "LIFEOS_ORS_API_KEY not set")
+        keys = [k for k, e in store.index().items() if is_active(e)]
+        done = commutes.fill(OrsClient(settings.ors_api_key), fit, keys)
+        status = "error" if done["failed"] else "ok"
+        return JobResult(status, ", ".join(f"{v} {k}" for k, v in done.items()))
+
+    return run
+
+
 def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
     jobs: list[Job] = []
     if settings.moodle_sync_at:
@@ -254,6 +276,8 @@ def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
     if settings.agents_interval > 0:
         jobs.append(Job("agents", Every(settings.agents_interval), agents_job(settings, git)))
         jobs.append(Job("job-matcher", Every(600), job_matcher_job(settings, git)))
+    if settings.ors_api_key:
+        jobs.append(Job("commute", Every(3600), commute_job(settings)))
     if settings.git_sync_interval > 0:
         jobs.append(Job("git-sync", Every(settings.git_sync_interval), git_sync_job(git)))
     return jobs

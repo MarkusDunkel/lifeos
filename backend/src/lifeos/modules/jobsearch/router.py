@@ -45,11 +45,17 @@ class FinishRequest(BaseModel):
 
 
 def build_router(
-    store: JobStore, timezone: str, fit: Any | None = None, matcher: Any | None = None
+    store: JobStore,
+    timezone: str,
+    fit: Any | None = None,
+    matcher: Any | None = None,
+    commute: Any | None = None,
 ) -> APIRouter:
     """``fit`` (a :class:`lifeos.modules.career.prefilter.FitIndex`) adds the profile fit
     and home labels to the rows and allows sorting and filtering by them; ``matcher`` (a
-    :class:`lifeos.modules.career.matcher.Matcher`) adds the AI assessments."""
+    :class:`lifeos.modules.career.matcher.Matcher`) adds the AI assessments; ``commute``
+    (a :class:`lifeos.modules.career.commute.Commutes`) the commute times, which weigh the
+    sorting by fit and by recommendation softly."""
     router = APIRouter(prefix="/api/jobsearch", tags=["jobsearch"])
     tz = ZoneInfo(timezone)
 
@@ -181,21 +187,28 @@ def build_router(
                 return not passed or f.passed
 
             rows = [kv for kv in rows if keep(kv[0])]
+            weights: dict[str, float] = {}
+            if commute is not None and (sort in ("fit", "match") or profile):
+                cache, homes_by_label = commute.read(), commute.homes()
+                weights = {k: commute.annotate(fits[k], cache, homes_by_label)["factor"]
+                           for k, _ in rows}  # fmt: skip
             if sort == "match":
 
-                def rank(key: str) -> tuple[int, int]:
+                def rank(key: str) -> tuple[int, float]:
                     v = verdicts.get(key) or {}
                     score = v.get("fit") if v.get("fit") is not None else fits[key].fit
-                    return (RANK.get(v.get("recommendation"), 2), -score)
+                    return (RANK.get(v.get("recommendation"), 2), -score * weights.get(key, 1.0))
 
                 rows.sort(key=lambda kv: rank(kv[0]))
             elif sort == "fit" or profile:
 
-                def value(key: str) -> int:
+                def value(key: str) -> float:
                     f = fits[key]
                     if profile:
-                        return next((p.fit for p in f.profiles if p.slug == profile), 0)
-                    return f.fit
+                        score = next((p.fit for p in f.profiles if p.slug == profile), 0)
+                    else:
+                        score = f.fit
+                    return score * weights.get(key, 1.0)
 
                 rows.sort(key=lambda kv: value(kv[0]), reverse=True)  # stable: newest first
         page = rows[offset : offset + limit]
@@ -203,6 +216,8 @@ def build_router(
             fits = fit.all([k for k, _ in page])
         if matcher is not None and not verdicts:
             verdicts = matcher.summaries([k for k, _ in page])
+        cache = commute.read() if commute is not None else {}
+        homes_by_label = commute.homes() if commute is not None else {}
         items = []
         for key, entry in page:
             posting = store.posting(key)
@@ -211,6 +226,8 @@ def build_router(
             row = _row(key, entry, posting) | {"duplicateCount": dupes.get(key, 0)}
             if key in fits:
                 row["fit"] = asdict(fits[key])
+                if commute is not None:
+                    row["commute"] = commute.annotate(fits[key], cache, homes_by_label)
             if key in verdicts:
                 row["assessment"] = verdicts[key]
             items.append(row)
@@ -258,6 +275,8 @@ def build_router(
         if fit is not None:
             found_fit = fit.all([key]).get(key)
             extra = {"fit": asdict(found_fit)} if found_fit else {}
+            if found_fit and commute is not None:
+                extra["commute"] = commute.annotate(found_fit)
         if matcher is not None:
             record = matcher.load([key]).get(key)
             if record:

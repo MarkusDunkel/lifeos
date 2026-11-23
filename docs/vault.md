@@ -236,7 +236,7 @@ Homes for the job search live in `Career/CV/personal.yaml`:
 
 ```yaml
 homes:
-  - {label: Some Town, lat: 47.0, lon: 15.5, radius_km: 35}
+  - {label: Some Town, lat: 47.0, lon: 15.5, radius_km: 35, comfort_minutes: 30, max_minutes: 75}
 ```
 
 All homes count equally; a posting within a radius gets that home's label in the job list.

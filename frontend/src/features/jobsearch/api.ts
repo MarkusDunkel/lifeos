@@ -46,6 +46,13 @@ export type Fit = {
   passed: boolean;
 };
 
+export type Commute = {
+  homes: Record<string, { car: number | null; bike: number | null; tooFar: boolean }>;
+  minutes: number | null;
+  factor: number;
+  tooFar: boolean;
+};
+
 export type FitOptions = {
   profiles: { slug: string; title: string }[];
   homes: { label: string; lat: number; lon: number; radius_km: number }[];
@@ -112,6 +119,7 @@ export type PostingRow = {
   application: string | null;
   duplicateCount?: number;
   fit?: Fit;
+  commute?: Commute;
   assessment?: AssessmentSummary;
 };
 

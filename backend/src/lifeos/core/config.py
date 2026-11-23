@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     static_dir: Path | None = Field(
         default=None, description="Directory with the built frontend; served as SPA if set."
     )
+    ors_api_key: str | None = Field(
+        default=None,
+        description="OpenRouteService API key: commute times (car, bike) from the homes to the "
+        "postings, fetched by the worker job `commute`.",
+    )
     github_token: str | None = Field(
         default=None, description="GitHub token (scopes: repo, project) for the tickets sync."
     )
