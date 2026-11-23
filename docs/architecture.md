@@ -359,6 +359,30 @@ sudo systemctl daemon-reload && sudo systemctl enable --now lifeos-deployer.time
 
 The app needs `LIFEOS_APP_REPO` and `LIFEOS_DEPLOY_BRANCH` (same branch as the deployer).
 
+## Career: job profiles and the target curriculum
+
+Job profiles are living documents in the vault (`Career/Profiles/<slug>/Profile.md`, each a
+review package). A profile holds its own skills in a table (first header cell `Skill`) with a
+share of core / secondary / edge. `Career/Profiles/Overview.md` belongs to the owner: the
+profiles with a weight in percent and a status, and the owner's level 0–3 per skill (with
+aliases). `modules/career` parses both and calculates the target curriculum
+(`importance = Σ weight × share/3`, `priority = importance × (3 − level)/3`); the career page
+shows it live, and a generated block between `<!-- lifeos:curriculum:* -->` markers in the
+overview records it.
+
+The **profile designer** (workflow `profile-designer`, an agent on LifeOS Tasks) drafts and
+sharpens the profiles: research with web search → structured `DesignerOutput` → code checks
+and a reviewer against the agent's checklist → at most `max_revisions` revisions → profile
+files with a history line, new overview rows (never changing existing ones) and the
+curriculum block. Its inputs are the master CV, the application guide, extra vault paths
+from `sources:` in the agent file, past application folders and the skill/title counts of
+the imported postings (`modules/career/market.py`). Sharpening goes through the review page:
+comment, send feedback, move the ticket back to Todo.
+
+Planned next: a rule prefilter for postings (distance to several home locations, skill and
+title match), an AI job matcher with web research and a daily limit, commute times (manual,
+estimated for car/bike) and sorting the job list by fit.
+
 ## Backend layout (`backend/src/lifeos`)
 
 | Module | Responsibility |
@@ -386,6 +410,7 @@ The app needs `LIFEOS_APP_REPO` and `LIFEOS_DEPLOY_BRANCH` (same branch as the d
 | `modules/moodle` | Status, connect, course selection and sync endpoints |
 | `modules/presentations` | Status, connect/disconnect and sync endpoints for the mirror |
 | `connectors/devjobs` | devjobs.at sitemap and posting pages (JSON-LD), polite client over Edge (Playwright) or `curl` |
+| `modules/career` | Job profiles and overview (Markdown tables), target curriculum, profile designer workflow, market statistics |
 | `modules/jobsearch` | Posting model, store in `.lifeos/jobsearch/` with duplicate detection, import API, PC importer, autorun and Windows autostart |
 
 ## Editing safety

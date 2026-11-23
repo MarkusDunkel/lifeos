@@ -216,6 +216,22 @@ ready/knowledge/Studium/<Subject>/lernstand.jsonl      progress log, one line pe
   tutor rules (one question at a time, varied question types, strict grading, short turns).
 - `end_session` commits the log as `study: <Subject> – N answers, M correct`.
 
+## Career profiles
+
+```
+ready/knowledge/Career/Profiles/
+  Overview.md          owner: profiles + weight % + status, own level per skill, generated curriculum
+  Research.md          latest market research of the profile designer
+  <slug>/Profile.md    one profile: direction, fit, titles, skills table (Skill | Share | Reason), history
+  <slug>/review.yaml   review package (ticket of the last run)
+```
+
+Tables are found by their first header cell (`Profile`/`Profil`, `Skill`), columns by name in
+English or German (`Weight`/`Gewicht`, `Level`/`Stand`, `Aliases`/`Synonyme`). Shares:
+core/Kern, secondary/Neben, edge/Rand. Status: active/aktiv, paused/pausiert, draft/Entwurf,
+dropped/verworfen; only active profiles count. The profile designer appends rows but never
+changes existing ones; the curriculum block is rewritten.
+
 ## Workspace lifecycle
 
 1. **Create** — an agent writes exactly one Markdown file into `ready/workspaces/`.

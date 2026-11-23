@@ -47,10 +47,12 @@ def build_release(settings: Settings) -> tuple[DeployQueue | None, AppRepo | Non
 def build_workflows(settings: Settings) -> dict[str, Workflow]:
     from lifeos.agents.assistant_work import make_assistant_workflow
     from lifeos.modules.applications import writer
+    from lifeos.modules.career.designer import make_profile_designer
 
     model_settings = llm_settings(settings)
     return {
         "application-writer": writer.make_application_writer(model_settings),
+        "profile-designer": make_profile_designer(model_settings),
         "assistant": make_assistant_workflow(
             model_settings, app_repo=settings.app_repo, deploy_branch=settings.deploy_branch
         ),

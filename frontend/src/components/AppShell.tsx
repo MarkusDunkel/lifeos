@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Bot, BookOpen, Briefcase, ClipboardList, FileCheck, GraduationCap, KanbanSquare, NotebookPen, Settings, StickyNote } from "lucide-react";
+import { Bot, BookOpen, Briefcase, ClipboardList, Compass, FileCheck, GraduationCap, KanbanSquare, NotebookPen, Settings, StickyNote } from "lucide-react";
 import type { ReactNode } from "react";
 
 const NAV = [
@@ -11,6 +11,7 @@ const NAV = [
   { to: "/study", label: "Study", icon: NotebookPen },
   { to: "/moodle", label: "Moodle", icon: GraduationCap },
   { to: "/jobs", label: "Jobs", icon: Briefcase },
+  { to: "/career", label: "Career", icon: Compass },
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;

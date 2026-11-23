@@ -29,6 +29,8 @@ from lifeos.mcp_server.http import mount_mcp
 from lifeos.mcp_server.server import build_mcp
 from lifeos.modules.applications.router import build_router as applications_router
 from lifeos.modules.applications.service import ApplicationError, Applications
+from lifeos.modules.career.router import CareerService
+from lifeos.modules.career.router import build_router as career_router
 from lifeos.modules.jobsearch.router import build_router as jobsearch_router
 from lifeos.modules.jobsearch.store import JobStore
 from lifeos.modules.knowledge.index import KnowledgeIndex
@@ -152,6 +154,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         timezone=settings.timezone,
     )
     app.include_router(applications_router(applications))
+    app.include_router(career_router(CareerService(vault, committer=background_committer(git))))
     app.include_router(agents_router(AgentAdmin(vault, committer=background_committer(git))))
 
     if mcp is not None and settings.mcp_path_token:

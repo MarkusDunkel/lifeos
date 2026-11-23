@@ -185,6 +185,62 @@ DEFAULT_TEXTS: dict[str, str] = {
     "release_revert_failed": "- ⛔ could not undo {what}: {error} – please undo it by hand",
     # heading of the human summary in agents/<name>.md (shown to the assistant)
     "summary_heading": "Summary",
+    # career: the profile documents written by the profile designer
+    "profile_summary": "## In short",
+    "profile_direction": "## Direction",
+    "profile_fit": "## Why it fits me",
+    "profile_titles": "## Typical job titles",
+    "profile_exclusions": "## Not this",
+    "profile_skills": "## Skills",
+    "profile_skills_intro": "Share: core = needed a lot, secondary = needed regularly, edge = "
+    "nice to have.",
+    "profile_col_skill": "Skill",
+    "profile_col_share": "Share",
+    "profile_col_reason": "Reason",
+    "profile_market": "## Market",
+    "profile_gaps": "## Gaps",
+    "profile_history": "## History",
+    "share_core": "core",
+    "share_secondary": "secondary",
+    "share_edge": "edge",
+    # career: the overview (weights, own levels) and its generated curriculum
+    "overview_title": "# Job profiles – overview",
+    "overview_intro": "Rank the profiles here (weights in percent of the active profiles) and "
+    "keep your own level per skill up to date. The curriculum at the end is generated from it.",
+    "overview_profiles": "## Profiles",
+    "overview_col_profile": "Profile",
+    "overview_col_title": "Title",
+    "overview_col_weight": "Weight %",
+    "overview_col_status": "Status",
+    "overview_statuses": "Status: active, paused, draft, dropped – only active profiles count.",
+    "overview_skills": "## Own level per skill",
+    "overview_skills_intro": "0 = none, 1 = basics, 2 = used in projects, 3 = strong. Aliases: "
+    "other spellings, comma-separated.",
+    "overview_col_skill": "Skill",
+    "overview_col_level": "Level",
+    "overview_col_aliases": "Aliases",
+    "overview_col_note": "Note",
+    "status_draft": "draft",
+    "level_proposed": "proposed by AI: {reason}",
+    "curriculum_heading": "## Target curriculum (generated – do not edit)",
+    "curriculum_intro": "Calculated on {date}: weight of the profile × share of the skill × "
+    "gap to your level. Edit the tables above; this block is rewritten.",
+    "curriculum_now": "Now",
+    "curriculum_soon": "Soon",
+    "curriculum_later": "Later",
+    "curriculum_covered": "Covered (level 3)",
+    "curriculum_col_rank": "#",
+    "curriculum_col_skill": "Skill",
+    "curriculum_col_priority": "Priority",
+    "curriculum_col_importance": "Importance",
+    "curriculum_col_level": "Level",
+    "curriculum_col_profiles": "Profiles",
+    "curriculum_warnings": "**Notes**",
+    # report of the profile designer
+    "report_profiles": "**Profiles:** {links}",
+    "report_profile_created": "new",
+    "report_profile_updated": "sharpened",
+    "report_overview": "Overview",
 }
 
 
