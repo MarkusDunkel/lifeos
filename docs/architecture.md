@@ -379,9 +379,19 @@ from `sources:` in the agent file, past application folders and the skill/title 
 the imported postings (`modules/career/market.py`). Sharpening goes through the review page:
 comment, send feedback, move the ticket back to Todo.
 
-Planned next: a rule prefilter for postings (distance to several home locations, skill and
-title match), an AI job matcher with web research and a daily limit, commute times (manual,
-estimated for car/bike) and sorting the job list by fit.
+**Prefilter** (`modules/career/prefilter.py`): per posting and active profile a fit 0–100 =
+60 % skills (the profile's skills found in the posting's skill list and title, or at 0.7 in
+the description, weighted core 3 / secondary 2 / edge 1, full at 12 points) + 40 % title
+(best word share of a typical title). Location: distance to each home in `homes:` of
+`Career/CV/personal.yaml` (label + radius); fully remote postings are detected from the text.
+Salary is deliberately not used. A posting passes when it is near a home or remote and its
+fit is at least 35. Results are cached in `.lifeos/jobsearch/fit.json` under a signature of
+profiles, overview and homes, warmed in the background at start and after each import.
+`GET /api/jobsearch/postings` takes `sort=fit`, `profile`, `home`, `reach` and `passed`;
+`GET /api/jobsearch/fit/options` lists profiles and homes for the filters.
+
+Planned next: an AI job matcher with web research and a daily limit for postings that pass,
+commute times (manual, estimated for car/bike) and sorting by the AI recommendation.
 
 ## Backend layout (`backend/src/lifeos`)
 
@@ -410,7 +420,7 @@ estimated for car/bike) and sorting the job list by fit.
 | `modules/moodle` | Status, connect, course selection and sync endpoints |
 | `modules/presentations` | Status, connect/disconnect and sync endpoints for the mirror |
 | `connectors/devjobs` | devjobs.at sitemap and posting pages (JSON-LD), polite client over Edge (Playwright) or `curl` |
-| `modules/career` | Job profiles and overview (Markdown tables), target curriculum, profile designer workflow, market statistics |
+| `modules/career` | Job profiles and overview (Markdown tables), target curriculum, profile designer workflow, market statistics, posting prefilter (fit, homes, cache) |
 | `modules/jobsearch` | Posting model, store in `.lifeos/jobsearch/` with duplicate detection, import API, PC importer, autorun and Windows autostart |
 
 ## Editing safety

@@ -24,6 +24,33 @@ export type JobsearchStatus = {
   runs: ImportRun[];
 };
 
+export type Near = { label: string; km: number };
+
+export type ProfileFit = {
+  slug: string;
+  title: string;
+  fit: number;
+  skills: number;
+  title_match: number;
+  matched: string[];
+};
+
+export type Fit = {
+  fit: number;
+  profile: string | null;
+  profile_title: string | null;
+  profiles: ProfileFit[];
+  homes: Near[];
+  nearest: Near | null;
+  remote: boolean;
+  passed: boolean;
+};
+
+export type FitOptions = {
+  profiles: { slug: string; title: string }[];
+  homes: { label: string; lat: number; lon: number; radius_km: number }[];
+};
+
 export type PostingRow = {
   key: string;
   source: string;
@@ -45,6 +72,7 @@ export type PostingRow = {
   repostOf: string | null;
   application: string | null;
   duplicateCount?: number;
+  fit?: Fit;
 };
 
 export type PostingDetail = PostingRow & { description: string; benefits: string[]; related: PostingRow[] };
@@ -57,6 +85,11 @@ export type PostingsFilter = {
   gone: boolean;
   applied: boolean;
   days: number | null;
+  sort: "new" | "fit";
+  profile: string;
+  home: string;
+  reach: boolean;
+  passed: boolean;
 };
 
 export const PAGE_SIZE = 50;
@@ -76,10 +109,20 @@ export const postingsQuery = (filter: PostingsFilter, offset: number) =>
       if (filter.gone) params.gone = "true";
       if (filter.applied) params.applied = "true";
       if (filter.days) params.days = String(filter.days);
+      if (filter.sort !== "new") params.sort = filter.sort;
+      if (filter.profile) params.profile = filter.profile;
+      if (filter.home) params.home = filter.home;
+      if (filter.reach) params.reach = "true";
+      if (filter.passed) params.passed = "true";
       return api<PostingsPage>(`/api/jobsearch/postings?${qs(params)}`);
     },
     placeholderData: keepPreviousData,
   });
+
+export const fitOptionsQuery = queryOptions({
+  queryKey: ["jobsearch", "fit-options"],
+  queryFn: () => api<FitOptions>("/api/jobsearch/fit/options"),
+});
 
 export type ApplicationStarted = { issue: number; url: string; folder: string };
 

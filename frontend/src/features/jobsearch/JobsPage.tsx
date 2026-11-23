@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Briefcase, ChevronDown, ChevronRight, Copy, ExternalLink, Search, Send } from "lucide-react";
+import { Briefcase, ChevronDown, ChevronRight, Copy, ExternalLink, Globe, MapPin, Search, Send, Target } from "lucide-react";
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  type Fit,
+  fitOptionsQuery,
   type ImportRun,
   jobsearchStatusQuery,
   PAGE_SIZE,
@@ -36,7 +38,14 @@ export function JobsPage() {
     gone: false,
     applied: false,
     days: null,
+    sort: "new",
+    profile: "",
+    home: "",
+    reach: false,
+    passed: false,
   });
+  const options = useQuery(fitOptionsQuery);
+  const select = "rounded-lg border border-slate-300 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-900";
   const [pages, setPages] = useState(1);
 
   // Search after a short pause in typing; any filter change starts at the first page.
@@ -82,6 +91,47 @@ export function JobsPage() {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="flex items-center gap-2">
+            Sort
+            <select
+              className={select}
+              value={filter.profile ? `profile:${filter.profile}` : filter.sort}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v.startsWith("profile:")) setFilter({ ...filter, sort: "fit", profile: v.slice(8) });
+                else setFilter({ ...filter, sort: v as "new" | "fit", profile: "" });
+              }}
+            >
+              <option value="new">newest first</option>
+              <option value="fit">best fit (any profile)</option>
+              {options.data?.profiles.map((p) => (
+                <option key={p.slug} value={`profile:${p.slug}`}>
+                  fit: {p.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          {(options.data?.homes.length ?? 0) > 0 && (
+            <label className="flex items-center gap-2">
+              Near
+              <select className={select} value={filter.home} onChange={(e) => setFilter({ ...filter, home: e.target.value })}>
+                <option value="">anywhere</option>
+                {options.data?.homes.map((h) => (
+                  <option key={h.label} value={h.label}>
+                    {h.label} ({h.radius_km} km)
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={filter.reach} onChange={(e) => setFilter({ ...filter, reach: e.target.checked })} />
+            Near a home or remote
+          </label>
+          <label className="flex items-center gap-2" title="Near a home or remote and a fit of at least 35">
+            <input type="checkbox" checked={filter.passed} onChange={(e) => setFilter({ ...filter, passed: e.target.checked })} />
+            Passes the prefilter
           </label>
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={filter.applied} onChange={(e) => setFilter({ ...filter, applied: e.target.checked })} />
@@ -233,9 +283,64 @@ function PostingItem({ row }: { row: PostingRow }) {
   );
 }
 
+function fitStyle(fit: number): string {
+  if (fit >= 70) return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300";
+  if (fit >= 50) return "bg-teal-50 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300";
+  if (fit >= 35) return "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300";
+  return "bg-slate-50 text-slate-400 dark:bg-slate-900 dark:text-slate-500";
+}
+
+function FitBadges({ fit }: { fit: Fit }) {
+  return (
+    <>
+      {fit.profile_title && (
+        <span className={`${badge} inline-flex items-center gap-1 ${fitStyle(fit.fit)}`} title={`Prefilter fit to ${fit.profile_title}`}>
+          <Target className="size-3" /> {fit.fit} · {fit.profile_title}
+        </span>
+      )}
+      {fit.homes.map((n) => (
+        <span key={n.label} className={`${badge} inline-flex items-center gap-1 bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300`}>
+          <MapPin className="size-3" /> {n.label} · {Math.round(n.km)} km
+        </span>
+      ))}
+      {fit.remote && (
+        <span className={`${badge} inline-flex items-center gap-1 bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300`}>
+          <Globe className="size-3" /> remote
+        </span>
+      )}
+      {fit.homes.length === 0 && !fit.remote && fit.nearest && (
+        <span className={`${badge} text-slate-400`}>
+          {Math.round(fit.nearest.km)} km from {fit.nearest.label}
+        </span>
+      )}
+    </>
+  );
+}
+
+function FitDetails({ fit }: { fit: Fit }) {
+  if (fit.profiles.length === 0) return null;
+  return (
+    <div className="space-y-1 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-900">
+      <div className="font-medium text-slate-600 dark:text-slate-300">
+        Prefilter {fit.passed ? "passed" : "not passed"} · fit = 60 % skills + 40 % title
+      </div>
+      {fit.profiles.map((p) => (
+        <div key={p.slug} className="flex flex-wrap gap-x-2">
+          <span className="w-56 shrink-0 truncate">{p.title}</span>
+          <span className="tabular-nums">
+            {p.fit} (skills {p.skills}, title {p.title_match})
+          </span>
+          {p.matched.length > 0 && <span className="text-slate-500">{p.matched.join(", ")}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Badges({ row }: { row: PostingRow }) {
   return (
     <>
+      {row.fit && <FitBadges fit={row.fit} />}
       {row.goneAt && <span className={`${badge} bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300`}>offline</span>}
       {row.duplicateOf && (
         <span className={`${badge} inline-flex items-center gap-1 bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300`}>
@@ -302,6 +407,7 @@ function PostingDetails({ postingKey }: { postingKey: string }) {
           </a>
         )}
       </div>
+      {d.fit && <FitDetails fit={d.fit} />}
       <p className="text-xs text-slate-500">
         {dates.join(" · ")}
         {d.industry && ` · ${d.industry}`}

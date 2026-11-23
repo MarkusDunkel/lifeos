@@ -232,6 +232,15 @@ core/Kern, secondary/Neben, edge/Rand. Status: active/aktiv, paused/pausiert, dr
 dropped/verworfen; only active profiles count. The profile designer appends rows but never
 changes existing ones; the curriculum block is rewritten.
 
+Homes for the job search live in `Career/CV/personal.yaml`:
+
+```yaml
+homes:
+  - {label: Some Town, lat: 47.0, lon: 15.5, radius_km: 35}
+```
+
+All homes count equally; a posting within a radius gets that home's label in the job list.
+
 ## Workspace lifecycle
 
 1. **Create** — an agent writes exactly one Markdown file into `ready/workspaces/`.

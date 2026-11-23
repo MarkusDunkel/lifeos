@@ -7,6 +7,7 @@ serve the web app.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -42,7 +43,9 @@ class FinishRequest(BaseModel):
     errors: list[str] = Field(default_factory=list, max_length=20)
 
 
-def build_router(store: JobStore, timezone: str) -> APIRouter:
+def build_router(store: JobStore, timezone: str, fit: Any | None = None) -> APIRouter:
+    """``fit`` (a :class:`lifeos.modules.career.prefilter.FitIndex`) adds the profile fit
+    and home labels to the rows and allows sorting and filtering by them."""
     router = APIRouter(prefix="/api/jobsearch", tags=["jobsearch"])
     tz = ZoneInfo(timezone)
 
@@ -84,6 +87,8 @@ def build_router(store: JobStore, timezone: str) -> APIRouter:
     def import_finish(body: FinishRequest) -> dict:
         _source(body.source)
         record = store.finish(body.model_dump())
+        if fit is not None:
+            fit.warm()
         return {"run": record, "doneToday": _today_done()}
 
     # -- web app ------------------------------------------------------------------
@@ -106,9 +111,16 @@ def build_router(store: JobStore, timezone: str) -> APIRouter:
         days: int | None = Query(default=None, ge=1),
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=50, ge=1, le=200),
+        sort: str = Query(default="new", pattern="^(new|fit)$"),
+        profile: str | None = None,
+        home: str | None = None,
+        reach: bool = False,
+        passed: bool = False,
     ) -> dict:
-        """Imported postings, newest first. ``q`` matches title, company, place and
-        skills (all words must match)."""
+        """Imported postings, newest first (``sort=fit``: best profile fit first). ``q``
+        matches title, company, place and skills (all words must match). ``profile`` sorts
+        by the fit to that profile; ``home`` keeps postings near that home, ``reach`` those
+        near any home or remote, ``passed`` those that pass the prefilter."""
         words = q.lower().split()
         since = (datetime.now(UTC) - timedelta(days=days)).isoformat() if days else None
         index = store.index()
@@ -136,13 +148,50 @@ def build_router(store: JobStore, timezone: str) -> APIRouter:
                     continue
             rows.append((key, entry))
         rows.sort(key=lambda kv: (kv[1].get("firstSeen", ""), kv[0]), reverse=True)
+        fits: dict[str, Any] = {}
+        if fit is not None and (sort == "fit" or profile or home or reach or passed):
+            fits = fit.all([k for k, _ in rows])
+
+            def keep(key: str) -> bool:
+                f = fits.get(key)
+                if f is None:
+                    return False
+                if home and all(n.label != home for n in f.homes):
+                    return False
+                if reach and not (f.homes or f.remote):
+                    return False
+                return not passed or f.passed
+
+            rows = [kv for kv in rows if keep(kv[0])]
+            if sort == "fit" or profile:
+
+                def value(key: str) -> int:
+                    f = fits[key]
+                    if profile:
+                        return next((p.fit for p in f.profiles if p.slug == profile), 0)
+                    return f.fit
+
+                rows.sort(key=lambda kv: value(kv[0]), reverse=True)  # stable: newest first
+        page = rows[offset : offset + limit]
+        if fit is not None and not fits:
+            fits = fit.all([k for k, _ in page])
         items = []
-        for key, entry in rows[offset : offset + limit]:
+        for key, entry in page:
             posting = store.posting(key)
             if posting is None:
                 continue
-            items.append(_row(key, entry, posting) | {"duplicateCount": dupes.get(key, 0)})
+            row = _row(key, entry, posting) | {"duplicateCount": dupes.get(key, 0)}
+            if key in fits:
+                row["fit"] = asdict(fits[key])
+            items.append(row)
         return {"total": len(rows), "offset": offset, "items": items}
+
+    @router.get("/fit/options")
+    def fit_options() -> dict:
+        """The active profiles and the homes, for the filters of the job list."""
+        if fit is None:
+            return {"profiles": [], "homes": []}
+        return {"profiles": fit.profiles(), "homes": [asdict(h) for h in fit.homes()]}
 
     @router.get("/postings/{source}/{posting_id}")
     def posting(source: str, posting_id: str) -> dict:
@@ -158,11 +207,19 @@ def build_router(store: JobStore, timezone: str) -> APIRouter:
             and k != key
             and (p := store.posting(k)) is not None
         ]
-        return _row(key, entry, found) | {
-            "description": found.description,
-            "benefits": found.benefits,
-            "related": others,
-        }
+        extra = {}
+        if fit is not None:
+            found_fit = fit.all([key]).get(key)
+            extra = {"fit": asdict(found_fit)} if found_fit else {}
+        return (
+            _row(key, entry, found)
+            | extra
+            | {
+                "description": found.description,
+                "benefits": found.benefits,
+                "related": others,
+            }
+        )
 
     return router
 

@@ -64,6 +64,24 @@ class Profile:
     path: str  # vault-relative Profile.md
     skills: list[SkillNeed] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
+    titles: list[str] = field(default_factory=list)  # typical job titles (for matching)
+
+
+def section_items(text: str, *keywords: str) -> list[str]:
+    """The list items of the first ``##`` section whose heading contains a keyword."""
+    lines = text.splitlines()
+    wanted = [k.casefold() for k in keywords]
+    out: list[str] = []
+    inside = False
+    for line in lines:
+        if line.startswith("## "):
+            if inside:
+                break
+            inside = any(k in line.casefold() for k in wanted)
+            continue
+        if inside and line.lstrip().startswith(("- ", "* ")):
+            out.append(line.lstrip()[2:].strip())
+    return out
 
 
 @dataclass
@@ -114,6 +132,7 @@ def _title(text: str, fallback: str) -> str:
 
 def parse_profile(text: str, slug: str, path: str) -> Profile:
     profile = Profile(slug=slug, title=_title(text, slug), path=path)
+    profile.titles = [t for t in section_items(text, "titel", "title") if t and t != "–"]
     table = tables.find(text, "skill", "skills", "kompetenz")
     if table is None:
         profile.problems.append("no skills table (first header cell “Skill”)")
