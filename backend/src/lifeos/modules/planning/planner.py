@@ -55,6 +55,10 @@ RUNS_FILE = f"{ROOT}/runs.jsonl"
 RUNNING_FILE = f"{ROOT}/running.json"
 HORIZON_DAYS = 7
 CALENDAR_PAUSE = 1800  # seconds between re-plans caused by calendar changes
+OWNER_QUIET = 300  # seconds without further moves in Google before re-planning
+CALENDAR_CHANGED = "calendar changed"
+OWNER_CHANGED = "moved or deleted by you in Google"
+DAY_NOTE = "note in the calendar"
 KEEP_HISTORY_DAYS = 60
 MOODLE_TASKS = f"{INBOX}/moodle/tasks.json"
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -87,12 +91,22 @@ class RuleProposal(BaseModel):
     why: str = Field(description="evidence from journal, check-ins or wishes")
 
 
+class DayNote(BaseModel):
+    date: str = Field(description="YYYY-MM-DD: the day whose thread gets this answer")
+    text: str = Field(description="one or two sentences for the owner: what you did and why")
+
+
 class PlanResult(BaseModel):
     blocks: list[PlannedBlock] = Field(
         description="the complete plan for the open part of the horizon (everything after "
         "<now>), including kept blocks"
     )
     wishes: list[WishAnswer] = Field(default_factory=list)
+    day_notes: list[DayNote] = Field(
+        default_factory=list,
+        description="answers to NEW notes in <day_notes>: one for the note's day, plus one for "
+        "every other day the note made you change",
+    )
     summary: str = Field(description="2–4 sentences for the owner: the plan's idea, trade-offs")
     rule_proposals: list[RuleProposal] = Field(
         default_factory=list,
@@ -119,6 +133,13 @@ How to plan:
 - Answer every wish in <wishes>.
 - Blocks marked SET BY THE OWNER carry the owner's own plan in their text. Keep them, and
   let them guide related blocks (e.g. continue that topic in the next session of the goal).
+- <day_notes> are notes the owner wrote into a day of the calendar. A note applies from its
+  own day on; words like "today" or "tomorrow" are relative to that day. Notes beat rules and
+  quotas for the days they speak about (e.g. "travelling all day, only sport" = no work
+  blocks that day, one sport block). Answer every NEW note in day_notes: one entry for the
+  note's day, and one for each other day you changed because of it ("Because of your note
+  from Monday: …"). Do not answer notes that are not NEW.
+- Notes of appointments (after "— note:") are the owner's or the organiser's context.
 - Titles are concrete ("Bewerbung Firma X: Anschreiben", "Laufen 40 min locker"), in the
   language of the goals and rules. Write summary, reasons and answers in that language too.
 - Propose a rule only for a pattern you see several times; never invent evidence.
@@ -252,16 +273,27 @@ class Planner:
         return {"runsToday": runs, "dailyLimit": limit, "limitReached": runs >= limit}
 
     def due_from_queue(self) -> str | None:
-        """The reasons to run now, or None. Calendar changes wait for ``CALENDAR_PAUSE``."""
+        """The reasons to run now, or None. New appointments wait for ``CALENDAR_PAUSE`` after
+        the last run; blocks the owner moved or deleted in Google wait until they have been
+        quiet for ``OWNER_QUIET`` (so moving several blocks gives one run); the rest is due."""
         queue = self.queue()
         if not queue:
             return None
-        reasons = [q["reason"] for q in queue]
-        if all(r == "calendar changed" for r in reasons):
-            last = self.state().get("last_run_ts", 0)
-            if self._clock() - last < CALENDAR_PAUSE:
-                return None
-        return ", ".join(dict.fromkeys(reasons))
+        now = self._clock()
+        due = False
+        for q in queue:
+            if q["reason"] == CALENDAR_CHANGED:
+                due |= now - self.state().get("last_run_ts", 0) >= CALENDAR_PAUSE
+            elif q["reason"] == OWNER_CHANGED:
+                latest = max(
+                    datetime.fromisoformat(x["at"]).timestamp()
+                    for x in queue
+                    if x["reason"] == OWNER_CHANGED
+                )
+                due |= now - latest >= OWNER_QUIET
+            else:
+                due = True
+        return ", ".join(dict.fromkeys(q["reason"] for q in queue)) if due else None
 
     def notice_calendar(self) -> bool:
         """After a calendar sync: queue a re-plan if appointments in the horizon changed."""
@@ -275,14 +307,39 @@ class Planner:
         )
         signature = hashlib.sha1(json.dumps(relevant).encode()).hexdigest()[:16]
         state = self.state()
+        queued = False
+        # a new or changed note in a day thread: plan right away so the owner gets an answer
+        if self.new_notes(store, state):
+            notes_sig = _sig(sorted((t["date"], t["owner"]) for t in store.get("threads", [])))
+            if state.get("notes_signature") != notes_sig:
+                state = state | {"notes_signature": notes_sig}
+                self._write(STATE_FILE, state)
+                self.enqueue(DAY_NOTE)
+                queued = True
         if state.get("calendar_signature") == signature:
-            return False
+            return queued
         first = "calendar_signature" not in state
         self._write(STATE_FILE, state | {"calendar_signature": signature})
         if not first and state.get("last_run_ts"):
-            self.enqueue("calendar changed")
+            self.enqueue(CALENDAR_CHANGED)
             return True
-        return False
+        return queued
+
+    def notes(self, store: dict[str, Any]) -> list[dict[str, Any]]:
+        """Owner notes of the day threads from yesterday to the end of the horizon."""
+        today = self.now().date()
+        first = (today - timedelta(days=1)).isoformat()
+        last = (today + timedelta(days=HORIZON_DAYS)).isoformat()
+        return [
+            t
+            for t in store.get("threads", [])
+            if first <= t["date"] <= last and t.get("owner", "").strip()
+        ]
+
+    def new_notes(self, store: dict[str, Any], state: dict[str, Any] | None = None) -> list[str]:
+        """Dates whose note changed since the planner last answered it."""
+        answered = (state if state is not None else self.state()).get("answered_notes", {})
+        return [t["date"] for t in self.notes(store) if answered.get(t["date"]) != _sig(t["owner"])]
 
     # -- the run ----------------------------------------------------------------------------
 
@@ -358,13 +415,20 @@ class Planner:
         blocks = self.plans.blocks()
         cutoff = (now.date() - timedelta(days=KEEP_HISTORY_DAYS)).isoformat()
         blocks = [b for b in blocks if b.date >= cutoff]
-        keep = [b for b in blocks if b.status == REMOVED or b.span(self.tz)[0] < freeze_until]
+        # past, running and blocks whose time the owner chose stay as they are
+        keep = [
+            b
+            for b in blocks
+            if b.status == REMOVED or b.pinned or b.span(self.tz)[0] < freeze_until
+        ]
         open_blocks = [b for b in blocks if b not in keep]
         busy, all_day = busy_times(store, self.tz)
         frozen = [b for b in keep if b.status != REMOVED and b.span(self.tz)[1] > freeze_until]
 
+        notes = self.notes(store)
+        new_notes = set(self.new_notes(store))
         prompt = self._prompt(now, freeze_until, horizon_end, busy, all_day, frozen, open_blocks,
-                              changes, reason)  # fmt: skip
+                              changes, reason, notes, new_notes)  # fmt: skip
         effort = (agent.raw.get("effort") or {}).get("plan", "medium")
         system = SYSTEM.format(agent=agent.body)
         llm = llm_for(agent)
@@ -398,11 +462,22 @@ class Planner:
             rejected=errors, changes=changes,
         )  # fmt: skip
         self.journal.answer_wishes({w.id: (w.done, w.how) for w in result.wishes}, now)
+        answers: dict[str, list[str]] = {}
+        for note in result.day_notes:
+            if note.text.strip():
+                answers.setdefault(note.date, []).append(f"{now:%d.%m. %H:%M} {note.text.strip()}")
+        for day, lines in answers.items():
+            try:
+                self.calendar.answer_thread(day, lines)
+            except Exception as exc:  # the plan itself is written; the answer is a bonus
+                applied.errors.append(f"answer for {day}: {exc}")
 
         state = self.state()
         runs = {k: v for k, v in state.get("runs", {}).items() if k >= cutoff}
         runs[today] = runs.get(today, 0) + 1
-        self._write(STATE_FILE, state | {"runs": runs, "last_run_ts": self._clock()})
+        answered = state.get("answered_notes", {}) | {n["date"]: _sig(n["owner"]) for n in notes}
+        self._write(STATE_FILE, state | {"runs": runs, "last_run_ts": self._clock(),
+                                         "answered_notes": answered})  # fmt: skip
         message = (
             f"{reason}: {len(valid)} blocks (+{applied.created} ~{applied.moved} "
             f"-{applied.deleted})" + (f", {len(errors)} rejected" if errors else "")
@@ -467,6 +542,8 @@ class Planner:
         open_blocks: list[Block],
         changes: list[str],
         reason: str,
+        notes: list[dict[str, Any]] | None = None,
+        new_notes: set[str] | None = None,
     ) -> str:
         goal_list, rules = self.goals()
         _, exams = self.auto_study()
@@ -499,13 +576,21 @@ class Planner:
                 if b.start.date() <= d <= b.end.date():
                     lines.append(
                         f"- appointment {b.start:%H:%M}–{b.end:%H:%M} {b.title} [{b.source}]"
+                        + (f" — note: {_one_line(b.note)}" if b.note else "")
                     )
             for a in all_day:
                 if a["start"] <= d.isoformat() < a["end"]:
-                    lines.append(f"- all day: {a['title']}")
+                    lines.append(
+                        f"- all day: {a['title']}"
+                        + (f" — note: {_one_line(a['note'])}" if a.get("note") else "")
+                    )
             for b in frozen:
                 if b.date == d.isoformat():
-                    lines.append(f"- fixed block (running) {b.start}–{b.end} {b.title}")
+                    kind = "time set by the owner" if b.pinned else "running"
+                    lines.append(
+                        f"- fixed block ({kind}) {b.start}–{b.end} {b.title} (goal "
+                        f"{b.goal or '-'})" + (f" — {_one_line(b.reason)}" if b.reason else "")
+                    )
             nb = freeze_until if n == 0 else None
             taken = sorted(
                 busy + [Busy(*b.span(self.tz), b.title, "plan") for b in frozen],
@@ -578,7 +663,18 @@ class Planner:
             + tag("journal", "\n".join(journal))
             + tag("checkins", "\n".join(checkins))
             + tag("changes_by_owner", "\n".join(f"- {c}" for c in changes))
+            + tag("day_notes", "\n".join(self._note_lines(notes or [], new_notes or set())))
         )
+
+    def _note_lines(self, notes: list[dict[str, Any]], new: set[str]) -> list[str]:
+        out = []
+        for n in notes:
+            d = date.fromisoformat(n["date"])
+            head = f"- {WEEKDAYS[d.weekday()]} {n['date']}" + (" NEW" if n["date"] in new else "")
+            out.append(f"{head}: the owner wrote: {_one_line(n['owner'], 1500)}")
+            if n.get("planner"):
+                out.append(f"  your earlier answers there: {_one_line(n['planner'], 800)}")
+        return out
 
     def _deadlines(self, now: datetime) -> list[str]:
         path = self.vault.resolve(MOODLE_TASKS)
@@ -629,3 +725,12 @@ def default_llm_for(settings: LlmSettings) -> Callable[[AgentDef], Llm]:
 
 def outcome_dict(outcome: RunOutcome) -> dict[str, Any]:
     return asdict(outcome)
+
+
+def _sig(value: Any) -> str:
+    return hashlib.sha1(json.dumps(value, ensure_ascii=False).encode()).hexdigest()[:16]
+
+
+def _one_line(text: str, limit: int = 400) -> str:
+    flat = " / ".join(line.strip() for line in text.splitlines() if line.strip())
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"

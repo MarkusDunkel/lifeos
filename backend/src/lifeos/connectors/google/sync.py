@@ -12,7 +12,9 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -38,6 +40,57 @@ DAYS_AHEAD = 35
 MIRROR = "mirror"
 PLAN = "plan"
 MIRROR_COLOR = "8"  # graphite: appointments from elsewhere
+THREAD = "thread"
+THREAD_COLOR = "7"  # peacock
+THREAD_DAYS = 8  # today and the next seven days get a thread event
+THREAD_KEEP_LINES = 12
+# Wording of the thread events; ``thread:`` in Calendars.md overrides it (e.g. in German).
+THREAD_DEFAULTS = {
+    "title": "💬 Planner",
+    "separator": "——— Planner ———",
+    "hint": "Write above this line what the planner should know about this day.",
+}
+
+
+def plain_text(text: str) -> str:
+    """Event descriptions edited on the web come back as HTML: turn them into plain lines."""
+    if "<" not in text and "&" not in text:
+        return text.strip()
+    text = re.sub(r"(?i)<br\s*/?>|</?p(\s[^>]*)?>|</?div(\s[^>]*)?>|</li>", "\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", html.unescape(text))
+    return "\n".join(line.rstrip() for line in text.splitlines()).strip()
+
+
+def split_thread(description: str, separator: str) -> tuple[str, str]:
+    """(owner's part above the separator line, planner's part below it)."""
+    text = plain_text(description)
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() == separator.strip():
+            return "\n".join(lines[:i]).strip(), "\n".join(lines[i + 1 :]).strip()
+    return text, ""
+
+
+def join_thread(owner: str, planner_lines: list[str], texts: dict[str, str]) -> str:
+    below = "\n".join(planner_lines) if planner_lines else texts["hint"]
+    return (owner.strip() + "\n\n" if owner.strip() else "\n") + texts["separator"] + "\n" + below
+
+
+def thread_body(day: date, texts: dict[str, str]) -> dict[str, Any]:
+    return {
+        "summary": texts["title"],
+        "description": join_thread("", [], texts),
+        "start": {"date": day.isoformat()},
+        "end": {"date": (day + timedelta(days=1)).isoformat()},
+        "transparency": "transparent",
+        "colorId": THREAD_COLOR,
+        "reminders": {"useDefault": False, "overrides": []},
+        "extendedProperties": {
+            "private": {"lifeos_kind": THREAD, "lifeos_id": f"thread-{day.isoformat()}"}
+        },
+    }
+
 
 CONFIG_BODY = """
 # Calendars
@@ -158,16 +211,24 @@ class CalendarSync:
             for i in front.get("inputs") or []
             if isinstance(i, dict) and i.get("id")
         ]
-        return {"target": front.get("target") or None, "inputs": inputs}
+        thread = front.get("thread") if isinstance(front.get("thread"), dict) else {}
+        return {
+            "target": front.get("target") or None,
+            "inputs": inputs,
+            "thread": {k: str(thread.get(k) or v) for k, v in THREAD_DEFAULTS.items()},
+        }
 
     def save_config(self, target: str | None, inputs: list[dict[str, str]]) -> None:
+        """Write target and inputs; every other key of the front matter is kept."""
         path = self.config_path
         body = CONFIG_BODY
+        front: dict[str, Any] = {}
         if path.is_file():
             text = path.read_text(encoding="utf-8")
+            front = front_matter(text)
             end = text.find("\n---\n", 4) if text.startswith("---\n") else -1
             body = text[end + 5 :] if end >= 0 else text
-        front = {"target": target or "", "inputs": inputs}
+        front = front | {"target": target or "", "inputs": inputs}
         write_atomic(path, dump_front(front) + body)
 
     def set_inputs(self, inputs: list[dict[str, str]]) -> dict[str, Any]:
@@ -260,6 +321,7 @@ class CalendarSync:
         manual = [e for e in in_target if not e["kind"]]
         plans = [e for e in in_target if e["kind"] == PLAN]
         report.manual = len(manual)
+        threads = self._threads(api, target, in_target, now.date(), cfg["thread"])
 
         wanted: dict[str, dict[str, Any]] = {}
         for event in events:
@@ -285,10 +347,61 @@ class CalendarSync:
             "events": [_public(e) for e in events],
             "manual": [_public(e) for e in manual],
             "plans": [_public(e) for e in plans],
+            "threads": threads,
         }
         write_atomic(
             self.vault.resolve(EVENTS_FILE), json.dumps(store, indent=1, ensure_ascii=False)
         )
+
+    # -- day threads: one all-day event per day to talk to the planner ------------------------
+
+    def _threads(
+        self,
+        api: CalendarApi,
+        target: str,
+        in_target: list[dict[str, Any]],
+        today: date,
+        texts: dict[str, str],
+    ) -> list[dict[str, Any]]:
+        """Make sure today and the next days have their thread event; return every thread in
+        the window with the owner's part and the planner's part of its description."""
+        have: dict[str, dict[str, Any]] = {}
+        for e in in_target:
+            if e["kind"] != THREAD:
+                continue
+            if e["lifeos_id"] in have:  # a copy from an overlapping sync
+                api.delete_event(target, e["id"])
+            else:
+                have[e["lifeos_id"]] = e
+        for n in range(THREAD_DAYS):
+            day = today + timedelta(days=n)
+            tid = f"thread-{day.isoformat()}"
+            if tid not in have:
+                created = api.insert_event(target, thread_body(day, texts))
+                have[tid] = {"id": created["id"], "lifeos_id": tid, "start": day.isoformat(),
+                             "description": created.get("description", "")}  # fmt: skip
+        out = []
+        for tid, e in sorted(have.items()):
+            owner, planner = split_thread(e.get("description") or "", texts["separator"])
+            out.append({"date": tid.removeprefix("thread-"), "id": e["id"], "owner": owner,
+                        "planner": planner})  # fmt: skip
+        return out
+
+    def answer_thread(self, day: str, lines: list[str]) -> bool:
+        """Add the planner's ``lines`` to the thread of ``day`` (owner's part re-read right
+        before writing, so text typed meanwhile is kept). False if there is no thread."""
+        thread = next((t for t in self.store().get("threads", []) if t["date"] == day), None)
+        if thread is None or not lines:
+            return False
+        api = self._client()
+        target = self.config()["target"]
+        texts = self.config()["thread"]
+        fresh = api.get_event(target, thread["id"])
+        owner, planner = split_thread(fresh.get("description") or "", texts["separator"])
+        old = [ln for ln in planner.splitlines() if ln.strip() and ln.strip() != texts["hint"]]
+        kept = (old + lines)[-THREAD_KEEP_LINES:]
+        api.patch_event(target, thread["id"], {"description": join_thread(owner, kept, texts)})
+        return True
 
     # -- read side ------------------------------------------------------------------
 

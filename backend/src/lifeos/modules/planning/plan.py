@@ -22,7 +22,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from lifeos.connectors.google.client import CalendarApi
-from lifeos.connectors.google.sync import PLAN
+from lifeos.connectors.google.sync import PLAN, plain_text
 from lifeos.core.locks import FileLock
 from lifeos.core.vault import STATE, Vault, write_atomic
 
@@ -59,6 +59,7 @@ class Block:
     created: str = ""
     edited: bool = False  # the owner set title or description: the planner keeps them
     touched: str = ""  # when LifeOS last changed it (ISO); newer than a sync = sync is stale
+    pinned: bool = False  # the owner moved it in Google: its time is fixed, plan around it
 
     def span(self, tz: ZoneInfo) -> tuple[datetime, datetime]:
         d = date.fromisoformat(self.date)
@@ -97,7 +98,8 @@ LEGACY_LINES = ("Goal: ", "Planned by LifeOS")
 
 def owner_text(description: str) -> str:
     """The description of a plan event without the lines older versions appended."""
-    lines = [ln for ln in description.splitlines() if not ln.startswith(LEGACY_LINES)]
+    text = plain_text(description)
+    lines = [ln for ln in text.splitlines() if not ln.startswith(LEGACY_LINES)]
     return "\n".join(lines).strip()
 
 
@@ -126,6 +128,10 @@ class Busy:
     end: datetime
     title: str
     source: str
+    note: str = ""  # the event's description, for the planner
+
+
+NOTE_CHARS = 400
 
 
 def busy_times(store: dict[str, Any], tz: ZoneInfo) -> tuple[list[Busy], list[dict[str, Any]]]:
@@ -133,13 +139,17 @@ def busy_times(store: dict[str, Any], tz: ZoneInfo) -> tuple[list[Busy], list[di
     busy: list[Busy] = []
     all_day: list[dict[str, Any]] = []
     for e in store.get("events", []) + store.get("manual", []):
+        note = plain_text(e.get("description") or "")[:NOTE_CHARS]
         if e.get("all_day"):
-            all_day.append({"title": e["title"], "start": e["start"], "end": e["end"]})
+            all_day.append({"title": e["title"], "start": e["start"], "end": e["end"],
+                            "note": note})  # fmt: skip
             continue
         if not e.get("busy", True):
             continue
         busy.append(
-            Busy(_parse_dt(e["start"], tz), _parse_dt(e["end"], tz), e["title"], e["calendar"])
+            Busy(
+                _parse_dt(e["start"], tz), _parse_dt(e["end"], tz), e["title"], e["calendar"], note
+            )  # fmt: skip
         )
     busy.sort(key=lambda b: b.start)
     return busy, all_day
@@ -303,6 +313,7 @@ class PlanStore:
                         f"{s:%H:%M}",
                         f"{e:%H:%M}",
                     )
+                    block.pinned = True  # the owner chose this time
                 title = (event.get("title") or "").strip()
                 text = owner_text(event.get("description") or "")
                 if (title and title != block.title) or text != block.reason.strip():

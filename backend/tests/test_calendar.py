@@ -53,6 +53,9 @@ class FakeCalendar:
         self.calls.append(f"create {summary}")
         return cid
 
+    def get_event(self, calendar_id, event_id):
+        return dict(self.items[calendar_id][event_id])
+
     def insert_event(self, calendar_id, body):
         self._n += 1
         eid = f"e{self._n}"
@@ -62,7 +65,9 @@ class FakeCalendar:
 
     def patch_event(self, calendar_id, event_id, body):
         self.items[calendar_id][event_id].update(body)
-        self.calls.append(f"patch {body['summary']}")
+        self.calls.append(
+            f"patch {body.get('summary') or self.items[calendar_id][event_id]['summary']}"
+        )
         return self.items[calendar_id][event_id]
 
     def delete_event(self, calendar_id, event_id):
@@ -82,8 +87,16 @@ def sync(vault_root: Path, fake: FakeCalendar) -> CalendarSync:
     return s
 
 
+def mirrors_in(fake: FakeCalendar, target: str) -> list[dict[str, Any]]:
+    return [
+        e
+        for e in fake.items[target].values()
+        if (e.get("extendedProperties") or {}).get("private", {}).get("lifeos_kind") == MIRROR
+    ]
+
+
 def target_events(fake: FakeCalendar, sync: CalendarSync) -> list[dict[str, Any]]:
-    return list(fake.items[sync.config()["target"]].values())
+    return mirrors_in(fake, sync.config()["target"])
 
 
 def test_first_sync_creates_target_and_mirrors(sync, fake):
@@ -255,11 +268,11 @@ def test_duplicate_mirrors_are_cleaned_up(sync, fake):
     fake.add("primary", "Dentist", "2026-11-24T09:00:00+01:00", "2026-11-24T10:00:00+01:00")
     sync.sync()
     target = sync.config()["target"]
-    [mirror] = fake.items[target].values()
+    [mirror] = mirrors_in(fake, target)
     fake.insert_event(target, {k: v for k, v in mirror.items() if k != "id"})  # an earlier race
     report = sync.sync()
     assert report.deleted == 1 and report.created == 0
-    assert len(fake.items[target]) == 1
+    assert len(mirrors_in(fake, target)) == 1
 
 
 def test_overlapping_syncs_do_not_duplicate(sync, fake):
@@ -269,7 +282,7 @@ def test_overlapping_syncs_do_not_duplicate(sync, fake):
         fake.add("primary", f"E{n}", f"2026-11-2{n}T09:00:00+01:00", f"2026-11-2{n}T10:00:00+01:00")
     sync.sync()  # creates the target
     target = sync.config()["target"]
-    for e in list(fake.items[target]):
+    for e in [m["id"] for m in mirrors_in(fake, target)]:
         del fake.items[target][e]
     slow = fake.insert_event
 
@@ -285,4 +298,71 @@ def test_overlapping_syncs_do_not_duplicate(sync, fake):
         t.start()
     for t in threads:
         t.join()
-    assert len(fake.items[target]) == 5
+    assert len(mirrors_in(fake, target)) == 5
+
+
+# -- day threads ------------------------------------------------------------------------------
+
+
+def threads_in(fake: FakeCalendar, target: str) -> dict[str, dict[str, Any]]:
+    return {
+        e["extendedProperties"]["private"]["lifeos_id"]: e
+        for e in fake.items[target].values()
+        if (e.get("extendedProperties") or {}).get("private", {}).get("lifeos_kind") == "thread"
+    }
+
+
+def test_sync_creates_one_quiet_thread_per_day(sync, fake):
+    sync.sync()
+    target = sync.config()["target"]
+    threads = threads_in(fake, target)
+    assert sorted(threads)[0] == "thread-2026-11-23" and len(threads) == 8
+    t = threads["thread-2026-11-24"]
+    assert t["summary"] == "💬 Planner" and t["transparency"] == "transparent"
+    assert t["reminders"] == {"useDefault": False, "overrides": []}
+    assert t["start"] == {"date": "2026-11-24"}
+    sync.sync()
+    assert len(threads_in(fake, target)) == 8  # not twice
+    store = sync.store()
+    assert {x["date"] for x in store["threads"]} >= {"2026-11-23", "2026-11-30"}
+    assert store["manual"] == []  # threads are no appointments
+
+
+def test_thread_wording_comes_from_the_vault_and_survives_saving(sync, fake):
+    from lifeos.core.extract.text import dump_front
+
+    sync.sync()
+    cfg = sync.config()
+    text = sync.config_path.read_text(encoding="utf-8")
+    body = text[text.find("\n---\n", 4) + 5 :]
+    front = {
+        "target": cfg["target"],
+        "inputs": cfg["inputs"],
+        "thread": {"title": "💬 Planer", "separator": "——— Planer ———"},
+    }
+    sync.config_path.write_text(dump_front(front) + body, encoding="utf-8")
+    sync.set_inputs([{"id": "primary", "label": "Privat"}])
+    assert sync.config()["thread"]["title"] == "💬 Planer"
+    assert sync.config()["thread"]["hint"].startswith("Write above")  # default kept
+
+
+def test_split_and_answer_keep_the_owner_text(sync, fake):
+    from lifeos.connectors.google.sync import plain_text, split_thread
+
+    assert plain_text("a<br>b &amp; c<div>d</div>") == "a\nb & c\nd"
+    assert split_thread("Nur Sport\n——— Planner ———\n10:00 ok", "——— Planner ———") == (
+        "Nur Sport",
+        "10:00 ok",
+    )
+    sync.sync()
+    target = sync.config()["target"]
+    tid = threads_in(fake, target)["thread-2026-11-24"]["id"]
+    fake.items[target][tid]["description"] = "Unterwegs, nur Sport\n\n——— Planner ———\nhint"
+    sync.sync()
+    # the owner types more while the planner thinks: the answer must not lose it
+    fake.items[target][tid]["description"] = "Unterwegs, nur Sport. Abends Kino.\n——— Planner ———"
+    assert sync.answer_thread("2026-11-24", ["23.11. 19:00 Nur Laufen um 9 geplant."])
+    desc = fake.items[target][tid]["description"]
+    assert desc.startswith("Unterwegs, nur Sport. Abends Kino.")
+    assert desc.endswith("——— Planner ———\n23.11. 19:00 Nur Laufen um 9 geplant.")
+    assert not sync.answer_thread("2030-01-01", ["x"])

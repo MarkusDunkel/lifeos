@@ -555,3 +555,117 @@ def test_a_run_cut_off_by_a_restart_is_queued_again(planner, vault):
     assert planner.running() is None
     assert [q["reason"] for q in planner.queue()] == ["calendar changed"]
     assert planner.recover() is None
+
+
+# -- day notes, moved blocks, appointment notes ------------------------------------------------
+
+
+def _thread_descriptions(planner, fake) -> dict[str, str]:
+    target = planner.calendar.config()["target"]
+    out = {}
+    for e in fake.items[target].values():
+        private = e.get("extendedProperties", {}).get("private", {})
+        if private.get("lifeos_kind") == "thread":
+            out[private["lifeos_id"]] = e["description"]
+    return out
+
+
+def _write_note(planner, fake, day: str, text: str) -> None:
+    target = planner.calendar.config()["target"]
+    for e in fake.items[target].values():
+        if e.get("extendedProperties", {}).get("private", {}).get("lifeos_id") == f"thread-{day}":
+            e["description"] = f"{text}\n\n——— Planner ———\n"
+
+
+def test_a_day_note_is_planned_right_away_and_answered_in_the_calendar(planner, fake):
+    from lifeos.modules.planning.planner import DAY_NOTE, DayNote
+
+    planner.calendar.sync()
+    planner.notice_calendar()
+    planner.run(lambda agent: FakeLlm([PlanResult(blocks=[], summary="")]), LlmSettings())
+    _write_note(planner, fake, "2026-11-24", "Morgen unterwegs, nur Sport.")
+    planner.calendar.sync()
+    assert planner.notice_calendar() is True
+    assert planner.due_from_queue() == DAY_NOTE  # no 30-minute pause for notes
+    result = PlanResult(
+        blocks=[block("2026-11-24", "17:00", "17:45", "Laufen", goal="Sport")],
+        day_notes=[
+            DayNote(date="2026-11-24", text="Nur Laufen geplant."),
+            DayNote(date="2026-11-25", text="Arbeit von Di hierher."),
+        ],
+        summary="s",
+    )
+    llm = FakeLlm([result])
+    planner.run(lambda agent: llm, LlmSettings(), DAY_NOTE)
+    assert "- Tue 2026-11-24 NEW: the owner wrote: Morgen unterwegs, nur Sport." in llm.prompts[0]
+    by_day = _thread_descriptions(planner, fake)
+    assert by_day["thread-2026-11-24"].startswith("Morgen unterwegs, nur Sport.")
+    assert "Nur Laufen geplant." in by_day["thread-2026-11-24"]
+    assert "Arbeit von Di hierher." in by_day["thread-2026-11-25"]
+    # answered: the next run does not see it as new, and nothing is queued again
+    planner.calendar.sync()
+    assert planner.notice_calendar() is False
+    llm2 = FakeLlm([PlanResult(blocks=[], summary="")])
+    planner.run(lambda agent: llm2, LlmSettings())
+    assert "2026-11-24: the owner wrote" in llm2.prompts[0] and "NEW" not in llm2.prompts[0]
+
+
+def test_a_block_moved_in_google_keeps_its_time_and_replans_after_a_quiet_time(planner, fake):
+    from lifeos.modules.planning import planner as planner_mod
+
+    a, b = _two_blocks(planner)
+    target = planner.calendar.config()["target"]
+    fake.items[target][a.gid]["start"] = {"dateTime": "2026-11-25T10:00:00+01:00"}
+    fake.items[target][a.gid]["end"] = {"dateTime": "2026-11-25T11:00:00+01:00"}
+    planner.calendar.sync()
+    store = planner.calendar.store()
+    changes = planner.plans.reconcile(store["plans"], store["window"], store["synced_at"])
+    assert changes[0].startswith("moved by you")
+    moved = {x.id: x for x in planner.plans.blocks()}[a.id]
+    assert moved.pinned and moved.date == "2026-11-25"
+
+    planner.enqueue(planner_mod.OWNER_CHANGED)
+    assert planner.due_from_queue() is None  # waits until the owner stopped moving
+    planner._clock = lambda: NOW + planner_mod.OWNER_QUIET
+    assert planner.due_from_queue() == planner_mod.OWNER_CHANGED
+    planner._clock = lambda: NOW
+
+    # the model may not move it; B (now clashing) has to go elsewhere
+    llm = FakeLlm(
+        [
+            PlanResult(
+                blocks=[
+                    block("2026-11-24", "10:00", "11:00", "A", id=a.id),
+                    block("2026-11-25", "10:00", "11:00", "B", id=b.id),
+                ],
+                summary="1",
+            ),
+            PlanResult(blocks=[block("2026-11-25", "13:00", "14:00", "B", id=b.id)], summary="2"),
+        ]
+    )
+    planner.run(lambda agent: llm, LlmSettings())
+    assert "fixed block (time set by the owner) 10:00–11:00 A" in llm.prompts[0]
+    after = {x.id: x for x in planner.plans.blocks()}
+    assert (after[a.id].date, after[a.id].start) == ("2026-11-25", "10:00")
+    assert after[b.id].start == "13:00"
+
+
+def test_appointment_and_all_day_notes_reach_the_planner(planner, fake):
+    fake.add(
+        "primary",
+        "Reise",
+        "2026-11-26T08:00:00+01:00",
+        "2026-11-26T09:00:00+01:00",
+        description="Zug, <b>Laptop</b> dabei",
+    )
+    fake.items["primary"]["allday"] = {
+        "id": "allday",
+        "summary": "Unterwegs",
+        "description": "nur Sport",
+        "start": {"date": "2026-11-27"},
+        "end": {"date": "2026-11-28"},
+    }
+    llm = FakeLlm([PlanResult(blocks=[], summary="")])
+    planner.run(lambda agent: llm, LlmSettings())
+    assert "Reise [Privat] — note: Zug, Laptop dabei" in llm.prompts[0]
+    assert "- all day: Unterwegs — note: nur Sport" in llm.prompts[0]

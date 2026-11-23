@@ -258,6 +258,7 @@ def calendar_job(settings: Settings) -> Callable[[], JobResult]:
     """Fetch the input calendars, mirror them into the LifeOS target calendar and queue a
     re-plan when appointments in the planning horizon changed."""
     from lifeos.connectors.google.setup import build_calendar
+    from lifeos.modules.planning.planner import OWNER_CHANGED
     from lifeos.modules.planning.setup import build_planner
 
     vault = Vault.open(settings.vault_root)
@@ -282,6 +283,8 @@ def calendar_job(settings: Settings) -> Callable[[], JobResult]:
         )
         if adopted:
             summary += f"; adopted {len(adopted)} change(s) made in Google"
+        if any(c.startswith(("moved by you", "removed by you")) for c in adopted):
+            planner.enqueue(OWNER_CHANGED)  # re-plan around it once the owner is done moving
         if planner.notice_calendar():
             summary += "; re-plan queued"
         return JobResult("ok", summary)

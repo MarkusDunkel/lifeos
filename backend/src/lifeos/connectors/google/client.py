@@ -26,6 +26,8 @@ class CalendarApi(Protocol):
 
     def create_calendar(self, summary: str, timezone: str) -> str: ...
 
+    def get_event(self, calendar_id: str, event_id: str) -> dict[str, Any]: ...
+
     def insert_event(self, calendar_id: str, body: dict[str, Any]) -> dict[str, Any]: ...
 
     def patch_event(
@@ -96,6 +98,10 @@ class GoogleCalendarClient:
         return self._call("POST", "/calendars", json={"summary": summary, "timeZone": timezone})[
             "id"
         ]
+
+    def get_event(self, calendar_id: str, event_id: str) -> dict[str, Any]:
+        path = f"/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}"
+        return self._call("GET", path)
 
     def insert_event(self, calendar_id: str, body: dict[str, Any]) -> dict[str, Any]:
         return self._call("POST", f"/calendars/{quote(calendar_id, safe='')}/events", json=body)

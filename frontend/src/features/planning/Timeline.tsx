@@ -136,6 +136,11 @@ function BlockItem({
       <span className="min-w-0 flex-1">
         <span className="block font-medium">
           {block.title}
+          {block.pinned && (
+            <span className="ml-1 text-xs" title="Time set by you in the calendar – the planner plans around it">
+              📌
+            </span>
+          )}
           {block.edited && (
             <span className="ml-1 text-xs font-normal text-teal-700 dark:text-teal-400" title="Set by you – the planner keeps it">
               ✎

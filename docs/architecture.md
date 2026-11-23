@@ -457,8 +457,25 @@ the owner changed in Google wins: a moved plan event moves its block, a deleted 
 
 **Evening** (`modules/planning/router.py`, page `/plan`): check off today's blocks
 (done / partly / skipped; unmarked past blocks count as done) → `<planning>/Log/<YYYY-MM>.jsonl`;
-the journal → `<planning>/Journal/<year>/<date>.md`; change wishes for any of the next days →
-`<planning>/Wishes.jsonl` and a queued re-plan; the planner's answer is shown per wish.
+the journal → `<planning>/Journal/<year>/<date>.md`; tomorrow's blocks can be edited (title and
+description = the Google event's title and notes; an edited block is the owner's and keeps its
+text). The wishes API (`<planning>/Wishes.jsonl`) still exists but has no UI any more.
+
+**Talking to the planner in the calendar.** Every sync makes sure today and the next seven days
+have a *day thread*: an all-day, transparent, reminder-less event in the target
+(`lifeos_kind=thread`, wording from `thread:` in `Calendars.md`). The owner writes above the
+separator line, the planner answers below it (`CalendarSync.answer_thread` re-reads the event
+right before writing, so text typed meanwhile is kept). Notes from yesterday to the end of the
+horizon go into the prompt (`<day_notes>`, changed ones marked NEW); a changed note queues a
+re-plan right away, and the model's `day_notes` answers are written to the threads of the days
+they concern. Descriptions of appointments and all-day events reach the planner too.
+
+**Owner changes in Google.** The calendar sync reconciles after each run: a plan event moved by
+hand moves its block and *pins* it (its time is fixed, it is planned around like a running
+block); a deleted one marks the block removed; a changed title or description makes the block
+the owner's. Moves and deletions queue a re-plan that waits until nothing changed for five
+minutes, so moving several blocks gives one run. Each block carries `touched`, the time LifeOS
+last changed it; a sync older than that is not applied to it.
 
 ## Backend layout (`backend/src/lifeos`)
 

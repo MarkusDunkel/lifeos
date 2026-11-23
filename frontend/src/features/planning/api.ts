@@ -67,6 +67,7 @@ export type PlanBlock = {
   minutes_done: number | null;
   minutes: number;
   edited: boolean;
+  pinned: boolean;
 };
 
 export type Appointment = { start: string; end: string; title: string; calendar: string };
