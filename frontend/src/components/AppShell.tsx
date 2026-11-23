@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import { Bot, BookOpen, Briefcase, ClipboardList, Compass, FileCheck, GraduationCap, KanbanSquare, NotebookPen, Settings, StickyNote } from "lucide-react";
+import { Bot, BookOpen, Briefcase, CalendarCheck, ClipboardList, Compass, FileCheck, GraduationCap, KanbanSquare, NotebookPen, Settings, StickyNote } from "lucide-react";
 import type { ReactNode } from "react";
 
 const NAV = [
+  { to: "/plan", label: "Plan", icon: CalendarCheck },
   { to: "/knowledge", label: "Knowledge", icon: BookOpen },
   { to: "/notes", label: "Notes", icon: StickyNote },
   { to: "/workspaces", label: "Workspaces", icon: ClipboardList },

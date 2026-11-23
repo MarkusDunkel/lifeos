@@ -254,6 +254,89 @@ def commute_job(settings: Settings) -> Callable[[], JobResult]:
     return run
 
 
+def calendar_job(settings: Settings) -> Callable[[], JobResult]:
+    """Fetch the input calendars, mirror them into the LifeOS target calendar and queue a
+    re-plan when appointments in the planning horizon changed."""
+    from lifeos.connectors.google.setup import build_calendar
+    from lifeos.modules.planning.setup import build_planner
+
+    vault = Vault.open(settings.vault_root)
+    sync, auth, missing = build_calendar(settings, vault)
+    planner = build_planner(settings, vault, sync)
+
+    def run() -> JobResult:
+        if missing:
+            return JobResult("skipped", f"Google Calendar is not set up: {', '.join(missing)}")
+        if auth is None or not auth.connected:
+            return JobResult("skipped", "not connected to Google")
+        report = sync.sync()
+        summary = (
+            f"{report.events} events from {report.inputs} calendar(s); mirrors "
+            f"+{report.created} ~{report.updated} -{report.deleted}"
+        )
+        if report.errors:
+            return JobResult("error", summary + "; " + "; ".join(report.errors))
+        if planner.notice_calendar():
+            summary += "; re-plan queued"
+        return JobResult("ok", summary)
+
+    return run
+
+
+def planner_job(settings: Settings, git: GitSync, *, queue_only: bool) -> Callable[[], JobResult]:
+    """Run the AI day planner: daily (``queue_only=False``) or for queued requests (wishes,
+    "plan again", changed goals or appointments). Rule proposals become inbox tickets."""
+    from lifeos.agents.config import load_config
+    from lifeos.agents.inbox import assistant_option, create_inbox_ticket
+    from lifeos.agents.workflows import llm_settings
+    from lifeos.connectors.github.client import GitHubClient, GitHubError
+    from lifeos.connectors.google.setup import build_calendar
+    from lifeos.modules.planning.planner import AGENT, default_llm_for
+    from lifeos.modules.planning.setup import build_planner
+
+    vault = Vault.open(settings.vault_root)
+    sync, auth, missing = build_calendar(settings, vault)
+    planner = build_planner(settings, vault, sync)
+    model = llm_settings(settings)
+
+    def run() -> JobResult:
+        if missing or auth is None or not auth.connected:
+            return JobResult("skipped", "Google Calendar is not connected")
+        reason = planner.due_from_queue() if queue_only else "daily"
+        if reason is None:
+            return JobResult("skipped", "nothing queued")
+        outcome = planner.run(default_llm_for(model), model, reason)
+        message = outcome.message
+        if outcome.proposals and settings.github_token:
+            cfg = load_config(vault)
+            lines = [f"- **{p['rule']}** – {p['why']}" for p in outcome.proposals]
+            body = (
+                "The day planner noticed patterns and proposes rules for the goals file:\n\n"
+                + "\n".join(lines)
+                + "\n\nApprove (move to Todo) to add them, or close the ticket."
+            )
+            try:
+                url = create_inbox_ticket(
+                    GitHubClient(settings.github_token), cfg,
+                    next(iter(settings.github_repo_list), None),
+                    "Planungsregeln: " + "; ".join(p["rule"] for p in outcome.proposals)[:80],
+                    body, author=AGENT, responsible=assistant_option(cfg),
+                )  # fmt: skip
+                if url:
+                    message += f"; proposal {url}"
+            except GitHubError as exc:
+                message += f"; proposal failed: {exc}"
+        try:
+            git.commit_paths(
+                [f"{KNOWLEDGE}/{settings.planning_dir}"], f"agent({AGENT}): {reason}\n"
+            )
+        except GitError as exc:
+            message += f"; commit failed: {exc}"
+        return JobResult(outcome.status, message)
+
+    return run
+
+
 def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
     jobs: list[Job] = []
     if settings.moodle_sync_at:
@@ -278,6 +361,20 @@ def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
         jobs.append(Job("job-matcher", Every(600), job_matcher_job(settings, git)))
     if settings.ors_api_key:
         jobs.append(Job("commute", Every(3600), commute_job(settings)))
+    if settings.calendar_sync_interval > 0:
+        jobs.append(
+            Job("calendar-sync", Every(settings.calendar_sync_interval), calendar_job(settings))
+        )
+    if settings.calendar_sync_interval > 0:
+        jobs.append(Job("planner-queue", Every(60), planner_job(settings, git, queue_only=True)))
+    if settings.planner_at:
+        jobs.append(
+            Job(
+                "calendar-planner",
+                Daily(parse_time(settings.planner_at), ZoneInfo(settings.timezone)),
+                planner_job(settings, git, queue_only=False),
+            )
+        )
     if settings.git_sync_interval > 0:
         jobs.append(Job("git-sync", Every(settings.git_sync_interval), git_sync_job(git)))
     return jobs

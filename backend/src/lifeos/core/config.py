@@ -191,6 +191,31 @@ class Settings(BaseSettings):
         description="Seconds one Claude Code call of an agent may take before it is stopped.",
     )
 
+    google_client_id: str | None = Field(
+        default=None,
+        description="Google OAuth client (type Web) for the calendars. Redirect URI: "
+        "<LIFEOS_PUBLIC_URL or this host>/api/calendar/google/callback.",
+    )
+    google_client_secret: str | None = Field(default=None, description="Its client secret.")
+    planning_dir: str = Field(
+        default="Planning",
+        description="Folder in the knowledge hub for calendars, goals, plans and the journal.",
+    )
+    calendar_sync_interval: int = Field(
+        default=0,
+        ge=0,
+        description="Seconds between calendar syncs of `lifeos worker` (inputs → mirror in the "
+        "LifeOS target calendar). 0 = off.",
+    )
+
+    planner_at: str | None = Field(
+        default=None,
+        pattern=r"^([01]\d|2[0-3]):[0-5]\d$",
+        description="Daily time (HH:MM, LIFEOS_TIMEZONE) at which the AI day planner re-plans "
+        "the coming days (agents/calendar-planner.md). Wishes and 'plan again' are handled "
+        "within a minute whenever the calendar sync is on. Unset = no daily run.",
+    )
+
     @property
     def github_project_list(self) -> list[str]:
         refs = [r.strip() for r in self.github_projects.split(",") if r.strip()]

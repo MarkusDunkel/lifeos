@@ -16,6 +16,8 @@ from lifeos.agents.admin import AgentAdmin
 from lifeos.agents.router import build_router as agents_router
 from lifeos.connectors.github.client import GitHubClient, GitHubError
 from lifeos.connectors.github.sync import GitHubConnector, SyncError
+from lifeos.connectors.google.auth import GoogleError
+from lifeos.connectors.google.setup import build_calendar
 from lifeos.connectors.moodle.client import MoodleError
 from lifeos.connectors.moodle.setup import build_moodle
 from lifeos.connectors.onedrive.auth import MicrosoftAuth, OneDriveError
@@ -29,6 +31,7 @@ from lifeos.mcp_server.http import mount_mcp
 from lifeos.mcp_server.server import build_mcp
 from lifeos.modules.applications.router import build_router as applications_router
 from lifeos.modules.applications.service import ApplicationError, Applications
+from lifeos.modules.calendar.router import build_router as calendar_router
 from lifeos.modules.career.commute import Commutes
 from lifeos.modules.career.matcher import Matcher
 from lifeos.modules.career.prefilter import FitIndex
@@ -42,6 +45,8 @@ from lifeos.modules.knowledge.service import KnowledgeService
 from lifeos.modules.moodle.router import build_router as moodle_router
 from lifeos.modules.notes.router import build_router as notes_router
 from lifeos.modules.notes.store import NotesStore
+from lifeos.modules.planning.router import build_router as planning_router
+from lifeos.modules.planning.setup import build_planner
 from lifeos.modules.presentations.router import build_router as presentations_router
 from lifeos.modules.reviews.router import build_router as reviews_router
 from lifeos.modules.reviews.service import ReviewService
@@ -115,6 +120,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def _moodle(_: Request, exc: MoodleError) -> JSONResponse:
         return JSONResponse({"detail": f"Moodle: {exc}"}, status_code=exc.status)
 
+    @app.exception_handler(GoogleError)
+    async def _google(_: Request, exc: GoogleError) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=exc.status)
+
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok", "version": __version__}
@@ -161,6 +170,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(applications_router(applications))
     app.include_router(career_router(CareerService(vault, committer=background_committer(git))))
+    calendar, google, google_missing = build_calendar(settings, vault)
+    app.include_router(calendar_router(calendar, google, google_missing, settings.public_url))
+    planner = build_planner(settings, vault, calendar, study.overview)
+    app.include_router(planning_router(planner, committer=background_committer(git)))
     app.include_router(agents_router(AgentAdmin(vault, committer=background_committer(git))))
 
     if mcp is not None and settings.mcp_path_token:

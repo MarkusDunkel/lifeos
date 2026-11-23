@@ -241,6 +241,25 @@ homes:
 
 All homes count equally; a posting within a radius gets that home's label in the job list.
 
+## Planning
+
+```
+ready/knowledge/<LIFEOS_PLANNING_DIR, default Planning>/
+  Calendars.md             front matter: target (calendar id, set by LifeOS), inputs [{id, label}]
+  Goals.md                 quota table (Ziel | Kategorie | Menge | Einheit | Priorität | Notiz) + ## Regeln
+  Journal/<year>/<date>.md one note per day; front matter stimmung, energie (1–5), schlaf (h),
+                           schmerz (0–10), schmerz_ort; sections Gut, Schlecht, Notizen
+  Log/<YYYY-MM>.jsonl      check-ins of planned blocks (append only; last line per block wins)
+  Wishes.jsonl             change wishes per day with the planner's answer
+```
+
+Setup: a Google Cloud project with the Calendar API, an OAuth client of type "Web" with the
+redirect URI `<LIFEOS_PUBLIC_URL>/api/calendar/google/callback`, the consent screen set to
+"In production" (in "Testing" the refresh token expires after 7 days). Put
+`LIFEOS_GOOGLE_CLIENT_ID` and `LIFEOS_GOOGLE_CLIENT_SECRET` into `deploy/.env`, connect on
+the Plan page (Calendars), pick the inputs. For the worker: `LIFEOS_CALENDAR_SYNC_INTERVAL=600`
+and `LIFEOS_PLANNER_AT=17:30`, plus the agent file `agents/calendar-planner.md`.
+
 ## Workspace lifecycle
 
 1. **Create** — an agent writes exactly one Markdown file into `ready/workspaces/`.

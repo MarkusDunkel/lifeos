@@ -19,6 +19,11 @@ PowerPoint files live in the user's OneDrive (so they open in PowerPoint for the
 the vault only mirrors their text. LifeOS reads OneDrive and never writes to it.
 Moodle course materials follow the same rule: Moodle keeps the files, the vault their text.
 
+Google Calendar is the second deliberate write exception: LifeOS reads the chosen input
+calendars and writes only into the calendar "LifeOS" it created itself. The OAuth scope
+`calendar.app.created` makes Google enforce this; all other calendars are read-only
+(`calendar.events.readonly`). See "Planning" below.
+
 ## Runtime
 
 ```
@@ -76,6 +81,9 @@ Future writers (OneDrive, tickets, study progress, agents) follow the same patte
 | `moodle-sync` | daily at a local time; missed runs are caught up, failures retried hourly (max. 3 per day) | `LIFEOS_MOODLE_SYNC_AT=05:00`, `LIFEOS_TIMEZONE` |
 | `applications-board` | every N seconds: close/reopen on outcome columns, roll back deleted tickets | `LIFEOS_APPLICATIONS_INTERVAL` |
 | `agents` | every N seconds: mirror board contracts, AI teammates take their tickets | `LIFEOS_AGENTS_INTERVAL` |
+| `calendar-sync` | every N seconds: input calendars → mirrors in "LifeOS", queue a re-plan when appointments in the horizon changed | `LIFEOS_CALENDAR_SYNC_INTERVAL` |
+| `planner-queue` | every minute (with the calendar sync): run the day planner for queued wishes, "plan again", changed goals or appointments | `LIFEOS_CALENDAR_SYNC_INTERVAL` |
+| `calendar-planner` | daily at a local time: re-plan the next 7 days | `LIFEOS_PLANNER_AT=17:30` |
 | `git-sync` | every N seconds | `LIFEOS_GIT_SYNC_INTERVAL` |
 
 The last run of every job is kept in `state/jobs.json` (`GET /api/jobs/status`), so a
@@ -419,6 +427,38 @@ this week vs. last), profile × place (homes, remote, top cities; median commute
 (hit rate, best-profile agreement, prefilter-vs-AI offset with a scatter plot, verdicts per
 profile, stale/failed, tokens) and gaps (skills of fitting postings near the homes with the
 own level, skills the AI names missing).
+
+## Planning: calendars, goals, the AI day planner, journal
+
+**Calendars** (`connectors/google`, `modules/calendar`): Google sign-in with the web OAuth
+flow (token in `state/google-token.json`). The vault file `<planning>/Calendars.md` names the
+input calendars and the target. Every sync fetches a rolling window (7 days back, 35 ahead)
+of each input and makes the target hold a mirror of each event; mirrors and planned blocks
+carry `extendedProperties.private.lifeos_kind` (`mirror` / `plan`). Events in the target
+without that marker were added by hand: they are never touched and count as fixed
+appointments. The collected events go to `.lifeos/calendar/events.json`.
+
+**Goals** (`modules/planning/goals.py`): `<planning>/Goals.md` with a quota table (first
+header cell `Ziel`/`Goal`; amount a number or `auto`, unit hours or sessions per week) and a
+rules section (`Regeln`/`Rules`, free text for the planner). `auto` study hours come from the
+study readiness (`minutesPerDay` × 7 over subjects with an upcoming exam).
+
+**The day planner** (`modules/planning/planner.py`, agent file `agents/calendar-planner.md`,
+`runner: job`, `daily_limit`): the code gathers appointments, free windows (06–23 h), goals
+with this week's progress, rules, exams and Moodle deadlines, the last 7 journal days,
+skipped blocks, open wishes and the current plan; the model returns the complete plan for
+the open part of the 7-day horizon (`PlanResult`, structured output). The code validates
+every block (no clash with appointments or running blocks, nothing before now, inside the
+horizon), asks once more with the rejections, drops what still fails and writes the
+difference to Google (kept ids are patched, new ones inserted, dropped ones deleted). What
+the owner changed in Google wins: a moved plan event moves its block, a deleted one marks it
+`removed` (`PlanStore.reconcile`). Plan state: `.lifeos/planning/plan.json`; runs:
+`.lifeos/planning/runs.jsonl`. Rule proposals of the model become inbox tickets.
+
+**Evening** (`modules/planning/router.py`, page `/plan`): check off today's blocks
+(done / partly / skipped; unmarked past blocks count as done) → `<planning>/Log/<YYYY-MM>.jsonl`;
+the journal → `<planning>/Journal/<year>/<date>.md`; change wishes for any of the next days →
+`<planning>/Wishes.jsonl` and a queued re-plan; the planner's answer is shown per wish.
 
 ## Backend layout (`backend/src/lifeos`)
 
