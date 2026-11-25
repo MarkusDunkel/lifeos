@@ -119,10 +119,11 @@ class Supervisor:
              "problems": problems, "recentVaultCommits": self.git_log()},
             ensure_ascii=False, indent=1,
         )  # fmt: skip
+        effort = agent.raw.get("effort") or "low"
+        if isinstance(effort, dict):  # `effort: {diagnose: low}` like the other agents
+            effort = effort.get("diagnose", "low")
         try:
-            diagnosis, usage = self.llm_for(agent).parse(
-                system, prompt, Diagnosis, str(agent.raw.get("effort", "low"))
-            )
+            diagnosis, usage = self.llm_for(agent).parse(system, prompt, Diagnosis, str(effort))
         except Exception as exc:  # the model is optional: the lights work without it
             return "error", f"diagnosis failed: {type(exc).__name__}: {exc}"
         level = FAIL if any(p["level"] == FAIL for p in problems) else WARN
