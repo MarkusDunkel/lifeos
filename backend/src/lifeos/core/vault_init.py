@@ -98,7 +98,7 @@ CLAUDE_SETTINGS = json.dumps(
                 "Write(ready/tickets/**)",
                 "Write(ready/workspaces/**)",
             ],
-            "deny": ["Bash(git push:*)", "Bash(git commit:*)", "Bash(gh:*)"],
+            "deny": ["Bash(gh:*)"],
         }
     },
     indent=2,
