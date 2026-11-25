@@ -100,12 +100,15 @@ def _every(seconds: int) -> str:
     return f"every {seconds} s"
 
 
-def _job(pid: str, label: str, seconds: int, enabled: bool = True, **kw) -> Process:
+def _job(pid: str, label: str, seconds: int, enabled: bool = True, via: str = "", **kw) -> Process:
+    """``via``: a service the job uses as a tool, named in its trigger line instead of
+    being drawn as a source (e.g. the routing service of the commute times)."""
     warn, fail = interval(seconds) if seconds > 0 else (None, None)
     kw.setdefault("warn_after", warn)
     kw.setdefault("fail_after", fail)
+    trigger = _every(seconds) if seconds > 0 else "off"
     return Process(
-        pid, label, SERVER, _every(seconds) if seconds > 0 else "off",
+        pid, label, SERVER, f"{trigger} · via {via}" if via and seconds > 0 else trigger,
         enabled=seconds > 0 and enabled, every=seconds or None, **kw,
     )  # fmt: skip
 
@@ -139,7 +142,6 @@ def build_catalog(s: Settings) -> Catalog:
         Node("google-calendar", "Google Calendar", "source", "input calendars (read only)"),
         Node("devjobs", "devjobs.at", "source", "job postings"),
         Node("github-boards", "GitHub boards", "source", "tickets and comments"),
-        Node("ors", "OpenRouteService", "source", "commute times"),
         # what LifeOS keeps (vault and state)
         Node("kb-moodle", s.moodle_dir, "target", f"{kb}/{s.moodle_dir}", s.moodle_dir),
         Node("kb-teams-chats", f"{teams}/Chats", "target", f"{kb}/{teams}/Chats", f"{teams}/Chats"),
@@ -161,7 +163,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         Node("applications", "Applications", "target", "frozen PDFs, released postings"),
         Node("job-postings", "Job postings", "target", "imported postings"),
-        Node("commute-times", "Commute times", "target", "car and bike"),
+        Node("postings-commute", "Postings with commute", "target", "car and bike times added"),
         # actionables: what makes the owner act
         Node(
             "act-university",
@@ -321,15 +323,16 @@ def build_catalog(s: Settings) -> Catalog:
             "commute",
             "Commute times",
             HOUR if s.ors_api_key else 0,
-            inputs=("job-postings", "ors"),
-            outputs=("commute-times",),
+            inputs=("job-postings",),
+            outputs=("postings-commute",),
+            via="OpenRouteService",
             description="Fetches commute times from the homes to the postings.",
         ),  # fmt: skip
         _job(
             "job-matcher",
             "Job matcher",
             600 if agents_on else 0,
-            inputs=("job-postings", "commute-times"),
+            inputs=("postings-commute",),
             outputs=("act-job-assessments",),
             quiet_skips=("nothing to assess",),
             ai=("job-matcher",),
