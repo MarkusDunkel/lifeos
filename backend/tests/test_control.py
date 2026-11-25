@@ -276,3 +276,47 @@ def test_supervisor_diagnoses_only_when_problems_change(tmp_path):
     assert sup.run(now + timedelta(minutes=6)) == ("skipped", "all green")
     assert len(llm.calls) == 1
     assert json.loads((s.state_dir / "control-report.json").read_text())["level"] == "ok"
+
+
+def test_ai_processes_show_agent_and_runs_today(tmp_path):
+    from lifeos.core.vault import Vault
+    from lifeos.modules.career.matcher import STATE_FILE as MATCHER_STATE
+    from lifeos.modules.control.service import Control
+    from lifeos.modules.planning.planner import STATE_FILE as PLANNER_STATE
+
+    s = settings(tmp_path, planner_at="17:30", calendar_sync_interval=300, agents_interval=120,
+                 github_token="t")  # fmt: skip
+    vault = s.vault_root
+    agents = vault / "agents"
+    (agents / "assistant").mkdir(parents=True)
+
+    def agent(name: str, runner: str, extra: str = "") -> None:
+        text = f"---\nname: {name}\ntitle: T {name}\nrunner: {runner}\nmodel: m-{name}\n"
+        (agents / f"{name}.md").write_text(text + extra + "---\n\n# x\n", encoding="utf-8")
+
+    agent("calendar-planner", "job", "billing: subscription\ndaily_limit: 20\n")
+    agent("job-matcher", "job", "daily_limit: 10\nmanual_limit: 5\n")
+    agent("assistant", "workflow", "workflow: assistant\n")
+    now = datetime.now(TZ)
+    today = now.date().isoformat()
+    (agents / "assistant" / "runs.md").write_text(
+        f"# Runs\n\n## {today} 09:00 · #1 A · done\n\n## 2020-01-01 09:00 · #2 B · done\n",
+        encoding="utf-8",
+    )
+    for rel, data in (
+        (PLANNER_STATE, {"runs": {today: 3}}),
+        (MATCHER_STATE, {"days": {today: {"auto": 2, "manual": 1}}}),
+    ):
+        path = vault / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    status = Control(s, Vault.open(vault), None).status()
+    by_id = {p["id"]: p for p in status["processes"]}
+    planner = by_id["calendar-planner"]["ai"][0]
+    assert planner["model"] == "m-calendar-planner" and planner["billing"] == "subscription"
+    assert planner["runsToday"] == 3 and planner["dailyLimit"] == 20
+    matcher = by_id["job-matcher"]["ai"][0]
+    assert matcher["runsToday"] == 3 and matcher["dailyLimit"] == 15
+    assert [(a["agent"], a["runsToday"]) for a in by_id["agents"]["ai"]] == [("assistant", 1)]
+    assert by_id["git-sync"]["ai"] == []

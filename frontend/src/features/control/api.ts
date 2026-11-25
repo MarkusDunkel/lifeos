@@ -6,6 +6,15 @@ export type Where = "server" | "pc" | "manual" | "host";
 
 export type Check = { id: string; label: string; ok: boolean | null; message: string; fix: string };
 export type Run = { at: string; status: string; message: string };
+export type AiAgent = {
+  agent: string;
+  title: string;
+  model: string | null;
+  billing: "api" | "subscription" | null;
+  configured: boolean;
+  runsToday: number;
+  dailyLimit: number | null;
+};
 
 export type ProcessHealth = {
   id: string;
@@ -29,6 +38,7 @@ export type ProcessHealth = {
   hint: string;
   mirror: boolean;
   system: boolean;
+  ai: AiAgent[];
 };
 
 export type FlowNode = {

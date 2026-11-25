@@ -10,7 +10,7 @@ const node = (id: string, kind: "source" | "target"): FlowNode => ({
 const proc = (id: string, inputs: string[], outputs: string[], extra: Partial<ProcessHealth> = {}): ProcessHealth => ({
   id, label: id, where: "server", trigger: "", enabled: true, level: "ok", reason: "", description: "",
   inputs, outputs, status: null, message: "", lastRun: null, lastSuccess: null, history: [], checks: [],
-  runPath: null, canRequest: true, hint: "", mirror: false, system: false, ...extra,
+  runPath: null, canRequest: true, hint: "", mirror: false, system: false, ai: [], ...extra,
 });
 
 describe("buildGraph", () => {

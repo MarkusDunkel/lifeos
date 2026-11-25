@@ -11,6 +11,7 @@ from lifeos.connectors.github.sync import STATE_DIR as GITHUB_STATE
 from lifeos.connectors.onedrive.sync import STATE_FILE as PRESENTATIONS_STATE
 from lifeos.core.config import Settings
 from lifeos.core.vault import Vault, VaultPathError
+from lifeos.modules.control.ai import ai_usage
 from lifeos.modules.control.catalog import Catalog, build_catalog
 from lifeos.modules.control.checks import disk_check, run_checks
 from lifeos.modules.control.health import Sources, evaluate
@@ -45,8 +46,12 @@ class Control:
         )
 
     def status(self, now: datetime | None = None) -> dict[str, Any]:
-        result = evaluate(self.catalog, self.sources(), now or datetime.now(UTC), self.tz)
-        result["report"] = self.report()
+        now = now or datetime.now(UTC)
+        src = self.sources()
+        report = self.report()
+        src.ai = ai_usage(self.vault, self.catalog, now.astimezone(self.tz), report)
+        result = evaluate(self.catalog, src, now, self.tz)
+        result["report"] = report
         result["requests"] = self.requests.all()
         return result
 

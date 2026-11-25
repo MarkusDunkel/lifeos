@@ -70,6 +70,7 @@ class ProcessHealth:
     hint: str = ""
     mirror: bool = False
     system: bool = False
+    ai: list[dict] = field(default_factory=list)  # agents (model, billing, runs today)
 
 
 @dataclass
@@ -82,6 +83,7 @@ class Sources:
     deployer: str | None = None  # last heartbeat of the host deployer
     checks: dict[str, Check] = field(default_factory=dict)
     system_checks: list[Check] = field(default_factory=list)
+    ai: dict[str, list[dict]] = field(default_factory=dict)  # process → agents it calls
 
 
 def evaluate(catalog: Catalog, src: Sources, now: datetime, tz: ZoneInfo) -> dict[str, Any]:
@@ -164,7 +166,7 @@ def _one(p: Process, src: Sources, now: datetime, tz: ZoneInfo, worker: Check) -
         last_run=entry.get("lastRun"), last_success=entry.get("lastSuccess"),
         history=entry.get("history", []), checks=[asdict(c) for c in checks],
         run_path=p.run_path, can_request=p.where == SERVER and p.enabled, hint=p.hint,
-        mirror=p.mirror, system=p.system,
+        mirror=p.mirror, system=p.system, ai=src.ai.get(p.id, []),
     )  # fmt: skip
     if not p.enabled:
         return health

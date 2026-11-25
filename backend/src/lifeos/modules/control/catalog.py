@@ -33,6 +33,7 @@ class Node:
     group: str | None = None  # drawn inside a box, e.g. everything in the vault
 
 
+WORKFLOW_AGENTS = "@workflow"  # the board agents (`runner: workflow` in agents/)
 VAULT = "vault"
 # targets that live in the vault: one box in the diagram, one arrow to the vault sync
 VAULT_TARGETS = (
@@ -60,6 +61,7 @@ class Process:
     mirror: bool = False  # its outputs are mirrors: hand edits are overwritten
     system: bool = False  # infrastructure, shown in the system strip, not the diagram
     quiet_skips: tuple[str, ...] = ()  # skip messages that are normal, not a warning
+    ai: tuple[str, ...] = ()  # agents whose model it calls (``WORKFLOW_AGENTS`` = all board agents)
     description: str = ""
 
 
@@ -211,6 +213,7 @@ def build_catalog(s: Settings) -> Catalog:
             inputs=("google-calendar",),
             outputs=("calendar-lifeos", "kb-planning"),
             checks=("google",),
+            ai=("calendar-planner",),
             description="The AI plans the coming days and writes its blocks to Google.",
         ),
         _job(
@@ -219,6 +222,7 @@ def build_catalog(s: Settings) -> Catalog:
             60 if s.calendar_sync_interval > 0 else 0,
             system=True,
             quiet_skips=("nothing queued",),
+            ai=("calendar-planner",),
             description="Re-plans within a minute after wishes or changed appointments.",
         ),
         Process(
@@ -243,6 +247,7 @@ def build_catalog(s: Settings) -> Catalog:
             inputs=("job-postings",),
             outputs=("job-assessments",),
             quiet_skips=("nothing to assess",),
+            ai=("job-matcher",),
             description="The AI rates new postings against the job profiles.",
         ),
         _job(
@@ -270,6 +275,7 @@ def build_catalog(s: Settings) -> Catalog:
             inputs=("github-boards",),
             outputs=("agent-work",),
             checks=("github",),
+            ai=(WORKFLOW_AGENTS,),
             description="Mirrors the board contracts and lets the agents take their tickets.",
         ),
         Process(
@@ -316,6 +322,7 @@ def build_catalog(s: Settings) -> Catalog:
             warn_after=30 * MIN,
             fail_after=2 * HOUR,
             quiet_skips=("all green", "unchanged", "no agents/control-room.md"),
+            ai=("control-room",),
             description="The AI explains the current problems on this page.",
         ),
     ]

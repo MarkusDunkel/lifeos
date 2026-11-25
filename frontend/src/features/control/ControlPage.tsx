@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Bot, Play, RefreshCw, X } from "lucide-react";
+import { Activity, Bot, Play, RefreshCw, Sparkles, X } from "lucide-react";
 import { useState } from "react";
-import { type ControlStatus, controlQuery, type Level, type ProcessHealth, runNow } from "./api";
+import { type AiAgent, type ControlStatus, controlQuery, type Level, type ProcessHealth, runNow } from "./api";
 import { ControlFlow, WHERE_LABEL } from "./ControlFlow";
 import { formatAgo } from "./format";
+import { Legend } from "./Legend";
 import { checkLevel, LEVEL_RANK, LEVEL_STYLE } from "./layout";
 
 const btn =
@@ -50,6 +51,7 @@ export function ControlPage() {
           <div className="hidden md:block">
             <ControlFlow status={s} selected={selected} onSelect={setSelected} />
           </div>
+          <Legend />
           <ProcessTable s={s} onSelect={(id) => setSelected(`p:${id}`)} />
           {selected && <Panel s={s} id={selected} onClose={() => setSelected(null)} />}
         </>
@@ -161,6 +163,7 @@ function ProcessTable({ s, onSelect }: { s: ControlStatus; onSelect: (id: string
               <td className="px-3 py-2">
                 <div className="flex items-center gap-2 font-medium">
                   <Dot level={p.level} /> {p.label}
+                  {p.ai.length > 0 && <AiChip />}
                 </div>
               </td>
               <td className="px-3 py-2 text-slate-500">
@@ -227,6 +230,7 @@ function ProcessDetails({ s, p }: { s: ControlStatus; p: ProcessHealth }) {
         <h2 className="flex items-center gap-2 text-lg font-semibold">
           <Dot level={p.level} /> {p.label}
         </h2>
+        {p.ai.length > 0 && <AiChip />}
         <p className="text-sm text-slate-500">
           {WHERE_LABEL[p.where]} · {p.trigger}
           {p.mirror ? " · mirror (hand edits in the target are overwritten)" : ""}
@@ -237,6 +241,7 @@ function ProcessDetails({ s, p }: { s: ControlStatus; p: ProcessHealth }) {
         <div className={`font-medium ${style.text}`}>{style.label}</div>
         <div>{p.reason}</div>
       </div>
+      {p.ai.length > 0 && <AiDetails agents={p.ai} />}
       {finding && (
         <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm dark:border-sky-900 dark:bg-sky-950/40">
           <div className="mb-1 flex items-center gap-1.5 font-medium">
@@ -302,6 +307,47 @@ function ProcessDetails({ s, p }: { s: ControlStatus; p: ProcessHealth }) {
         </div>
       )}
       {p.hint && <p className="rounded-lg bg-slate-100 p-3 text-sm dark:bg-slate-900">{p.hint}</p>}
+    </div>
+  );
+}
+
+export function AiChip() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+      <Sparkles className="size-3" /> AI
+    </span>
+  );
+}
+
+const BILLING: Record<string, string> = { subscription: "Claude subscription", api: "API, billed per token" };
+
+function AiDetails({ agents }: { agents: AiAgent[] }) {
+  return (
+    <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm dark:border-violet-900 dark:bg-violet-950/30">
+      <div className="mb-1 flex items-center gap-1.5 font-medium">
+        <Sparkles className="size-4 text-violet-500" /> Calls an AI model
+      </div>
+      <p className="mb-2 text-xs text-slate-500">
+        The schedule only checks for work; the model is called when there is something to do.
+      </p>
+      {agents.length === 0 && <p className="text-xs text-slate-500">No agent set up.</p>}
+      <ul className="space-y-2">
+        {agents.map((a) => (
+          <li key={a.agent}>
+            <div className="font-medium">
+              {a.title} <span className="font-normal text-slate-500">· agents/{a.agent}.md</span>
+            </div>
+            {a.configured ? (
+              <div className="text-xs text-slate-600 dark:text-slate-300">
+                {a.model} · {BILLING[a.billing ?? ""] ?? a.billing} · {a.runsToday} run(s) today
+                {a.dailyLimit !== null ? ` of max. ${a.dailyLimit}` : ""}
+              </div>
+            ) : (
+              <div className="text-xs text-amber-600">agent file missing – the process skips the AI</div>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
