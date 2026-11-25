@@ -34,7 +34,7 @@ from lifeos.core.extract.text import dump_front, front_matter, link
 from lifeos.core.vault import INBOX, KNOWLEDGE, STATE, Vault, write_atomic
 
 KIND = "teams-messages"
-QUERY = 'subject:Teams "Nachrichten-ID"'
+QUERY = 'in:anywhere subject:Teams "Nachrichten-ID"'  # also archived, spam and trash
 STORE = f"{INBOX}/teams/messages.json"
 STATE_FILE = f"{STATE}/teams-mail/state.json"
 OVERLAP_DAYS = 3  # mails are searched from the last run minus this, duplicates are skipped

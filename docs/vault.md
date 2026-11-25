@@ -190,7 +190,8 @@ lifeos teams-mail ─▶ inbox/teams/messages.json               every message o
   account (one for all channels, one for all chats, daily) send every new message as a mail
   with header lines (`Team:`, `Kanal:`, `Chat-ID:`, `Nachrichten-ID:` …), `---`, the text
   and `=== RAW ===` with the Graph message as escaped JSON in a `pre` block.
-- The import searches Gmail (`subject:Teams "Nachrichten-ID"`, from the last run minus 3
+- The import searches Gmail (`in:anywhere subject:Teams "Nachrichten-ID"`, so also mails in
+  the trash, from the last run minus 3
   days), keeps each message once per conversation (an edited one replaces the old copy),
   drops deleted messages and system events, takes meeting titles from the attachments and
   renders one note per channel or chat, grouped by day in `LIFEOS_TIMEZONE`.
