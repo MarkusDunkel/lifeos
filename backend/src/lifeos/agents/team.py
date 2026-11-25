@@ -230,6 +230,10 @@ class Team:
     # -- polling ------------------------------------------------------------------
 
     def poll(self) -> list[str]:
+        if not self.contract.ai.responsible_field and not any(
+            c.agent for c in self.contract.columns
+        ):
+            return []  # no column hands tickets to an agent (e.g. a board a job agent fills)
         owner, number = split_project(self.contract.project)
         project = self.gh.project(owner, number)
         if AI_FIELD not in project.fields:

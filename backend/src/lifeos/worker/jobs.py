@@ -377,6 +377,29 @@ def planner_job(settings: Settings, git: GitSync, *, queue_only: bool) -> Callab
     return run
 
 
+def uni_planner_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]:
+    """Keep the University board up to date from new Moodle and Teams material."""
+    from lifeos.agents.workflows import build_llm_factory
+    from lifeos.connectors.github.client import GitHubClient
+    from lifeos.modules.tasks.planner import UniPlanner
+
+    token = settings.github_token
+    planner = UniPlanner(
+        Vault.open(settings.vault_root),
+        (lambda: GitHubClient(token)) if token else None,
+        next(iter(settings.github_repo_list), None),
+        settings.university_project,
+        settings.timezone,
+    )
+    llm_for = build_llm_factory(settings)
+
+    def run() -> JobResult:
+        status, message = planner.run(llm_for)
+        return JobResult(status, message)
+
+    return run
+
+
 def control_report_job(settings: Settings) -> Callable[[], JobResult]:
     """Let the AI supervisor explain the yellow and red processes of the control room."""
     from lifeos.agents.workflows import build_llm_factory
@@ -442,6 +465,10 @@ def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
         )
     if settings.git_sync_interval > 0:
         jobs.append(Job("git-sync", Every(settings.git_sync_interval), git_sync_job(git)))
+    if settings.uni_planner_interval > 0:
+        jobs.append(
+            Job("uni-planner", Every(settings.uni_planner_interval), uni_planner_job(settings, git))
+        )
     if settings.control_report_interval > 0:
         jobs.append(
             Job(

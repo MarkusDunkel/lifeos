@@ -93,6 +93,19 @@ export function buildGraph(nodes: FlowNode[], processes: ProcessHealth[]): Graph
   for (const n of nodes) column.set(n.id, nodeColumn(n.id, new Set()));
   for (const p of flow) procColumn(p, new Set());
 
+  // Actionables form the last column, the processes making them the one before: the flow
+  // reads sources → syncs → what LifeOS keeps → processing → actionables.
+  const isActionable = (id: string) => byId.get(id)?.kind === "actionable";
+  const makers = flow.filter((p) => p.outputs.some(isActionable));
+  if (makers.length) {
+    const others = [...column.entries()]
+      .filter(([id]) => !isActionable(id) && !makers.some((p) => pid(p) === id))
+      .map(([, c]) => c);
+    const makerColumn = Math.max(...makers.map((p) => column.get(pid(p)) ?? 0), Math.max(0, ...others) + 1);
+    for (const p of makers) column.set(pid(p), makerColumn);
+    for (const n of nodes) if (n.kind === "actionable") column.set(n.id, makerColumn + 1);
+  }
+
   // neighbours for the sweeps
   const preds = new Map<string, string[]>();
   const succs = new Map<string, string[]>();
@@ -198,10 +211,14 @@ export function buildGraph(nodes: FlowNode[], processes: ProcessHealth[]): Graph
   const edges: GraphEdge[] = [];
   const links: [string, string][] = [];
   const seen = new Set<string>();
+  const members = new Map<string, string[]>();
+  for (const n of nodes) if (n.group) members.set(n.group, [...(members.get(n.group) ?? []), n.id]);
   for (const p of flow) {
     for (const i of p.inputs) {
+      // one edge from the box only when the process reads every folder in it
       const g = byId.get(i)?.group;
-      const source = g ? groupId(g) : i;
+      const whole = g && (members.get(g) ?? []).every((m) => p.inputs.includes(m));
+      const source = whole && g ? groupId(g) : i;
       const id = `${source}>${p.id}`;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -235,4 +252,63 @@ export function trace(links: [string, string][], focus: string): Set<string> {
     return found;
   };
   return new Set([...walk(true), ...walk(false)]);
+}
+
+export const FOUNDATION = "f:"; // id prefix of the nodes in the technical foundation band
+export const VAULT_STUB = `${FOUNDATION}vault`;
+const BAND_GAP = 120;
+
+export type Flows = Graph & { band: { y: number; label: string } | null };
+
+/**
+ * The whole picture: the flow to the actionables on top, the technical foundation (vault
+ * sync, deployer, ticket copy) as its own small flow below. Nodes that appear in both get a
+ * copy in the band (id prefixed with ``f:``), the vault box becomes one "Vault" node there;
+ * hover tracing still follows them across.
+ */
+export function buildFlows(nodes: FlowNode[], processes: ProcessHealth[]): Flows {
+  const visible = processes.filter((p) => !p.system);
+  const mainProcs = visible.filter((p) => !p.foundation);
+  const baseProcs = visible.filter((p) => p.foundation);
+  const used = new Set(mainProcs.flatMap((p) => [...p.inputs, ...p.outputs]));
+  const mainNodes = nodes.filter((n) => used.has(n.id) || n.kind === "actionable");
+  const main = buildGraph(mainNodes, mainProcs);
+  if (!baseProcs.length) return { ...main, band: null };
+
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const copy = (id: string) => (byId.get(id)?.group ? VAULT_STUB : `${FOUNDATION}${id}`);
+  const baseNodes = new Map<string, FlowNode>();
+  const procs = baseProcs.map((p) => {
+    const inputs = [...new Set(p.inputs.map(copy))];
+    const outputs = p.outputs.map(copy);
+    for (const id of [...p.inputs, ...p.outputs]) {
+      const key = copy(id);
+      if (baseNodes.has(key)) continue;
+      const n = byId.get(id);
+      baseNodes.set(
+        key,
+        key === VAULT_STUB
+          ? { id: key, label: "Vault", kind: "source", detail: "ready/knowledge (all folders above)", folder: null, group: null, level: "ok", reason: "" }
+          : { ...(n as FlowNode), id: key, group: null, kind: p.inputs.includes(id) ? "source" : (n?.kind ?? "target") },
+      );
+    }
+    return { ...p, inputs, outputs };
+  });
+  const base = buildGraph([...baseNodes.values()], procs);
+
+  const bottom = Math.max(0, ...main.placed.map((p) => p.y + ROW), ...main.groups.map((g) => g.y + g.height));
+  const top = bottom + BAND_GAP;
+  const links: [string, string][] = [...main.links, ...base.links];
+  for (const key of baseNodes.keys()) {
+    const original = key.slice(FOUNDATION.length);
+    if (key === VAULT_STUB) links.push([groupId("vault"), key]);
+    else if (mainNodes.some((n) => n.id === original)) links.push([original, key]);
+  }
+  return {
+    placed: [...main.placed, ...base.placed.map((p) => ({ ...p, y: p.y + top }))],
+    groups: [...main.groups, ...base.groups.map((g) => ({ ...g, y: g.y + top }))],
+    edges: [...main.edges, ...base.edges],
+    links,
+    band: { y: top - 44, label: "Technical foundation · carries everything, ends in no actionable" },
+  };
 }

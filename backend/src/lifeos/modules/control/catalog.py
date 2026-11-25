@@ -1,6 +1,10 @@
 """The catalog of every LifeOS process: where it runs, how often it must succeed, and what
 flows from which source into which target.
 
+Every flow ends in an **actionable**: something that makes the owner act (a ticket board,
+the day plan, job assessments). The technical foundation (vault sync, deployer, ticket copy)
+is monitored too, but drawn apart: it carries everything and ends in no actionable.
+
 The catalog is generic: what is switched on comes from the settings, so a process that
 should run but is not set up shows as such instead of silently missing.
 """
@@ -23,14 +27,16 @@ HOST = "host"  # outside Docker on the server (deployer timer)
 
 @dataclass(frozen=True)
 class Node:
-    """A source or target in the flow diagram."""
+    """A source, an intermediate (target) or an actionable in the flow diagram."""
 
     id: str
     label: str
-    kind: str  # source | target
+    kind: str  # source | target | actionable
     detail: str = ""
     folder: str | None = None  # knowledge folder, for mirror badges
     group: str | None = None  # drawn inside a box, e.g. everything in the vault
+    url: str | None = None  # where to act (actionables)
+    local: bool = False  # kept by the owner, not written by a process
 
 
 WORKFLOW_AGENTS = "@workflow"  # the board agents (`runner: workflow` in agents/)
@@ -38,7 +44,7 @@ VAULT = "vault"
 # targets that live in the vault: one box in the diagram, one arrow to the vault sync
 VAULT_TARGETS = (
     "kb-moodle", "kb-teams-chats", "kb-teams-files", "kb-presentations", "kb-planning",
-    "applications", "agent-work",
+    "applications",
 )  # fmt: skip
 
 
@@ -60,8 +66,9 @@ class Process:
     hint: str = ""  # how to run it by hand
     mirror: bool = False  # its outputs are mirrors: hand edits are overwritten
     system: bool = False  # infrastructure, shown in the system strip, not the diagram
+    foundation: bool = False  # technical foundation: own band below the flow
     quiet_skips: tuple[str, ...] = ()  # skip messages that are normal, not a warning
-    ai: tuple[str, ...] = ()  # agents whose model it calls (``WORKFLOW_AGENTS`` = all board agents)
+    ai: tuple[str, ...] = ()  # agents whose model it calls (``WORKFLOW_AGENTS`` = board agents)
     description: str = ""
 
 
@@ -72,6 +79,9 @@ class Catalog:
 
     def process(self, process_id: str) -> Process | None:
         return next((p for p in self.processes if p.id == process_id), None)
+
+    def node(self, node_id: str) -> Node | None:
+        return next((n for n in self.nodes if n.id == node_id), None)
 
 
 def interval(seconds: int) -> tuple[int, int]:
@@ -109,18 +119,28 @@ def _daily(pid: str, label: str, at: str | None, enabled: bool = True, **kw) -> 
     )  # fmt: skip
 
 
+def _project_url(ref: str | None) -> str | None:
+    if not ref or "/" not in ref:
+        return None
+    owner, number = ref.split("/", 1)
+    return f"https://github.com/users/{owner}/projects/{number}"
+
+
 def build_catalog(s: Settings) -> Catalog:
     kb = "ready/knowledge"
     teams = s.teams_dir
+    tasks_board = next((p for p in s.github_project_list if p != s.applications_project), None)
     nodes = [
+        # sources
         Node("moodle", "Moodle", "source", "courses, files, announcements"),
         Node("gmail", "Gmail", "source", "Teams messages forwarded by mail"),
         Node("onedrive-pc", "OneDrive on the PC", "source", "synced Teams document libraries"),
         Node("onedrive", "OneDrive", "source", "presentations folder"),
         Node("google-calendar", "Google Calendar", "source", "input calendars (read only)"),
         Node("devjobs", "devjobs.at", "source", "job postings"),
-        Node("github-boards", "GitHub boards", "source", "tasks, applications"),
+        Node("github-boards", "GitHub boards", "source", "tickets and comments"),
         Node("ors", "OpenRouteService", "source", "commute times"),
+        # what LifeOS keeps (vault and state)
         Node("kb-moodle", s.moodle_dir, "target", f"{kb}/{s.moodle_dir}", s.moodle_dir),
         Node("kb-teams-chats", f"{teams}/Chats", "target", f"{kb}/{teams}/Chats", f"{teams}/Chats"),
         Node("kb-teams-files", f"{teams} files", "target", f"{kb}/{teams}/…", teams),
@@ -131,14 +151,56 @@ def build_catalog(s: Settings) -> Catalog:
             f"{kb}/{s.presentations_dir}",
             s.presentations_dir,
         ),  # fmt: skip
-        Node("kb-planning", s.planning_dir, "target", f"{kb}/{s.planning_dir}", s.planning_dir),
-        Node("calendar-lifeos", "Calendar 'LifeOS'", "target", "plan blocks and mirrors"),
-        Node("job-postings", "Job postings", "target", "imported postings"),
-        Node("job-assessments", "Job assessments", "target", "AI fit ratings"),
-        Node("commute-times", "Commute times", "target", "car and bike"),
+        Node(
+            "kb-planning",
+            s.planning_dir,
+            "target",
+            "goals, wishes, journal",
+            s.planning_dir,
+            local=True,
+        ),  # fmt: skip
         Node("applications", "Applications", "target", "frozen PDFs, released postings"),
+        Node("job-postings", "Job postings", "target", "imported postings"),
+        Node("commute-times", "Commute times", "target", "car and bike"),
+        # actionables: what makes the owner act
+        Node(
+            "act-university",
+            "University board",
+            "actionable",
+            "exams, submissions, deadlines",
+            url=_project_url(s.university_project),
+        ),  # fmt: skip
+        Node(
+            "act-day-plan",
+            "Day plan",
+            "actionable",
+            "calendar 'LifeOS'",
+            url="https://calendar.google.com",
+        ),  # fmt: skip
+        Node(
+            "act-job-assessments",
+            "Job assessments",
+            "actionable",
+            "apply / maybe / no",
+            url="/jobs",
+        ),  # fmt: skip
+        Node(
+            "act-applications",
+            "Applications board",
+            "actionable",
+            "documents to review",
+            url=_project_url(s.applications_project),
+        ),  # fmt: skip
+        Node(
+            "act-tasks",
+            "LifeOS Tasks",
+            "actionable",
+            "AI work to review",
+            url=_project_url(tasks_board),
+        ),  # fmt: skip
+        # technical foundation
+        Node("pull-requests", "Pull requests", "source", "released by the assistant"),
         Node("tickets", "Ticket copy", "target", "ready/tickets"),
-        Node("agent-work", "Agent work", "target", "reports, commits, pull requests"),
         Node("app-live", "Running app", "target", "deployed branch"),
         Node("vault-remote", "Vault repository", "target", "private GitHub repo"),
     ]
@@ -157,7 +219,7 @@ def build_catalog(s: Settings) -> Catalog:
             mirror=True,
             run_path="/api/moodle/sync",
             description="Mirrors the Moodle courses and commits them as `moodle: …`.",
-        ),
+        ),  # fmt: skip
         _daily(
             "teams-mail",
             "Teams messages",
@@ -167,7 +229,7 @@ def build_catalog(s: Settings) -> Catalog:
             checks=("google", "gmail"),
             mirror=True,
             description="Imports the Teams chats from Gmail and commits them as `teams-mail: …`.",
-        ),
+        ),  # fmt: skip
         Process(
             "teams-files",
             "Teams files",
@@ -182,7 +244,7 @@ def build_catalog(s: Settings) -> Catalog:
             hint="On the PC: run deploy/teams-files-sync.cmd (or `lifeos teams-files sync "
             "--commit`). The PC must be on.",
             description="Mirrors the synced Teams document libraries on the PC into the vault.",
-        ),
+        ),  # fmt: skip
         Process(
             "presentations",
             "Presentations sync",
@@ -196,26 +258,41 @@ def build_catalog(s: Settings) -> Catalog:
             mirror=True,
             run_path="/api/presentations/sync",
             description="Converts the presentations in OneDrive into notes.",
-        ),
+        ),  # fmt: skip
+        _job(
+            "uni-planner",
+            "Study planner",
+            s.uni_planner_interval,
+            enabled=bool(s.github_token and s.university_project),
+            inputs=("kb-moodle", "kb-teams-chats", "kb-teams-files"),
+            outputs=("act-university",),
+            checks=("github",),
+            warn_after=3 * HOUR,
+            fail_after=26 * HOUR,
+            quiet_skips=("nothing new",),
+            ai=("uni-planner",),
+            description="The AI turns new Moodle and Teams material into tickets on the "
+            "University board and keeps them current (never deletes, closes).",
+        ),  # fmt: skip
         _job(
             "calendar-sync",
             "Calendar sync",
             s.calendar_sync_interval,
             inputs=("google-calendar",),
-            outputs=("calendar-lifeos",),
+            outputs=("act-day-plan",),
             checks=("google",),
             description="Reads the input calendars and mirrors them into the calendar 'LifeOS'.",
-        ),
+        ),  # fmt: skip
         _daily(
             "calendar-planner",
             "Day planner",
             s.planner_at,
-            inputs=("google-calendar",),
-            outputs=("calendar-lifeos", "kb-planning"),
+            inputs=("google-calendar", "kb-planning"),
+            outputs=("act-day-plan",),
             checks=("google",),
             ai=("calendar-planner",),
             description="The AI plans the coming days and writes its blocks to Google.",
-        ),
+        ),  # fmt: skip
         _job(
             "planner-queue",
             "Planner queue",
@@ -224,7 +301,7 @@ def build_catalog(s: Settings) -> Catalog:
             quiet_skips=("nothing queued",),
             ai=("calendar-planner",),
             description="Re-plans within a minute after wishes or changed appointments.",
-        ),
+        ),  # fmt: skip
         Process(
             "job-import",
             "Job import",
@@ -239,17 +316,7 @@ def build_catalog(s: Settings) -> Catalog:
             "`lifeos jobsearch import` starts it by hand. The PC must be on.",
             description="Fetches devjobs.at from home (blocked for servers) and sends the "
             "postings to the server.",
-        ),
-        _job(
-            "job-matcher",
-            "Job matcher",
-            600 if agents_on else 0,
-            inputs=("job-postings",),
-            outputs=("job-assessments",),
-            quiet_skips=("nothing to assess",),
-            ai=("job-matcher",),
-            description="The AI rates new postings against the job profiles.",
-        ),
+        ),  # fmt: skip
         _job(
             "commute",
             "Commute times",
@@ -257,7 +324,17 @@ def build_catalog(s: Settings) -> Catalog:
             inputs=("job-postings", "ors"),
             outputs=("commute-times",),
             description="Fetches commute times from the homes to the postings.",
-        ),
+        ),  # fmt: skip
+        _job(
+            "job-matcher",
+            "Job matcher",
+            600 if agents_on else 0,
+            inputs=("job-postings", "commute-times"),
+            outputs=("act-job-assessments",),
+            quiet_skips=("nothing to assess",),
+            ai=("job-matcher",),
+            description="The AI rates new postings against the job profiles.",
+        ),  # fmt: skip
         _job(
             "applications-board",
             "Applications board",
@@ -267,30 +344,42 @@ def build_catalog(s: Settings) -> Catalog:
             outputs=("applications",),
             checks=("github",),
             description="Watches the applications board, freezes what was sent.",
-        ),
+        ),  # fmt: skip
         _job(
             "agents",
             "AI teammates",
             s.agents_interval if agents_on else 0,
-            inputs=("github-boards",),
-            outputs=("agent-work",),
+            inputs=("github-boards", "applications"),
+            outputs=("act-tasks", "act-applications"),
             checks=("github",),
             ai=(WORKFLOW_AGENTS,),
             description="Mirrors the board contracts and lets the agents take their tickets.",
-        ),
+        ),  # fmt: skip
+        # technical foundation
+        _job(
+            "git-sync",
+            "Vault sync",
+            s.git_sync_interval,
+            inputs=VAULT_TARGETS,
+            outputs=("vault-remote",),
+            run_path="/api/vault-sync/run",
+            foundation=True,
+            description="Commits, pulls and pushes the vault every few minutes.",
+        ),  # fmt: skip
         Process(
             "deployer",
             "Deployer",
             HOST,
             "every few seconds",
             enabled=releases,
-            inputs=("agent-work",),
+            inputs=("pull-requests",),
             outputs=("app-live",),
             warn_after=5 * MIN,
             fail_after=15 * MIN,
+            foundation=True,
             hint="On the server: `systemctl status lifeos-deployer.timer`.",
             description="Tests and deploys the pull requests the assistant releases.",
-        ),
+        ),  # fmt: skip
         Process(
             "tickets",
             "Ticket copy",
@@ -303,17 +392,9 @@ def build_catalog(s: Settings) -> Catalog:
             warn_after=14 * DAY,
             mirror=True,
             run_path="/api/tickets/sync",
+            foundation=True,
             description="Copies the GitHub issues into ready/tickets for context and search.",
-        ),
-        _job(
-            "git-sync",
-            "Vault sync",
-            s.git_sync_interval,
-            inputs=VAULT_TARGETS,
-            outputs=("vault-remote",),
-            run_path="/api/vault-sync/run",
-            description="Commits, pulls and pushes the vault every few minutes.",
-        ),
+        ),  # fmt: skip
         _job(
             "control-report",
             "AI diagnosis",
@@ -324,6 +405,6 @@ def build_catalog(s: Settings) -> Catalog:
             quiet_skips=("all green", "unchanged", "no agents/control-room.md"),
             ai=("control-room",),
             description="The AI explains the current problems on this page.",
-        ),
+        ),  # fmt: skip
     ]
     return Catalog(nodes, processes)

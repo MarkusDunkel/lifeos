@@ -3,9 +3,10 @@ import { Activity, Bot, Play, RefreshCw, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 import { type AiAgent, type ControlStatus, controlQuery, type Level, type ProcessHealth, runNow } from "./api";
 import { ControlFlow, WHERE_LABEL } from "./ControlFlow";
+import { ActionableDetails, ActionableStrip } from "./Actionable";
 import { formatAgo } from "./format";
 import { Legend } from "./Legend";
-import { checkLevel, LEVEL_RANK, LEVEL_STYLE } from "./layout";
+import { checkLevel, FOUNDATION, LEVEL_RANK, LEVEL_STYLE } from "./layout";
 
 const btn =
   "inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800";
@@ -47,6 +48,7 @@ export function ControlPage() {
       ) : (
         <>
           <ReportCard s={s} onSelect={(id) => setSelected(`p:${id}`)} />
+          <ActionableStrip s={s} onSelect={setSelected} />
           <SystemStrip s={s} onSelect={(id) => setSelected(`p:${id}`)} />
           <div className="hidden md:block">
             <ControlFlow status={s} selected={selected} onSelect={setSelected} />
@@ -182,7 +184,8 @@ function ProcessTable({ s, onSelect }: { s: ControlStatus; onSelect: (id: string
 
 function Panel({ s, id, onClose }: { s: ControlStatus; id: string; onClose: () => void }) {
   const process = id.startsWith("p:") ? s.processes.find((p) => `p:${p.id}` === id) : undefined;
-  const node = s.nodes.find((n) => n.id === id);
+  const nodeId = id.startsWith(FOUNDATION) ? id.slice(FOUNDATION.length) : id;
+  const node = s.nodes.find((n) => n.id === nodeId);
   return (
     <div className="fixed inset-y-0 right-0 z-20 w-full max-w-md overflow-y-auto border-l border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-950">
       <button onClick={onClose} className="float-right rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-800" title="Close">
@@ -190,6 +193,8 @@ function Panel({ s, id, onClose }: { s: ControlStatus; id: string; onClose: () =
       </button>
       {process ? (
         <ProcessDetails s={s} p={process} />
+      ) : node?.kind === "actionable" ? (
+        <ActionableDetails s={s} node={node} />
       ) : node ? (
         <div className="space-y-3">
           <h2 className="flex items-center gap-2 text-lg font-semibold">

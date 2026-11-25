@@ -111,7 +111,24 @@ jobs warn 1 h and fail 4 h after their slot. A stopped worker turns every worker
   `daily_limit`, `language`) only explains; it writes `state/control-report.json` and
   creates no tickets or notifications.
 - Knowledge folders written by a mirror process carry a marker in the tree and a notice
-  above each note: hand edits there are overwritten by the next sync. Moodle syncs from the web app and the
+  above each note: hand edits there are overwritten by the next sync.
+- Every flow ends in an **actionable** (catalog node kind `actionable`: University board,
+  day plan, job assessments, applications board, LifeOS Tasks). Its light is the light of
+  the process making it, at least yellow when a process further upstream is late or failing
+  (`modules/control/trust.py`). The panel lists what it is based on: when each input was
+  last updated and how much new material its maker has not considered yet.
+- Processes with `foundation=True` (vault sync, deployer, ticket copy) are drawn in a band
+  below the flow: monitored like the rest, but they end in no actionable.
+
+### Study planner
+
+`uni-planner` (`LIFEOS_UNI_PLANNER_INTERVAL`, agent file `agents/uni-planner.md`, board
+`LIFEOS_UNIVERSITY_PROJECT`) reads new Moodle mirrors and facts, Teams messages and Teams
+files (incrementally, by note revision, up to a character budget per run) plus every ticket
+of the University board with the owner's comments, and lets the model create, change, close
+or comment tickets (`modules/tasks/planner.py`). It never deletes. New tickets go to `New`;
+each change gets a comment with its reason; comments of the owner are binding corrections.
+It only calls the model when something is new, at most `daily_limit` times a day. Moodle syncs from the web app and the
 worker exclude each other through a file lock. Only one machine should sync Moodle (the
 server): the mirror's state (`.lifeos/moodle/state.json`) is not versioned.
 

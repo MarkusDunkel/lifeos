@@ -38,18 +38,58 @@ export type ProcessHealth = {
   hint: string;
   mirror: boolean;
   system: boolean;
+  foundation: boolean;
   ai: AiAgent[];
+};
+
+export type BasedOn = {
+  id: string;
+  label: string;
+  kind: string;
+  local?: boolean;
+  level: Level;
+  updated: string | null;
+  by: string;
+  byLabel: string;
+  lastRun: string | null;
+  newSince?: number;
+  pending?: number;
+  total?: number;
+  consideredLastRun?: number;
+};
+
+export type Generator = {
+  lastRun: string | null;
+  summary: string | null;
+  events: string[] | null;
+  uncertain: string[] | null;
+  considered: Record<string, number> | null;
+  pending: Record<string, number> | null;
+  totals: Record<string, number> | null;
+  factsChanged: number | null;
+};
+
+export type Trust = {
+  level: Level;
+  reason: string;
+  producers: string[];
+  upstream: string[];
+  basedOn: BasedOn[];
+  generators?: Record<string, Generator>;
 };
 
 export type FlowNode = {
   id: string;
   label: string;
-  kind: "source" | "target";
+  kind: "source" | "target" | "actionable";
   detail: string;
   folder: string | null;
   group: string | null;
+  url?: string | null;
+  local?: boolean;
   level: Level;
   reason: string;
+  trust?: Trust;
 };
 
 export type Finding = { process: string; cause: string; action: string; affected: string };

@@ -10,14 +10,21 @@ from zoneinfo import ZoneInfo
 from lifeos.connectors.github.sync import STATE_DIR as GITHUB_STATE
 from lifeos.connectors.onedrive.sync import STATE_FILE as PRESENTATIONS_STATE
 from lifeos.core.config import Settings
-from lifeos.core.vault import Vault, VaultPathError
+from lifeos.core.vault import KNOWLEDGE, Vault, VaultPathError
 from lifeos.modules.control.ai import ai_usage
-from lifeos.modules.control.catalog import Catalog, build_catalog
+from lifeos.modules.control.catalog import PC, Catalog, build_catalog
 from lifeos.modules.control.checks import disk_check, run_checks
 from lifeos.modules.control.health import Sources, evaluate
 from lifeos.modules.control.store import REPORT_FILE, PcJobs, RunRequests, read_json
 
 DEPLOYER_HEARTBEAT = "deploy/heartbeat.json"
+PLANNER_STATE = ".lifeos/agents/uni-planner.json"
+# input category of the study planner → its node in the diagram
+PLANNER_INPUTS = {
+    "moodle": "kb-moodle",
+    "teams-messages": "kb-teams-chats",
+    "teams-files": "kb-teams-files",
+}
 
 
 class Control:
@@ -50,10 +57,69 @@ class Control:
         src = self.sources()
         report = self.report()
         src.ai = ai_usage(self.vault, self.catalog, now.astimezone(self.tz), report)
+        src.inputs, src.generators = self.actionable_inputs(src)
         result = evaluate(self.catalog, src, now, self.tz)
         result["report"] = report
         result["requests"] = self.requests.all()
         return result
+
+    def actionable_inputs(self, src: Sources) -> tuple[dict[str, dict], dict[str, dict]]:
+        """For every process that makes an actionable: how much of each input folder changed
+        since its last successful run, plus what the study planner recorded."""
+        inputs: dict[str, dict] = {}
+        folders = [n.folder for n in self.catalog.nodes if n.folder]
+        for p in self.catalog.processes:
+            makes = [self.catalog.node(o) for o in p.outputs]
+            if not p.enabled or not any(n and n.kind == "actionable" for n in makes):
+                continue
+            entry = (src.pc if p.where == PC else src.jobs).get(p.id) or {}
+            since = entry.get("lastSuccess")
+            for node_id in p.inputs:
+                node = self.catalog.node(node_id)
+                if node and node.folder and since:
+                    inside = [f for f in folders if f.startswith(node.folder + "/")]
+                    inputs[f"{p.id}:{node_id}"] = {
+                        "newSince": self._changed_since(node.folder, since, inside)
+                    }
+        generators: dict[str, dict] = {}
+        planner = self._vault_json(PLANNER_STATE)
+        if planner:
+            generators["uni-planner"] = {
+                k: planner.get(k)
+                for k in ("lastRun", "summary", "events", "uncertain", "considered", "pending",
+                          "totals", "factsChanged")
+            }  # fmt: skip
+            for category, node_id in PLANNER_INPUTS.items():
+                key = f"uni-planner:{node_id}"
+                inputs.setdefault(key, {})
+                inputs[key] |= {
+                    "pending": (planner.get("pending") or {}).get(category, 0),
+                    "total": (planner.get("totals") or {}).get(category, 0),
+                    "consideredLastRun": (planner.get("considered") or {}).get(category, 0),
+                }
+        return inputs, generators
+
+    def _changed_since(self, folder: str, since: str, skip: list[str]) -> int:
+        """Notes in a knowledge folder modified after ``since`` (sub-folders of other nodes
+        are left out)."""
+        try:
+            root = self.vault.resolve(f"{KNOWLEDGE}/{folder}")
+            cutoff = datetime.fromisoformat(since).timestamp()
+        except (VaultPathError, ValueError):
+            return 0
+        if not root.is_dir():
+            return 0
+        skipped = [self.vault.root / KNOWLEDGE / f for f in skip]
+        count = 0
+        for path in root.rglob("*.md"):
+            if any(path.is_relative_to(s) for s in skipped):
+                continue
+            try:
+                if path.stat().st_mtime > cutoff:
+                    count += 1
+            except OSError:
+                continue
+        return count
 
     def report(self) -> dict | None:
         return read_json(self.state_dir / REPORT_FILE) if self.state_dir else None

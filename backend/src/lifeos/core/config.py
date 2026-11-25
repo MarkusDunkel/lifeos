@@ -124,6 +124,20 @@ class Settings(BaseSettings):
             "processes show as not set up."
         ),
     )
+    university_project: str | None = Field(
+        default=None,
+        description="Projects v2 board for university tasks as `owner/number` "
+        "(boards/university.md in the vault). The study planner keeps it up to date.",
+    )
+    uni_planner_interval: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Seconds between checks of the study planner in `lifeos worker` "
+            "(agents/uni-planner.md): new Moodle and Teams material → tickets on the "
+            "University board. It calls the model only when there is something new. 0 = off."
+        ),
+    )
     control_report_interval: int = Field(
         default=0,
         ge=0,

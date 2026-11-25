@@ -1,4 +1,4 @@
-import { Sparkles } from "lucide-react";
+import { Flag, Sparkles } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Level, Where } from "./api";
 import { WHERE_ICON, WHERE_LABEL } from "./ControlFlow";
@@ -38,6 +38,18 @@ export function Legend() {
           </Entry>
           <Entry sample={<span className="h-4 w-12 rounded-md border-2 border-dashed border-sky-300 dark:border-sky-800" />}>
             In the vault: synced to the vault repository as a whole
+          </Entry>
+          <Entry
+            sample={
+              <span className="flex h-4 w-12 items-center justify-end rounded-r-md border border-l-[6px] border-emerald-300 bg-emerald-50 pr-1 dark:border-emerald-800 dark:bg-emerald-950/40">
+                <Flag className="size-2.5 text-slate-500" />
+              </span>
+            }
+          >
+            Actionable: makes you act; its light says whether every process before it ran
+          </Entry>
+          <Entry sample={<span className="h-0 w-12 border-t-2 border-dotted border-slate-300 dark:border-slate-700" />}>
+            Technical foundation (below): carries everything, ends in no actionable
           </Entry>
         </ul>
       </div>

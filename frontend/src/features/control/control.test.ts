@@ -10,7 +10,7 @@ const node = (id: string, kind: "source" | "target"): FlowNode => ({
 const proc = (id: string, inputs: string[], outputs: string[], extra: Partial<ProcessHealth> = {}): ProcessHealth => ({
   id, label: id, where: "server", trigger: "", enabled: true, level: "ok", reason: "", description: "",
   inputs, outputs, status: null, message: "", lastRun: null, lastSuccess: null, history: [], checks: [],
-  runPath: null, canRequest: true, hint: "", mirror: false, system: false, ai: [], ...extra,
+  runPath: null, canRequest: true, hint: "", mirror: false, system: false, foundation: false, ai: [], ...extra,
 });
 
 describe("buildGraph", () => {
@@ -103,5 +103,34 @@ describe("mirrorFor", () => {
     expect(mirrorFor("Teams/Course/b.md", status)?.process.id).toBe("files");
     expect(mirrorFor("Planning/Goals.md", status)).toBeNull();
     expect(mirrorFor("Teams/Course", status, true)).toBeNull();
+  });
+});
+
+describe("buildFlows", () => {
+  it("puts actionables last, their makers before them, and the foundation below", async () => {
+    const { buildFlows, VAULT_STUB } = await import("./layout");
+    const nodes: FlowNode[] = [
+      node("moodle", "source"),
+      { ...node("kb", "target"), group: "vault" },
+      { ...node("act", "target"), kind: "actionable" },
+      node("cal", "source"),
+      { ...node("plan", "target"), kind: "actionable" },
+      node("remote", "target"),
+    ];
+    const processes = [
+      proc("sync", ["moodle"], ["kb"]),
+      proc("planner", ["kb"], ["act"]),
+      proc("day", ["cal"], ["plan"]),
+      proc("git", ["kb"], ["remote"], { foundation: true }),
+    ];
+    const g = buildFlows(nodes, processes);
+    const at = (id: string) => g.placed.find((p) => p.id === id)!;
+    expect(at("act").column).toBe(at("plan").column);
+    expect(at("p:day").column).toBe(at("p:planner").column); // makers share a column
+    expect(at("p:day").column).toBe(at("act").column - 1);
+    expect(at("p:git").y).toBeGreaterThan(at("p:day").y);
+    expect(g.band).not.toBeNull();
+    expect(g.edges.find((e) => e.target === "p:git")?.source).toBe(VAULT_STUB);
+    expect(trace(g.links, "moodle").has("p:git")).toBe(true); // tracing crosses into the band
   });
 });

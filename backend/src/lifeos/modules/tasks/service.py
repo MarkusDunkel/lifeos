@@ -104,16 +104,23 @@ class UniTasks:
             "meta_synced_at": self.meta.get("synced_at"),
         }
 
-    def mirrors(self) -> dict[str, str]:
-        """Vault-relative path → revision of every Moodle mirror note."""
+    def mirrors(self, types: set[str] | frozenset[str] = frozenset(MIRROR_TYPES)) -> dict[str, str]:
+        """Vault-relative path → revision of every mirror note of the given types
+        (default: the Moodle mirrors)."""
+        return {rel: rev for rel, (rev, _) in self.mirror_types(types).items()}
+
+    def mirror_types(self, types: set[str] | frozenset[str]) -> dict[str, tuple[str, str]]:
+        """Vault-relative path → (revision, note type) of every mirror note of ``types``."""
         root = self.vault.resolve(KNOWLEDGE)
-        out: dict[str, str] = {}
+        out: dict[str, tuple[str, str]] = {}
         for path in sorted(root.rglob("*.md")) if root.is_dir() else []:
             if any(part.startswith(".") for part in path.relative_to(root).parts):
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
-            if front_matter(text).get("type") in MIRROR_TYPES:
-                out[path.relative_to(self.vault.root).as_posix()] = revision_of(path) or ""
+            kind = front_matter(text).get("type")
+            if kind in types:
+                rel = path.relative_to(self.vault.root).as_posix()
+                out[rel] = (revision_of(path) or "", kind)
         return out
 
     def facts(self) -> list[dict[str, Any]]:

@@ -320,3 +320,52 @@ def test_ai_processes_show_agent_and_runs_today(tmp_path):
     assert matcher["runsToday"] == 3 and matcher["dailyLimit"] == 15
     assert [(a["agent"], a["runsToday"]) for a in by_id["agents"]["ai"]] == [("assistant", 1)]
     assert by_id["git-sync"]["ai"] == []
+
+
+def test_actionable_trusts_upstream_and_counts_new_material(tmp_path):
+    import os
+
+    from lifeos.core.vault import Vault
+    from lifeos.modules.control.service import PLANNER_STATE, Control
+
+    s = settings(tmp_path, github_token="t", university_project="me/5", uni_planner_interval=1800)
+    kb = s.vault_root / "ready" / "knowledge"
+    (kb / "Moodle").mkdir()
+    (kb / "Teams" / "Chats").mkdir(parents=True)
+    old_note, new_note, chat = (
+        kb / "Moodle" / "a.md",
+        kb / "Moodle" / "b.md",
+        kb / "Teams" / "Chats" / "c.md",
+    )
+    for p in (old_note, new_note, chat):
+        p.write_text("x", encoding="utf-8")
+    now = datetime.now(UTC)
+    ran = now - timedelta(minutes=20)
+    os.utime(old_note, (ran.timestamp() - 600, ran.timestamp() - 600))
+    state = s.vault_root / PLANNER_STATE
+    state.parent.mkdir(parents=True)
+    state.write_text(json.dumps({"lastRun": ran.isoformat(), "summary": "2 new",
+                                 "pending": {"teams-messages": 4}, "totals": {"moodle": 2},
+                                 "considered": {"moodle": 2}}), encoding="utf-8")  # fmt: skip
+    fresh = {"lastRun": now.isoformat(), "lastSuccess": now.isoformat(), "status": "ok"}
+    jobs = {
+        "git-sync": fresh,
+        "uni-planner": {"lastRun": ran.isoformat(), "lastSuccess": ran.isoformat(), "status": "ok"},
+        "moodle-sync": {"lastRun": now.isoformat(), "status": "error", "message": "token expired"},
+        "teams-mail": fresh,
+    }
+    (s.state_dir / "jobs.json").write_text(json.dumps(jobs), encoding="utf-8")
+    (s.state_dir / "pc-jobs.json").write_text(json.dumps({"teams-files": fresh}), encoding="utf-8")
+
+    status = Control(s, Vault.open(s.vault_root), s.state_dir / "jobs.json").status(now)
+    uni = next(n for n in status["nodes"] if n["id"] == "act-university")
+    assert uni["kind"] == "actionable" and uni["url"] == "https://github.com/users/me/projects/5"
+    assert uni["level"] == "warn" and "Moodle sync" in uni["reason"]
+    based = {b["id"]: b for b in uni["trust"]["basedOn"]}
+    assert based["kb-moodle"]["level"] == "fail" and based["kb-moodle"]["newSince"] == 1
+    assert based["kb-teams-files"]["newSince"] == 0  # Teams/Chats belongs to its own node
+    assert based["kb-teams-chats"]["pending"] == 4
+    assert uni["trust"]["generators"]["uni-planner"]["summary"] == "2 new"
+    assert "moodle-sync" in uni["trust"]["upstream"]
+    foundation = {p["id"] for p in status["processes"] if p["foundation"]}
+    assert foundation == {"git-sync", "deployer", "tickets"}

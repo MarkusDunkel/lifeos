@@ -1,9 +1,9 @@
 import { Background, Controls, type Edge, Handle, type Node, type NodeProps, Position, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Hand, Monitor, Server, Sparkles, Wrench } from "lucide-react";
+import { Flag, Hand, Monitor, Server, Sparkles, Wrench } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ControlStatus, Level, Where } from "./api";
-import { buildGraph, LEVEL_STYLE, trace, WIDTH } from "./layout";
+import { buildFlows, FOUNDATION, LEVEL_STYLE, trace, VAULT_STUB, WIDTH } from "./layout";
 
 const WHERE_ICON: Record<Where, typeof Server> = { server: Server, pc: Monitor, manual: Hand, host: Wrench };
 export { WHERE_ICON };
@@ -18,7 +18,7 @@ type ItemData = {
   label: string;
   sub: string;
   level: Level;
-  kind: "source" | "process" | "target";
+  kind: "source" | "process" | "target" | "actionable";
   where?: Where;
   mirror?: boolean;
   ai?: boolean;
@@ -31,8 +31,10 @@ type BoxData = { label: string; width: number; height: number; dimmed: boolean }
 function Item({ data }: NodeProps<Node<ItemData>>) {
   const style = LEVEL_STYLE[data.level];
   const Icon = data.where ? WHERE_ICON[data.where] : null;
-  const shape = data.kind === "process" ? "rounded-full" : "rounded-lg";
+  const shape =
+    data.kind === "process" ? "rounded-full" : data.kind === "actionable" ? "rounded-r-lg border-l-[6px]" : "rounded-lg";
   const look = data.kind === "source" ? "border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900" : style.box;
+  const Kind = data.kind === "actionable" ? Flag : null;
   return (
     <div
       style={{ width: WIDTH }}
@@ -45,6 +47,7 @@ function Item({ data }: NodeProps<Node<ItemData>>) {
         {data.kind !== "source" && <span className={`size-2 shrink-0 rounded-full ${style.dot}`} />}
         <span className="truncate">{data.label}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
+          {Kind && <Kind className="size-3.5 text-slate-500" aria-label="actionable" />}
           {data.ai && <Sparkles className="size-3.5 text-violet-500" aria-label="calls an AI model" />}
           {Icon && <Icon className="size-3.5 text-slate-400" />}
         </span>
@@ -73,7 +76,18 @@ function Box({ data }: NodeProps<Node<BoxData>>) {
   );
 }
 
-const nodeTypes = { item: Item, box: Box };
+type BandData = { label: string; width: number };
+
+/** Title and rule above the technical foundation. */
+function Band({ data }: NodeProps<Node<BandData>>) {
+  return (
+    <div style={{ width: data.width }} className="border-t-2 border-dotted border-slate-300 pt-1.5 dark:border-slate-700">
+      <span className="text-[11px] font-medium tracking-wide text-slate-500 uppercase">{data.label}</span>
+    </div>
+  );
+}
+
+const nodeTypes = { item: Item, box: Box, band: Band };
 
 export function ControlFlow({
   status,
@@ -93,13 +107,17 @@ export function ControlFlow({
     timer.current = window.setTimeout(() => setHovered(id), id ? 120 : 60);
   };
   useEffect(() => () => window.clearTimeout(timer.current), []);
-  const graph = useMemo(() => buildGraph(status.nodes, status.processes), [status]);
+  const graph = useMemo(() => buildFlows(status.nodes, status.processes), [status]);
   const focus = hovered ?? selected;
   const lit = useMemo(() => (focus ? trace(graph.links, focus) : null), [graph, focus]);
 
   const { nodes, edges } = useMemo(() => {
     const processes = new Map(status.processes.map((p) => [`p:${p.id}`, p]));
     const flowNodes = new Map(status.nodes.map((n) => [n.id, n]));
+    const nodeOf = (id: string) =>
+      id === VAULT_STUB
+        ? { label: "Vault", detail: "ready/knowledge (all folders above)", level: "ok" as Level, kind: "source" as const }
+        : flowNodes.get(id.startsWith(FOUNDATION) ? id.slice(FOUNDATION.length) : id)!;
     const dim = (id: string) => lit !== null && !lit.has(id);
 
     const boxes: Node<BoxData>[] = graph.groups.map((g) => ({
@@ -119,12 +137,18 @@ export function ControlFlow({
           data: { label: p.label, sub: p.trigger, level: p.level, kind: "process", where: p.where, mirror: p.mirror, ai: p.ai.length > 0, ...common },
         };
       }
-      const n = flowNodes.get(id)!;
+      const n = nodeOf(id);
+      const kind = id.startsWith(FOUNDATION) && n.kind !== "target" ? "source" : n.kind;
       return {
         id, type: "item", position: { x, y },
-        data: { label: n.label, sub: n.detail, level: n.level, kind: n.kind, ...common },
+        data: { label: n.label, sub: n.detail, level: n.level, kind, ...common },
       };
     });
+    const width = Math.max(0, ...graph.placed.map((p) => p.x)) + WIDTH;
+    const band: Node<BandData>[] = graph.band
+      ? [{ id: "band", type: "band", position: { x: 0, y: graph.band.y }, data: { label: graph.band.label, width },
+           selectable: false, draggable: false }]
+      : [];
 
     const edges: Edge[] = graph.edges.map((e) => {
       const level = processes.get(`p:${e.process}`)?.level ?? "off";
@@ -144,16 +168,16 @@ export function ControlFlow({
         zIndex: strong ? 1 : 0,
       };
     });
-    return { nodes: [...boxes, ...items], edges };
+    return { nodes: [...band, ...boxes, ...items], edges };
   }, [status, graph, lit, selected]);
 
   return (
-    <div className="h-[620px] rounded-xl border border-slate-200 dark:border-slate-800">
+    <div className="h-[760px] rounded-xl border border-slate-200 dark:border-slate-800">
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        onNodeClick={(_, node) => node.type === "item" && onSelect(node.id)}
+        onNodeClick={(_, node) => node.type === "item" && node.id !== VAULT_STUB && onSelect(node.id)}
         onNodeMouseEnter={(_, node) => node.type === "item" && hover(node.id)}
         onNodeMouseLeave={() => hover(null)}
         nodesDraggable={false}

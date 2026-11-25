@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from lifeos.modules.control.catalog import HOST, MANUAL, PC, SERVER, Catalog, Process
 from lifeos.modules.control.checks import Check
+from lifeos.modules.control.trust import actionable_trust
 
 OFF, OK, WARN, FAIL = "off", "ok", "warn", "fail"
 RANK = {OFF: 0, OK: 1, WARN: 2, FAIL: 3}
@@ -70,6 +71,7 @@ class ProcessHealth:
     hint: str = ""
     mirror: bool = False
     system: bool = False
+    foundation: bool = False
     ai: list[dict] = field(default_factory=list)  # agents (model, billing, runs today)
 
 
@@ -84,6 +86,8 @@ class Sources:
     checks: dict[str, Check] = field(default_factory=dict)
     system_checks: list[Check] = field(default_factory=list)
     ai: dict[str, list[dict]] = field(default_factory=dict)  # process → agents it calls
+    inputs: dict[str, dict] = field(default_factory=dict)  # "<process>:<node>" → new since …
+    generators: dict[str, dict] = field(default_factory=dict)  # process → its last run
 
 
 def evaluate(catalog: Catalog, src: Sources, now: datetime, tz: ZoneInfo) -> dict[str, Any]:
@@ -96,16 +100,25 @@ def evaluate(catalog: Catalog, src: Sources, now: datetime, tz: ZoneInfo) -> dic
 
     processes = [_one(p, src, now, tz, worker) for p in catalog.processes]
 
+    by_id = {p.id: p for p in processes}
     nodes = []
     for node in catalog.nodes:
+        entry = asdict(node)
         writers = [p for p in processes if node.id in p.outputs and p.enabled]
-        level = worst([p.level for p in writers]) if node.kind == "target" else OK
-        reason = ""
-        if node.kind == "target":
+        if node.kind == "actionable":
+            trust = actionable_trust(node, catalog, by_id, src.inputs, src.generators)
+            entry |= {"level": trust["level"], "reason": trust["reason"], "trust": trust}
+        elif node.kind == "target" and writers:
             bad = [p.label for p in writers if p.level in (WARN, FAIL)]
-            reason = f"affected by: {', '.join(bad)}" if bad else ""
-        nodes.append({**asdict(node), "level": level if writers or node.kind != "target" else OFF,
-                      "reason": reason})  # fmt: skip
+            entry |= {"level": worst([p.level for p in writers]),
+                      "reason": f"affected by: {', '.join(bad)}" if bad else ""}  # fmt: skip
+        elif node.kind == "target" and node.local:
+            entry |= {"level": OK, "reason": "kept by you"}
+        elif node.kind == "target":
+            entry |= {"level": OFF, "reason": "no process writes it"}
+        else:
+            entry |= {"level": OK, "reason": ""}
+        nodes.append(entry)
 
     system = [asdict(worker), *(asdict(c) for c in src.system_checks)]
     active = [p for p in processes if p.enabled]
@@ -166,7 +179,7 @@ def _one(p: Process, src: Sources, now: datetime, tz: ZoneInfo, worker: Check) -
         last_run=entry.get("lastRun"), last_success=entry.get("lastSuccess"),
         history=entry.get("history", []), checks=[asdict(c) for c in checks],
         run_path=p.run_path, can_request=p.where == SERVER and p.enabled, hint=p.hint,
-        mirror=p.mirror, system=p.system, ai=src.ai.get(p.id, []),
+        mirror=p.mirror, system=p.system, foundation=p.foundation, ai=src.ai.get(p.id, []),
     )  # fmt: skip
     if not p.enabled:
         return health
