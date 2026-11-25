@@ -70,11 +70,15 @@ class Supervisor:
         self.path = control.state_dir / REPORT_FILE if control.state_dir else None
 
     def problems(self, status: dict) -> list[dict]:
+        # name targets the way the owner knows them (folder or calendar), not by node id
+        names = {n["id"]: f"{n['label']} ({n['detail']})" if n["detail"] else n["label"]
+                 for n in status["nodes"]}  # fmt: skip
         found = [
             {k: p[k] for k in ("id", "label", "where", "trigger", "level", "reason", "status",
                                "message", "lastRun", "lastSuccess", "checks", "hint",
-                               "description", "outputs")}
-            | {"recentRuns": p["history"][-5:]}
+                               "description")}
+            | {"recentRuns": p["history"][-5:],
+               "writes": [names.get(o, o) for o in p["outputs"]]}
             for p in status["processes"]
             if p["enabled"] and p["level"] in (WARN, FAIL)
         ]  # fmt: skip
