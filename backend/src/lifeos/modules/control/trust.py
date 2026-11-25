@@ -83,6 +83,13 @@ def actionable_trust(
             entry.update(inputs.get(f"{p.id}:{node_id}", {}))
             based_on.append(entry)
 
+    # material its maker still has to work through (e.g. the first big backlog): the
+    # actionable does not yet reflect all information
+    backlog = sum(int(b.get("pending") or 0) for b in based_on)
+    if backlog and level == OK:
+        level = WARN
+        reason = f"{backlog} note(s) not considered yet; worked through in the next runs"
+
     return {
         "level": level,
         "reason": reason,
