@@ -17,7 +17,7 @@ COLUMNS = ["New", "Todo", "In Progress", "Done"]
 AGENT = (
     "---\nname: uni-planner\ntitle: Studienplaner\nrunner: job\nmodel: m\n"
     "language: German\ndaily_limit: 5\n---\n\n# Studienplaner\n\n## Regeln\n\n- R1\n\n"
-    "## Korrekturen von Markus\n\n- K1\n"
+    "## Korrekturen\n\n- K1\n"
 )
 
 
@@ -141,7 +141,7 @@ def test_creates_changes_comments_and_never_deletes(setup):
         "create": [{"title": "[PCM] Gruppentreffen vorbereiten", "body": "Folien",
                     "due": "2026-11-21", "course": "PCM", "source": "note:chat:1"},
                    {"title": "dup", "body": "x", "source": "moodle:assign:1"}],
-        "update": [{"number": 19, "due": "2026-11-28", "reason": "Korrektur von Markus"},
+        "update": [{"number": 19, "due": "2026-11-28", "reason": "Korrektur des Besitzers"},
                    {"number": 99, "close": True, "reason": "not ours"}],
         "comment": [{"number": 19, "text": "Hinweis"}],
     })  # fmt: skip

@@ -280,7 +280,7 @@ class UniPlanner:
             "notes": [{"path": rel, "type": kind, "text": text} for rel, kind, text in batch],
             "moreNotesPending": len(todo) - len(batch),
             "rules": agent.section("Regeln") or "",
-            "corrections": agent.section("Korrekturen von Markus") or "",
+            "corrections": agent.section("Korrekturen") or "",
         }, ensure_ascii=False, indent=1)  # fmt: skip
         effort = agent.raw.get("effort") or "medium"
         if isinstance(effort, dict):
