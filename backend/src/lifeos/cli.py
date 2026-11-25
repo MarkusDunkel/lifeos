@@ -67,6 +67,17 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     sub.add_parser("moodle-sync", help="sync Moodle now (same as the button in the app)")
+    teams_files = sub.add_parser(
+        "teams-files", help="mirror the Teams files (local OneDrive sync folder) on the PC"
+    )
+    teams_files.add_argument("action", choices=["sync", "install-autostart", "uninstall-autostart"])
+    teams_files.add_argument("--env-file", type=Path, default=None, help="e.g. deploy/.env")
+    teams_files.add_argument(
+        "--source", type=Path, default=None, help="default: LIFEOS_TEAMS_FILES_DIR"
+    )
+    teams_files.add_argument(
+        "--commit", action="store_true", help="commit the notes and sync the vault afterwards"
+    )
     sub.add_parser("worker", help="run background jobs (vault git sync)")
     sub.add_parser("git-sync", help="sync the vault with its git remote once")
 
@@ -95,6 +106,8 @@ def main(argv: list[str] | None = None) -> int:
         return _tasks(args)
     if args.cmd == "moodle-sync":
         return _moodle_sync()
+    if args.cmd == "teams-files":
+        return _teams_files(args)
     if args.cmd == "jobsearch":
         return _jobsearch(args)
     if args.cmd == "agents":
@@ -320,6 +333,56 @@ def _jobsearch(args) -> int:
         server.close()
     print(f"\n{result.listed} postings listed on devjobs.at; {result.summary()}")
     return 0
+
+
+def _teams_files(args: argparse.Namespace) -> int:
+    from dataclasses import asdict
+
+    from lifeos.connectors.folder.sync import FolderError, FolderMirror, load_settings
+
+    if args.action in ("install-autostart", "uninstall-autostart"):
+        from lifeos.connectors.folder.autostart import AutostartError, install, uninstall
+
+        try:
+            if args.action == "uninstall-autostart":
+                print(f"removed scheduled task {uninstall()}")
+                return 0
+            if args.env_file is None:
+                print("--env-file is required (the task reads its settings there)", file=sys.stderr)
+                return 2
+            if load_settings(args.env_file).teams_files_dir is None:
+                print("the env file lacks LIFEOS_TEAMS_FILES_DIR", file=sys.stderr)
+                return 2
+            print(f"installed scheduled task {install(args.env_file)}")
+        except AutostartError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        return 0
+
+    from lifeos.core.git_sync import GitSync, file_list
+    from lifeos.core.vault import Vault
+
+    settings = load_settings(args.env_file)
+    source = args.source or settings.teams_files_dir
+    if source is None:
+        print("no source folder: pass --source or set LIFEOS_TEAMS_FILES_DIR", file=sys.stderr)
+        return 2
+    mirror = FolderMirror(Vault.open(settings.vault_root), source, settings.teams_files_target)
+    try:
+        report = mirror.run()
+    except FolderError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    _print({**asdict(report), "summary": report.summary()})
+    if args.commit:
+        git = GitSync(settings.vault_root)
+        committed = git.commit_paths(
+            [mirror.target_dir],
+            lambda files: f"teams-files: {report.summary()}\n\n{file_list(files)}",
+        )
+        if committed:
+            _print(asdict(git.run()))
+    return 1 if report.errors and not report.changed else 0
 
 
 def _moodle_sync() -> int:

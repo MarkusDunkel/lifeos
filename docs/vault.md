@@ -148,6 +148,31 @@ commits the mirror right away as `moodle: 3 new, 2 updated` (courses and files i
 commit body), then pushes. Let only one machine sync Moodle (the server); the selection and
 sync state in `.lifeos/moodle/state.json` are not versioned, copy them once when moving.
 
+## Teams files (local folder mirror, PC only)
+
+```
+OneDrive client ──sync──▶ local folder <Team> - Dokumente/…
+lifeos teams-files sync ─▶ ready/knowledge/<LIFEOS_TEAMS_FILES_TARGET>/<Team>/…/<File>.md
+                         ▶ .lifeos/folder/teams.json            per file: mtime, size, note
+                         ▶ .lifeos/folder/teams-last-run.json   report of the last run
+```
+
+- For organisations that block third-party apps on Microsoft 365, the files of the Teams
+  are reached through the OneDrive desktop client instead of the Graph API: sync each
+  team's document library ("Sync" in SharePoint) into one parent folder on the PC.
+- Same text extraction and note shape as Moodle (`type: folder-file`, `team`, `path`,
+  `file`, `modified`, `pages`, `mirror: true`). The suffix `- Dokumente` / `- Documents`
+  of the library folder is dropped. Two files with the same name and different types get
+  ` (ext)` appended. Office lock files, hidden files and `desktop.ini` are ignored; other
+  unsupported types and files over 50 MB are reported once. A file that disappears keeps its
+  note with `status: deleted`; a note that is not our mirror is never overwritten.
+- Setup in `deploy/.env` on the PC: `LIFEOS_TEAMS_FILES_DIR` (the parent folder) and
+  optionally `LIFEOS_TEAMS_FILES_TARGET` (default `Teams`). Run once by hand:
+  `uv run lifeos teams-files sync --env-file ../deploy/.env --commit` (from `backend/`).
+- Daily: `lifeos teams-files install-autostart --env-file <path to deploy/.env>` registers the
+  scheduled task "LifeOS\Teams files sync" (logon + 10 min, daily 07:00, catches up missed
+  runs). It commits the target folder as `teams-files: N new, …` and syncs the vault.
+
 ## University tasks (AI drafts, reviewed by you)
 
 ```
