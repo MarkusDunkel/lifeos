@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { FlowNode, ProcessHealth } from "./api";
 import { sortProcesses } from "./ControlPage";
 import { formatAgo } from "./format";
-import { checkLevel, layout } from "./layout";
+import { buildGraph, checkLevel, trace } from "./layout";
 
 const node = (id: string, kind: "source" | "target"): FlowNode => ({
-  id, label: id, kind, detail: "", folder: null, level: "ok", reason: "",
+  id, label: id, kind, detail: "", folder: null, group: null, level: "ok", reason: "",
 });
 const proc = (id: string, inputs: string[], outputs: string[], extra: Partial<ProcessHealth> = {}): ProcessHealth => ({
   id, label: id, where: "server", trigger: "", enabled: true, level: "ok", reason: "", description: "",
@@ -13,7 +13,7 @@ const proc = (id: string, inputs: string[], outputs: string[], extra: Partial<Pr
   runPath: null, canRequest: true, hint: "", mirror: false, system: false, ...extra,
 });
 
-describe("layout", () => {
+describe("buildGraph", () => {
   it("places sources, processes and targets in columns by longest path", () => {
     const nodes = [node("moodle", "source"), node("kb", "target"), node("remote", "target")];
     const processes = [
@@ -21,17 +21,47 @@ describe("layout", () => {
       proc("git", ["kb"], ["remote"]),
       proc("helper", [], [], { system: true }),
     ];
-    const col = Object.fromEntries(layout(nodes, processes).map((p) => [p.id, p.column]));
+    const col = Object.fromEntries(buildGraph(nodes, processes).placed.map((p) => [p.id, p.column]));
     expect(col).toEqual({ moodle: 0, "p:sync": 1, kb: 2, "p:git": 3, remote: 4 });
   });
 
-  it("orders a column by the rows of the predecessors", () => {
+  it("orders columns so that edges run straight", () => {
     const nodes = [node("a", "source"), node("b", "source"), node("ta", "target"), node("tb", "target")];
     const processes = [proc("pb", ["b"], ["tb"]), proc("pa", ["a"], ["ta"])];
-    const placed = layout(nodes, processes);
+    const placed = buildGraph(nodes, processes).placed;
     const row = (id: string) => placed.find((p) => p.id === id)!.row;
     expect(row("p:pa")).toBeLessThan(row("p:pb"));
     expect(row("ta")).toBeLessThan(row("tb"));
+  });
+
+  it("boxes a group and collapses its edges into one", () => {
+    const v = (id: string) => ({ ...node(id, "target"), group: "vault" });
+    const nodes = [node("s1", "source"), node("s2", "source"), node("s3", "source"), v("f1"), node("cal", "target"), v("f2"), node("remote", "target")];
+    const processes = [
+      proc("p1", ["s1"], ["f1"]),
+      proc("p2", ["s2"], ["cal"]),
+      proc("p3", ["s3"], ["f2"]),
+      proc("git", ["f1", "f2"], ["remote"]),
+    ];
+    const g = buildGraph(nodes, processes);
+    const col2 = g.placed.filter((p) => p.column === 2).sort((a, b) => a.row - b.row).map((p) => p.id);
+    expect(Math.abs(col2.indexOf("f1") - col2.indexOf("f2"))).toBe(1); // members stay together
+    expect(g.groups).toHaveLength(1);
+    expect(g.edges.filter((e) => e.target === "p:git").map((e) => e.source)).toEqual(["group:vault"]);
+    const box = g.groups[0];
+    for (const id of ["f1", "f2"]) {
+      const p = g.placed.find((x) => x.id === id)!;
+      expect(p.y).toBeGreaterThan(box.y);
+      expect(p.y).toBeLessThan(box.y + box.height);
+    }
+  });
+
+  it("traces a flow upstream and downstream", () => {
+    const v = (id: string) => ({ ...node(id, "target"), group: "vault" });
+    const nodes = [node("s1", "source"), node("s2", "source"), v("f1"), v("f2"), node("remote", "target")];
+    const processes = [proc("p1", ["s1"], ["f1"]), proc("p2", ["s2"], ["f2"]), proc("git", ["f1", "f2"], ["remote"])];
+    const lit = trace(buildGraph(nodes, processes).links, "s1");
+    expect([...lit].sort()).toEqual(["f1", "group:vault", "p:git", "p:p1", "remote", "s1"]);
   });
 });
 

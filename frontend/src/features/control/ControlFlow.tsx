@@ -1,13 +1,9 @@
 import { Background, Controls, type Edge, Handle, type Node, type NodeProps, Position, ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Hand, Monitor, Server, Wrench } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { ControlStatus, Level, Where } from "./api";
-import { LEVEL_STYLE, layout } from "./layout";
-
-const COLUMN = 250;
-const ROW = 66;
-const WIDTH = 200;
+import { buildGraph, LEVEL_STYLE, trace, WIDTH } from "./layout";
 
 const WHERE_ICON: Record<Where, typeof Server> = { server: Server, pc: Monitor, manual: Hand, host: Wrench };
 export const WHERE_LABEL: Record<Where, string> = {
@@ -25,17 +21,22 @@ type ItemData = {
   where?: Where;
   mirror?: boolean;
   selected: boolean;
+  dimmed: boolean;
 };
+
+type BoxData = { label: string; width: number; height: number; dimmed: boolean };
 
 function Item({ data }: NodeProps<Node<ItemData>>) {
   const style = LEVEL_STYLE[data.level];
   const Icon = data.where ? WHERE_ICON[data.where] : null;
   const shape = data.kind === "process" ? "rounded-full" : "rounded-lg";
-  const neutral = data.kind === "source" ? "border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900" : style.box;
+  const look = data.kind === "source" ? "border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900" : style.box;
   return (
     <div
       style={{ width: WIDTH }}
-      className={`border px-3 py-1.5 text-left shadow-sm ${shape} ${neutral} ${data.selected ? "ring-2 ring-sky-500" : ""}`}
+      className={`border px-3 py-1.5 text-left shadow-sm transition-opacity ${shape} ${look} ${
+        data.selected ? "ring-2 ring-sky-500" : ""
+      } ${data.dimmed ? "opacity-25" : ""}`}
     >
       {data.kind !== "source" && <Handle type="target" position={Position.Left} className="!bg-slate-400" />}
       <div className="flex items-center gap-1.5 text-xs font-medium text-slate-800 dark:text-slate-100">
@@ -52,7 +53,22 @@ function Item({ data }: NodeProps<Node<ItemData>>) {
   );
 }
 
-const nodeTypes = { item: Item };
+/** The box around the vault folders; its right edge feeds the vault sync. */
+function Box({ data }: NodeProps<Node<BoxData>>) {
+  return (
+    <div
+      style={{ width: data.width, height: data.height }}
+      className={`rounded-xl border-2 border-dashed border-sky-300 bg-sky-50/40 transition-opacity dark:border-sky-800 dark:bg-sky-950/20 ${
+        data.dimmed ? "opacity-40" : ""
+      }`}
+    >
+      <div className="px-3 pt-1.5 text-[11px] font-medium text-sky-700 dark:text-sky-300">{data.label}</div>
+      <Handle type="source" position={Position.Right} style={{ top: 14 }} className="!bg-sky-500" />
+    </div>
+  );
+}
+
+const nodeTypes = { item: Item, box: Box };
 
 export function ControlFlow({
   status,
@@ -63,49 +79,70 @@ export function ControlFlow({
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
+  const [hovered, setHovered] = useState<string | null>(null);
+  const graph = useMemo(() => buildGraph(status.nodes, status.processes), [status]);
+  const focus = hovered ?? selected;
+  const lit = useMemo(() => (focus ? trace(graph.links, focus) : null), [graph, focus]);
+
   const { nodes, edges } = useMemo(() => {
-    const processes = status.processes.filter((p) => !p.system);
-    const placed = layout(status.nodes, status.processes);
-    const nodes: Node<ItemData>[] = placed.map(({ id, column, row }) => {
-      const position = { x: column * COLUMN, y: row * ROW };
-      if (id.startsWith("p:")) {
-        const p = processes.find((x) => `p:${x.id}` === id)!;
+    const processes = new Map(status.processes.map((p) => [`p:${p.id}`, p]));
+    const flowNodes = new Map(status.nodes.map((n) => [n.id, n]));
+    const dim = (id: string) => lit !== null && !lit.has(id);
+
+    const boxes: Node<BoxData>[] = graph.groups.map((g) => ({
+      id: g.id,
+      type: "box",
+      position: { x: g.x, y: g.y },
+      data: { label: g.label, width: g.width, height: g.height, dimmed: dim(g.id) },
+      selectable: false,
+      zIndex: -1,
+    }));
+    const items: Node<ItemData>[] = graph.placed.map(({ id, x, y }) => {
+      const p = processes.get(id);
+      const common = { selected: selected === id, dimmed: dim(id) };
+      if (p) {
         return {
-          id,
-          type: "item",
-          position,
-          data: {
-            label: p.label, sub: p.trigger, level: p.level, kind: "process", where: p.where,
-            mirror: p.mirror, selected: selected === id,
-          },
+          id, type: "item", position: { x, y },
+          data: { label: p.label, sub: p.trigger, level: p.level, kind: "process", where: p.where, mirror: p.mirror, ...common },
         };
       }
-      const n = status.nodes.find((x) => x.id === id)!;
+      const n = flowNodes.get(id)!;
       return {
-        id,
-        type: "item",
-        position,
-        data: { label: n.label, sub: n.detail, level: n.level, kind: n.kind, selected: selected === id },
+        id, type: "item", position: { x, y },
+        data: { label: n.label, sub: n.detail, level: n.level, kind: n.kind, ...common },
       };
     });
-    const edges: Edge[] = [];
-    for (const p of processes) {
-      const color = LEVEL_STYLE[p.level].edge;
-      const style = { stroke: color, strokeWidth: p.level === "fail" ? 2.5 : 1.5 };
-      const common = { type: "smoothstep", style, animated: p.level === "fail" };
-      for (const i of p.inputs) edges.push({ id: `${i}>${p.id}`, source: i, target: `p:${p.id}`, ...common });
-      for (const o of p.outputs) edges.push({ id: `${p.id}>${o}`, source: `p:${p.id}`, target: o, ...common });
-    }
-    return { nodes, edges };
-  }, [status, selected]);
+
+    const edges: Edge[] = graph.edges.map((e) => {
+      const level = processes.get(`p:${e.process}`)?.level ?? "off";
+      const on = lit === null || (lit.has(e.source) && lit.has(e.target));
+      const strong = lit !== null && on;
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        type: "default", // bezier: every edge has its own curve, no shared channels
+        animated: level === "fail" && on,
+        style: {
+          stroke: LEVEL_STYLE[level].edge,
+          strokeWidth: strong ? 2.5 : level === "fail" ? 2 : 1.25,
+          opacity: on ? 1 : 0.12,
+        },
+        zIndex: strong ? 1 : 0,
+      };
+    });
+    return { nodes: [...boxes, ...items], edges };
+  }, [status, graph, lit, selected]);
 
   return (
-    <div className="h-[560px] rounded-xl border border-slate-200 dark:border-slate-800">
+    <div className="h-[620px] rounded-xl border border-slate-200 dark:border-slate-800">
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
-        onNodeClick={(_, node) => onSelect(node.id)}
+        onNodeClick={(_, node) => node.type === "item" && onSelect(node.id)}
+        onNodeMouseEnter={(_, node) => node.type === "item" && setHovered(node.id)}
+        onNodeMouseLeave={() => setHovered(null)}
         nodesDraggable={false}
         nodesConnectable={false}
         fitView

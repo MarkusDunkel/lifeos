@@ -7,7 +7,7 @@ should run but is not set up shows as such instead of silently missing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from lifeos.core.config import Settings
 
@@ -30,6 +30,15 @@ class Node:
     kind: str  # source | target
     detail: str = ""
     folder: str | None = None  # knowledge folder, for mirror badges
+    group: str | None = None  # drawn inside a box, e.g. everything in the vault
+
+
+VAULT = "vault"
+# targets that live in the vault: one box in the diagram, one arrow to the vault sync
+VAULT_TARGETS = (
+    "kb-moodle", "kb-teams-chats", "kb-teams-files", "kb-presentations", "kb-planning",
+    "applications", "agent-work",
+)  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -131,13 +140,10 @@ def build_catalog(s: Settings) -> Catalog:
         Node("app-live", "Running app", "target", "deployed branch"),
         Node("vault-remote", "Vault repository", "target", "private GitHub repo"),
     ]
+    nodes = [replace(n, group=VAULT) if n.id in VAULT_TARGETS else n for n in nodes]
     agents_on = s.agents_interval > 0 and bool(s.github_token)
     releases = agents_on and bool(s.app_repo)
     pc_on = bool(s.control_report_token)
-    kb_targets = (
-        "kb-moodle", "kb-teams-chats", "kb-teams-files", "kb-presentations", "kb-planning",
-        "applications", "agent-work",
-    )  # fmt: skip
     processes = [
         _daily(
             "moodle-sync",
@@ -297,7 +303,7 @@ def build_catalog(s: Settings) -> Catalog:
             "git-sync",
             "Vault sync",
             s.git_sync_interval,
-            inputs=kb_targets,
+            inputs=VAULT_TARGETS,
             outputs=("vault-remote",),
             run_path="/api/vault-sync/run",
             description="Commits, pulls and pushes the vault every few minutes.",

@@ -37,6 +37,7 @@ export type FlowNode = {
   kind: "source" | "target";
   detail: string;
   folder: string | null;
+  group: string | null;
   level: Level;
   reason: string;
 };

@@ -38,7 +38,8 @@ export function ControlPage() {
       </div>
       <p className="text-sm text-slate-500">
         Every process that feeds LifeOS: where it runs, when it last succeeded and whether it ran often enough. Red
-        means failed, a missing precondition or overdue; yellow means late or skipped. Click a box for details.
+        means failed, a missing precondition or overdue; yellow means late or skipped. Hover a box to follow its flow,
+        click it for details.
       </p>
       {!s ? (
         <p className="text-sm text-slate-400">{status.error ? status.error.message : "Loading…"}</p>
