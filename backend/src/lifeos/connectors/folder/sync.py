@@ -7,8 +7,9 @@ stays the source of truth. ``.lifeos/folder/<name>.json`` remembers what was tak
 (per file: modification time and size), so a run only reads new or changed files. A file
 that disappears keeps its note with ``status: deleted``.
 
-The first path segment is the library of one team; OneDrive names it
-``<Team> - Dokumente`` (or ``- Documents``), the suffix is dropped in the note path.
+The first path segment is the library (or the synced channel folder) of one team; OneDrive
+names it ``<Team> - Dokumente`` / ``- Documents`` / ``- General``, the suffix is dropped in
+the note path.
 """
 
 from __future__ import annotations
@@ -32,7 +33,8 @@ MAX_BYTES = 50 * 1024 * 1024
 # Office lock files, OneDrive/Windows bookkeeping and hidden files are never mirrored.
 _IGNORED = re.compile(r"^(~\$|\.|desktop\.ini$|thumbs\.db$)", re.IGNORECASE)
 _LIBRARY_SUFFIX = re.compile(
-    r"\s+-\s+(Dokumente|Documents|Freigegebene Dokumente|Shared Documents)$", re.IGNORECASE
+    r"\s+-\s+(Dokumente|Documents|Freigegebene Dokumente|Shared Documents|General|Allgemein)$",
+    re.IGNORECASE,
 )
 
 

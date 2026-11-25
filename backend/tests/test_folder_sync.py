@@ -40,6 +40,7 @@ def note(vault_root: Path, rel: str) -> str:
 def test_library_name_drops_onedrive_suffix() -> None:
     assert library_name("Course A - Dokumente") == "Course A"
     assert library_name("Course B - Shared Documents") == "Course B"
+    assert library_name("Course C - General") == "Course C"
     assert library_name("Plain") == "Plain"
 
 

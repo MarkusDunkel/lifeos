@@ -166,10 +166,13 @@ lifeos teams-files sync ─▶ ready/knowledge/<LIFEOS_TEAMS_FILES_TARGET>/<Team
   ` (ext)` appended. Office lock files, hidden files and `desktop.ini` are ignored; other
   unsupported types and files over 50 MB are reported once. A file that disappears keeps its
   note with `status: deleted`; a note that is not our mirror is never overwritten.
-- Setup in `deploy/.env` on the PC: `LIFEOS_TEAMS_FILES_DIR` (the parent folder) and
-  optionally `LIFEOS_TEAMS_FILES_TARGET` (default `Teams`). Run once by hand:
-  `uv run lifeos teams-files sync --env-file ../deploy/.env --commit` (from `backend/`).
-- Daily: `lifeos teams-files install-autostart --env-file <path to deploy/.env>` registers the
+- Setup on the PC in its own env file, e.g. `deploy/teams-files.env` (not `deploy/.env`:
+  Docker reads that one, and `LIFEOS_VAULT_ROOT` there would override the container's
+  `/vault`): `LIFEOS_VAULT_ROOT` (the local vault clone), `LIFEOS_TEAMS_FILES_DIR` (the
+  parent folder) and optionally `LIFEOS_TEAMS_FILES_TARGET` (default `Teams`). Run once by
+  hand: `uv run lifeos teams-files sync --env-file ../../deploy/teams-files.env --commit`
+  (from `app/backend/`).
+- Daily: `lifeos teams-files install-autostart --env-file <path to that file>` registers the
   scheduled task "LifeOS\Teams files sync" (logon + 10 min, daily 07:00, catches up missed
   runs). It commits the target folder as `teams-files: N new, …` and syncs the vault.
 
