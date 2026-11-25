@@ -188,8 +188,11 @@ export function ControlFlow({
         : flowNodes.get(id.startsWith(FOUNDATION) ? id.slice(FOUNDATION.length) : id)!;
     const dim = (id: string) => lit !== null && !lit.has(id);
 
-    const boxes: Node<BoxData>[] = graph.groups.map((g) => ({
-      id: g.id,
+    // a group can span columns (e.g. a vault folder further right): one box per column, the
+    // first keeps the group id that edges from the whole group start at
+    const boxIds = new Set<string>();
+    const boxes: Node<BoxData>[] = graph.groups.map((g, i) => ({
+      id: boxIds.has(g.id) ? `${g.id}@${i}` : (boxIds.add(g.id), g.id),
       type: "box",
       position: { x: g.x, y: g.y },
       data: { label: g.label, width: g.width, height: g.height, dimmed: dim(g.id) },

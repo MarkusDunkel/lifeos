@@ -352,6 +352,7 @@ def build_catalog(s: Settings) -> Catalog:
             MANUAL,
             "'Apply' on the Jobs page",
             enabled=bool(s.github_token and s.applications_project),
+            inputs=("job-postings",),
             outputs=("applications",),
             reacts_to=("act-job-assessments",),
             reaction="Apply",
