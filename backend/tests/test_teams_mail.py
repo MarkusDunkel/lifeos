@@ -185,3 +185,20 @@ def test_mcp_mail_tools_are_read_only(vault_root: Path) -> None:
             assert "not connected" in data["error"]
 
     anyio.run(scenario)
+
+
+def test_gmail_client_backs_off_on_rate_limits() -> None:
+    import httpx
+
+    from lifeos.connectors.google.gmail import GmailClient
+
+    answers = [
+        httpx.Response(429, json={"error": {"message": "Quota exceeded"}}),
+        httpx.Response(200, json={"messages": [{"id": "a"}]}),
+    ]
+    waits: list[float] = []
+    client = GmailClient(
+        lambda: "tok", httpx.MockTransport(lambda request: answers.pop(0)), sleep=waits.append
+    )
+    assert client.search("x") == ["a"]
+    assert waits == [2.0]

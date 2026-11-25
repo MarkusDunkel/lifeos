@@ -7,6 +7,7 @@ that this client only ever sends GET requests.
 from __future__ import annotations
 
 import base64
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -17,6 +18,7 @@ import httpx
 from lifeos.connectors.google.auth import GoogleError
 
 API = "https://gmail.googleapis.com/gmail/v1/users/me"
+RETRIES = 6  # on rate limits, waiting 2, 4, 8, 16, 32, 60 s
 
 
 @dataclass
@@ -27,17 +29,28 @@ class MailBody:
 
 class GmailClient:
     def __init__(
-        self, token: Callable[[], str], transport: httpx.BaseTransport | None = None
+        self,
+        token: Callable[[], str],
+        transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._token = token
         self._http = httpx.Client(timeout=30, transport=transport)
+        self._sleep = sleep
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        headers = {"Authorization": f"Bearer {self._token()}"}
-        try:
-            r = self._http.get(API + path, headers=headers, params=params)
-        except httpx.HTTPError as exc:
-            raise GoogleError(f"cannot reach Gmail: {exc}") from exc
+        for attempt in range(RETRIES + 1):
+            headers = {"Authorization": f"Bearer {self._token()}"}
+            try:
+                r = self._http.get(API + path, headers=headers, params=params)
+            except httpx.HTTPError as exc:
+                raise GoogleError(f"cannot reach Gmail: {exc}") from exc
+            limited = r.status_code == 429 or (
+                r.status_code == 403 and ("quota" in r.text.lower() or "rate" in r.text.lower())
+            )
+            if not limited or attempt == RETRIES:
+                break
+            self._sleep(min(60.0, 2.0 * 2**attempt))  # per-minute quota: back off, try again
         try:
             data = r.json()
         except ValueError as exc:
