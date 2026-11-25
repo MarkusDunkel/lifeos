@@ -15,6 +15,7 @@ import {
   topicStats,
 } from "./format";
 import { ReadinessBar } from "./StudyPage";
+import { VoiceControls } from "./VoiceControls";
 
 export type StudyTab = "material" | "questions" | "overview";
 
@@ -51,6 +52,7 @@ export function SubjectPage({
     <div className="mx-auto max-w-4xl space-y-5 p-4 sm:p-8">
       <BackLink />
       <Head d={d} />
+      <VoiceControls />
       <nav className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
         {TABS.map(([key, label]) => (
           <button

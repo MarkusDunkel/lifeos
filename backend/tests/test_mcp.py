@@ -157,6 +157,7 @@ def test_tools_carry_coach_rules(tmp_path: Path) -> None:
             sid = started["session_id"]
             first = started["question"]["card"]["id"]
             assert "call record_answer BEFORE" in started["coach_rule"]
+            assert "'bewerten' or 'weiter'" in started["coach_rule"]
             assert "previous" not in started["question"]
 
             saved = payload(
@@ -168,6 +169,8 @@ def test_tools_carry_coach_rules(tmp_path: Path) -> None:
             assert f"correct_answer for card {first}" in saved["coach_rule"]
             assert "amends their answer" in saved["coach_rule"]
             assert "not record_answer again" in saved["coach_rule"]
+            assert "follow-up talk is open" in saved["coach_rule"]
+            assert "only when the learner says 'weiter'" in saved["coach_rule"]
 
             nxt = payload(await client.call_tool("next_question", {"session_id": sid}))
             assert nxt["previous"]["card"] == first
@@ -192,9 +195,35 @@ def test_tools_carry_coach_rules(tmp_path: Path) -> None:
                 )
             )
             assert bad["coach_rule"].startswith("The tool failed: nothing was saved")
+            assert "Call start_session again" in bad["coach_rule"]
+
+            wrong_card = payload(
+                await client.call_tool(
+                    "record_answer", {"session_id": sid, "card_id": "XX-9", "result": "correct"}
+                )
+            )
+            assert "start_session again" not in wrong_card["coach_rule"]
 
             open_end = payload(await client.call_tool("end_session", {"session_id": sid}))
             assert open_end["ended"] is False
             assert "NOT saved" in open_end["coach_rule"]
 
     anyio.run(scenario)
+
+
+def test_instructions_name_every_control_word() -> None:
+    from lifeos.mcp_server.server import INSTRUCTIONS
+
+    for word in (
+        "fertig",
+        "bewerten",
+        "weiter",
+        "kenn ich",
+        "zählt als richtig",
+        "Schluss",
+        "Hilfe",
+    ):
+        assert f'"{word}"' in INSTRUCTIONS
+    assert "Follow-up talk" in INSTRUCTIONS
+    assert "at most partial" in INSTRUCTIONS
+    assert "go back to the session" not in INSTRUCTIONS

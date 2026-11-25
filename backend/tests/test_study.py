@@ -546,14 +546,14 @@ def test_idle_sessions_are_ended_and_committed(vault_root: Path) -> None:
     study.record(sid, started["question"]["card"]["id"], "partial")
     empty = study.start_session("Sample", count=5)["session_id"]  # nothing answered
 
-    clock.now += timedelta(minutes=29)
+    clock.now += timedelta(minutes=59)  # a long follow-up talk keeps the session
     assert study.close_idle() == []
     clock.now += timedelta(minutes=1)
     assert sorted(study.close_idle()) == sorted([sid, empty])
 
     ((paths, message),) = committed  # only the session with answers is committed
     assert message.startswith("study: Sample – 1 answer, 0 correct")
-    assert "ended automatically after 30 minutes" in message
+    assert "ended automatically after 60 minutes" in message
     with pytest.raises(StudyError):
         study.next_question(sid)
 

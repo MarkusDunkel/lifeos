@@ -37,7 +37,9 @@ from lifeos.modules.study.progress import (
 
 REPEAT_AFTER = 4  # a missed card comes back after this many other questions
 MAX_SESSION = 60
-IDLE_END = timedelta(minutes=30)  # sessions without activity are ended (and committed)
+# Sessions without activity are ended (and committed). Long enough for a follow-up talk
+# about a card without tool calls.
+IDLE_END = timedelta(minutes=60)
 MATERIAL_LIMIT = 6000
 PENDING_HINT = (
     "The answer to this card is not saved yet. Call record_answer for it first; if the "

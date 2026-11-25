@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { CalendarClock, ChevronRight, NotebookPen } from "lucide-react";
 import { subjectsQuery } from "./api";
 import { countdown, type ExamRow, examRows, formatExamDate } from "./format";
+import { VoiceControls } from "./VoiceControls";
 
 export function ReadinessBar({ secure, cards }: { secure: number; cards: number }) {
   const pct = cards ? Math.round((100 * secure) / cards) : 0;
@@ -76,6 +77,7 @@ export function StudyPage() {
         exam to check and correct what it asks. An exam date is set in <code className="text-xs">_Fach.md</code> or, per
         topic, with <code className="text-xs">prüfung:</code> in a question bank.
       </p>
+      <VoiceControls />
       {subjects.isError && <p className="text-red-600">Could not load the subjects.</p>}
       {!rows ? (
         <p className="text-slate-400">Loading…</p>

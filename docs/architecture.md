@@ -493,7 +493,7 @@ last changed it; a sync older than that is not applied to it.
 | `worker/` | `lifeos worker`: scheduler (`scheduler.py`) and jobs (`jobs.py`) |
 | `core/locks.py` | File locks shared by the web and worker processes |
 | `modules/study` | Question banks in `Studium/` (exam date per bank), append-only progress log, exam-aware repetition, readiness, detail API for the study page |
-| `mcp_server/` | MCP server (study tools) for ChatGPT and other assistants |
+| `mcp_server/` | MCP server (study tools) for ChatGPT and other assistants. The learner steers a voice session with control words (`fertig`, `bewerten`, `weiter`, `kenn ich`, `zählt als richtig`, `Schluss`, `Hilfe`) named in the instructions and repeated in every `coach_rule`; after grading, a free follow-up talk runs until `weiter`. The study page shows the same words (`features/study/controls.ts`, a test keeps both in sync) |
 | `modules/vault_sync` | Sync status and "sync now" endpoints |
 | `modules/knowledge` | Tree, read/write, FTS5 search, wikilink backlinks |
 | `modules/notes` | JSON Lines store with per-note revisions, column schema (inferred or `schema.json`) |
