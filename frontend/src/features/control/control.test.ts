@@ -10,7 +10,7 @@ const node = (id: string, kind: "source" | "target"): FlowNode => ({
 const proc = (id: string, inputs: string[], outputs: string[], extra: Partial<ProcessHealth> = {}): ProcessHealth => ({
   id, label: id, where: "server", trigger: "", enabled: true, level: "ok", reason: "", description: "",
   inputs, outputs, status: null, message: "", lastRun: null, lastSuccess: null, history: [], checks: [],
-  runPath: null, canRequest: true, hint: "", mirror: false, system: false, foundation: false, ai: [], ...extra,
+  runPath: null, canRequest: true, hint: "", mirror: false, system: false, foundation: false, reactsTo: [], ai: [], ...extra,
 });
 
 describe("buildGraph", () => {
@@ -120,7 +120,7 @@ describe("buildFlows", () => {
     const processes = [
       proc("sync", ["moodle"], ["kb"]),
       proc("planner", ["kb"], ["act"]),
-      proc("day", ["cal"], ["plan"]),
+      proc("day", ["cal"], ["plan"], { reactsTo: ["plan"] }),
       proc("git", ["kb"], ["remote"], { foundation: true }),
     ];
     const g = buildFlows(nodes, processes);
@@ -132,5 +132,7 @@ describe("buildFlows", () => {
     expect(g.band).not.toBeNull();
     expect(g.edges.find((e) => e.target === "p:git")?.source).toBe(VAULT_STUB);
     expect(trace(g.links, "moodle").has("p:git")).toBe(true); // tracing crosses into the band
+    expect(g.feedback).toEqual([{ id: "plan~>day", source: "plan", target: "p:day", process: "day" }]);
+    expect(g.edges.some((e) => e.source === "plan")).toBe(false); // the loop is no input edge
   });
 });

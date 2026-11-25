@@ -88,6 +88,9 @@ export function Legend() {
           <Entry sample={<span className="h-0.5 w-10 bg-[repeating-linear-gradient(90deg,#ef4444_0_4px,transparent_4px_7px)]" />}>
             Moving dashes: the flow is broken here
           </Entry>
+          <Entry sample={<span className="h-0 w-10 border-t-2 border-dashed border-violet-400" />}>
+            Your reactions on an actionable (moved tickets, comments) trigger this process
+          </Entry>
           <Entry sample={<span className="text-[10px] text-slate-500">hover</span>}>
             Hover or click a box to follow its flow
           </Entry>

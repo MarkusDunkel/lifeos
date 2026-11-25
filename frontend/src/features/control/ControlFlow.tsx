@@ -1,4 +1,16 @@
-import { Background, Controls, type Edge, Handle, type Node, type NodeProps, Position, ReactFlow } from "@xyflow/react";
+import {
+  Background,
+  BaseEdge,
+  Controls,
+  type Edge,
+  EdgeLabelRenderer,
+  type EdgeProps,
+  Handle,
+  type Node,
+  type NodeProps,
+  Position,
+  ReactFlow,
+} from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Flag, Hand, Monitor, Server, Sparkles, Wrench } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -89,6 +101,38 @@ function Band({ data }: NodeProps<Node<BandData>>) {
 
 const nodeTypes = { item: Item, box: Box, band: Band };
 
+type LoopData = { floor: number; lane: number; label?: string };
+
+/**
+ * The owner's reactions on an actionable flowing back into a process: out to the right of
+ * the actionable, back along the floor below the whole flow, up in the free gap before the
+ * process and into it from the left. Lanes keep several loops apart; no box is crossed.
+ */
+function LoopEdge({ id, sourceX, sourceY, targetX, targetY, style, data }: EdgeProps<Edge<LoopData>>) {
+  const lane = (data?.lane ?? 0) * 7;
+  const right = sourceX + 14 + lane;
+  const floor = (data?.floor ?? sourceY + 80) + lane;
+  const left = targetX - 16 - lane;
+  const path = `M ${sourceX} ${sourceY} H ${right} V ${floor} H ${left} V ${targetY} H ${targetX}`;
+  return (
+    <>
+      <BaseEdge id={id} path={path} style={style} />
+      {data?.label && (
+        <EdgeLabelRenderer>
+          <div
+            style={{ transform: `translate(-50%, -50%) translate(${(right + left) / 2}px, ${floor}px)` }}
+            className="absolute rounded bg-white/90 px-1 text-[10px] text-violet-600 dark:bg-slate-900/90 dark:text-violet-300"
+          >
+            {data.label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+const edgeTypes = { loop: LoopEdge };
+
 export function ControlFlow({
   status,
   selected,
@@ -168,7 +212,22 @@ export function ControlFlow({
         zIndex: strong ? 1 : 0,
       };
     });
-    return { nodes: [...band, ...boxes, ...items], edges };
+    const mainBottom = Math.max(
+      0,
+      ...graph.placed.filter((p) => !graph.band || p.y < graph.band.y).map((p) => p.y + 52),
+    );
+    const loops: Edge<LoopData>[] = graph.feedback.map((e, i) => {
+      const on = lit === null || (lit.has(e.source) && lit.has(e.target));
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        type: "loop",
+        data: { floor: mainBottom + 24, lane: i, label: i === 0 ? "your reactions" : undefined },
+        style: { stroke: "#a78bfa", strokeDasharray: "6 4", strokeWidth: lit && on ? 2 : 1.25, opacity: lit ? (on ? 1 : 0.08) : 0.55 },
+      };
+    });
+    return { nodes: [...band, ...boxes, ...items], edges: [...edges, ...loops] };
   }, [status, graph, lit, selected]);
 
   return (
@@ -177,6 +236,7 @@ export function ControlFlow({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodeClick={(_, node) => node.type === "item" && node.id !== VAULT_STUB && onSelect(node.id)}
         onNodeMouseEnter={(_, node) => node.type === "item" && hover(node.id)}
         onNodeMouseLeave={() => hover(null)}

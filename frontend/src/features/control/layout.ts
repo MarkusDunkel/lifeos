@@ -49,7 +49,13 @@ export const groupId = (group: string) => `group:${group}`;
 export type Placed = { id: string; column: number; row: number; x: number; y: number };
 export type GroupBox = { id: string; label: string; x: number; y: number; width: number; height: number };
 export type GraphEdge = { id: string; source: string; target: string; process: string };
-export type Graph = { placed: Placed[]; groups: GroupBox[]; edges: GraphEdge[]; links: [string, string][] };
+export type Graph = {
+  placed: Placed[];
+  groups: GroupBox[];
+  edges: GraphEdge[];
+  links: [string, string][];
+  feedback: GraphEdge[]; // actionable → process reacting to the owner's changes there
+};
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
@@ -231,7 +237,12 @@ export function buildGraph(nodes: FlowNode[], processes: ProcessHealth[]): Graph
     }
   }
   for (const n of nodes) if (n.group) links.push([n.id, groupId(n.group)]);
-  return { placed, groups, edges, links };
+  const feedback = flow.flatMap((p) =>
+    (p.reactsTo ?? [])
+      .filter((a) => byId.has(a))
+      .map((a) => ({ id: `${a}~>${p.id}`, source: a, target: pid(p), process: p.id })),
+  );
+  return { placed, groups, edges, links, feedback };
 }
 
 /** Everything upstream and downstream of ``focus``: the flows it belongs to. */
@@ -309,6 +320,7 @@ export function buildFlows(nodes: FlowNode[], processes: ProcessHealth[]): Flows
     groups: [...main.groups, ...base.groups.map((g) => ({ ...g, y: g.y + top }))],
     edges: [...main.edges, ...base.edges],
     links,
+    feedback: main.feedback,
     band: { y: top - 44, label: "Technical foundation · carries everything, ends in no actionable" },
   };
 }

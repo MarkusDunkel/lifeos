@@ -67,6 +67,9 @@ class Process:
     mirror: bool = False  # its outputs are mirrors: hand edits are overwritten
     system: bool = False  # infrastructure, shown in the system strip, not the diagram
     foundation: bool = False  # technical foundation: own band below the flow
+    # actionables whose changes by the owner it reacts to (moved tickets, comments): drawn
+    # as a dashed loop back from the actionable, not as an input
+    reacts_to: tuple[str, ...] = ()
     quiet_skips: tuple[str, ...] = ()  # skip messages that are normal, not a warning
     ai: tuple[str, ...] = ()  # agents whose model it calls (``WORKFLOW_AGENTS`` = board agents)
     description: str = ""
@@ -273,6 +276,7 @@ def build_catalog(s: Settings) -> Catalog:
             fail_after=26 * HOUR,
             quiet_skips=("nothing new",),
             ai=("uni-planner",),
+            reacts_to=("act-university",),
             description="The AI turns new Moodle and Teams material into tickets on the "
             "University board and keeps them current (never deletes, closes).",
         ),  # fmt: skip
@@ -343,17 +347,18 @@ def build_catalog(s: Settings) -> Catalog:
             "Applications board",
             s.applications_interval,
             enabled=bool(s.github_token and s.applications_project),
-            inputs=("github-boards",),
             outputs=("applications",),
             checks=("github",),
+            reacts_to=("act-applications",),
             description="Watches the applications board, freezes what was sent.",
         ),  # fmt: skip
         _job(
             "agents",
             "AI teammates",
             s.agents_interval if agents_on else 0,
-            inputs=("github-boards", "applications"),
+            inputs=("applications",),
             outputs=("act-tasks", "act-applications"),
+            reacts_to=("act-tasks", "act-applications"),
             checks=("github",),
             ai=(WORKFLOW_AGENTS,),
             description="Mirrors the board contracts and lets the agents take their tickets.",

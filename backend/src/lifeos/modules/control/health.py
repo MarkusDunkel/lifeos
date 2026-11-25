@@ -72,6 +72,7 @@ class ProcessHealth:
     mirror: bool = False
     system: bool = False
     foundation: bool = False
+    reacts_to: list[str] = field(default_factory=list)
     ai: list[dict] = field(default_factory=list)  # agents (model, billing, runs today)
 
 
@@ -179,7 +180,8 @@ def _one(p: Process, src: Sources, now: datetime, tz: ZoneInfo, worker: Check) -
         last_run=entry.get("lastRun"), last_success=entry.get("lastSuccess"),
         history=entry.get("history", []), checks=[asdict(c) for c in checks],
         run_path=p.run_path, can_request=p.where == SERVER and p.enabled, hint=p.hint,
-        mirror=p.mirror, system=p.system, foundation=p.foundation, ai=src.ai.get(p.id, []),
+        mirror=p.mirror, system=p.system, foundation=p.foundation,
+        reacts_to=list(p.reacts_to), ai=src.ai.get(p.id, []),
     )  # fmt: skip
     if not p.enabled:
         return health
