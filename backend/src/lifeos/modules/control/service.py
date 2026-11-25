@@ -11,6 +11,7 @@ from lifeos.connectors.github.sync import STATE_DIR as GITHUB_STATE
 from lifeos.connectors.onedrive.sync import STATE_FILE as PRESENTATIONS_STATE
 from lifeos.core.config import Settings
 from lifeos.core.vault import KNOWLEDGE, Vault, VaultPathError
+from lifeos.modules.applications.service import STATE_DIR as APPLICATIONS_STATE
 from lifeos.modules.control.ai import ai_usage
 from lifeos.modules.control.catalog import PC, Catalog, build_catalog
 from lifeos.modules.control.checks import disk_check, run_checks
@@ -18,6 +19,7 @@ from lifeos.modules.control.health import Sources, evaluate
 from lifeos.modules.control.store import REPORT_FILE, PcJobs, RunRequests, read_json
 
 DEPLOYER_HEARTBEAT = "deploy/heartbeat.json"
+APPLICATIONS_INDEX = APPLICATIONS_STATE + "/index.json"
 PLANNER_STATE = ".lifeos/agents/uni-planner.json"
 # input category of the study planner → its node in the diagram
 PLANNER_INPUTS = {
@@ -46,6 +48,14 @@ class Control:
             manual={
                 "tickets": (self._vault_json(f"{GITHUB_STATE}/meta.json") or {}).get("synced_at"),
                 "presentations": self._mtime(PRESENTATIONS_STATE),
+                "start-application": max(
+                    (
+                        str(e.get("created"))
+                        for e in (self._vault_json(APPLICATIONS_INDEX) or {}).values()
+                        if e.get("created")
+                    ),
+                    default=None,
+                ),  # fmt: skip
             },
             deployer=(heartbeat or {}).get("at"),
             checks=run_checks(self.settings),

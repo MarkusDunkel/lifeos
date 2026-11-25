@@ -33,7 +33,8 @@ def build_router(control: Control) -> APIRouter:
             raise HTTPException(404, "no such worker job")
         if not process.enabled:
             raise HTTPException(400, f"{process.label} is not set up")
-        return {"process": process_id, "requestedAt": control.requests.request(process_id)}
+        job = process.job or process_id
+        return {"process": process_id, "requestedAt": control.requests.request(job)}
 
     @router.post("/report/{process_id}")
     def report(process_id: str, body: PcReport) -> dict:

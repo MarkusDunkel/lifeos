@@ -66,12 +66,16 @@ def ai_usage(
     """``{process id: [{agent, title, model, billing, runsToday, dailyLimit}]}``."""
     cfg = config or load_config(vault)
     today = now.date().isoformat()
+    # agents a process of their own shows are not repeated under "all board agents"
+    claimed = {n for p in catalog.processes for n in p.ai if n != WORKFLOW_AGENTS}
     result: dict[str, list[dict]] = {}
     for process in catalog.processes:
         names: list[str] = []
         for name in process.ai:
             if name == WORKFLOW_AGENTS:
-                names += sorted(n for n, a in cfg.agents.items() if a.runner == "workflow")
+                names += sorted(
+                    n for n, a in cfg.agents.items() if a.runner == "workflow" and n not in claimed
+                )
             else:
                 names.append(name)
         if not process.ai:

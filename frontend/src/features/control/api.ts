@@ -40,6 +40,7 @@ export type ProcessHealth = {
   system: boolean;
   foundation: boolean;
   reactsTo: string[];
+  reaction?: string;
   ai: AiAgent[];
 };
 

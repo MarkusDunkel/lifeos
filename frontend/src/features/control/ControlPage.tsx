@@ -242,6 +242,12 @@ function ProcessDetails({ s, p }: { s: ControlStatus; p: ProcessHealth }) {
         </p>
       </div>
       <p className="text-sm">{p.description}</p>
+      {p.reactsTo.length > 0 && (
+        <p className="rounded-lg border border-dashed border-violet-300 p-2 text-sm text-violet-700 dark:border-violet-800 dark:text-violet-300">
+          Reacts to you: {p.reaction || "your changes"} on{" "}
+          {p.reactsTo.map((a) => s.nodes.find((n) => n.id === a)?.label ?? a).join(", ")}
+        </p>
+      )}
       <div className={`rounded-lg border p-3 text-sm ${style.box}`}>
         <div className={`font-medium ${style.text}`}>{style.label}</div>
         <div>{p.reason}</div>

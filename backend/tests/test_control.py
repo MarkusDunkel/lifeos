@@ -369,3 +369,37 @@ def test_actionable_trusts_upstream_and_counts_new_material(tmp_path):
     assert "moodle-sync" in uni["trust"]["upstream"]
     foundation = {p["id"] for p in status["processes"] if p["foundation"]}
     assert foundation == {"git-sync", "deployer", "tickets"}
+
+
+def test_application_cycle(tmp_path):
+    from lifeos.core.vault import Vault
+    from lifeos.modules.control.service import Control
+
+    s = settings(tmp_path, github_token="t", applications_project="me/4", applications_interval=120,
+                 agents_interval=120, github_projects="me/3")  # fmt: skip
+    agents = s.vault_root / "agents"
+    agents.mkdir()
+    for name in ("application-writer", "assistant"):
+        (agents / f"{name}.md").write_text(
+            f"---\nname: {name}\ntitle: {name}\nrunner: workflow\n"
+            f"workflow: {name}\nmodel: m\n---\n",
+            encoding="utf-8",
+        )
+    index = s.vault_root / ".lifeos" / "applications" / "index.json"
+    index.parent.mkdir(parents=True)
+    index.write_text(json.dumps({"7": {"created": "2026-11-18T17:55:41+00:00"}}), encoding="utf-8")
+    now = datetime.now(UTC)
+    at = now.isoformat(timespec="seconds")
+    jobs = {"agents": {"lastRun": at, "lastSuccess": at, "status": "ok", "message": "no changes"}}
+    (s.state_dir / "jobs.json").write_text(json.dumps(jobs), encoding="utf-8")
+
+    status = Control(s, Vault.open(s.vault_root), s.state_dir / "jobs.json").status(now)
+    by_id = {p["id"]: p for p in status["processes"]}
+    start = by_id["start-application"]
+    assert start["reactsTo"] == ["act-job-assessments"] and start["reaction"] == "Apply"
+    assert start["lastRun"].startswith("2026-11-18")
+    writer = by_id["application-writer"]
+    assert writer["message"] == "no changes"  # status of the shared agents job
+    assert [a["agent"] for a in writer["ai"]] == ["application-writer"]
+    assert [a["agent"] for a in by_id["agents"]["ai"]] == ["assistant"]  # not listed twice
+    assert by_id["applications-board"]["reaction"] == "Sent"

@@ -120,7 +120,7 @@ function LoopEdge({ id, sourceX, sourceY, targetX, targetY, style, data }: EdgeP
       {data?.label && (
         <EdgeLabelRenderer>
           <div
-            style={{ transform: `translate(-50%, -50%) translate(${(right + left) / 2}px, ${floor}px)` }}
+            style={{ transform: `translate(-100%, 0) translate(${left - 4}px, ${targetY + 10}px)` }}
             className="absolute rounded bg-white/90 px-1 text-[10px] text-violet-600 dark:bg-slate-900/90 dark:text-violet-300"
           >
             {data.label}
@@ -250,7 +250,7 @@ export function ControlFlow({
         source: e.source,
         target: e.target,
         type: "loop",
-        data: { floor: mainBottom + 24, lane: i, label: i === 0 ? "your reactions" : undefined },
+        data: { floor: mainBottom + 24, lane: i, label: processes.get(e.target)?.reaction || "your reactions" },
         style: { stroke: "#a78bfa", strokeDasharray: "6 4", strokeWidth: lit && on ? 2 : 1.25, opacity: lit ? (on ? 1 : 0.08) : 0.55 },
       };
     });

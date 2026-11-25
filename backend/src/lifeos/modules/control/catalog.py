@@ -70,6 +70,8 @@ class Process:
     # actionables whose changes by the owner it reacts to (moved tickets, comments): drawn
     # as a dashed loop back from the actionable, not as an input
     reacts_to: tuple[str, ...] = ()
+    reaction: str = ""  # what the owner does there, the label of the loop (e.g. "Sent")
+    job: str | None = None  # worker job that runs it, when it shares one (default: its id)
     quiet_skips: tuple[str, ...] = ()  # skip messages that are normal, not a warning
     ai: tuple[str, ...] = ()  # agents whose model it calls (``WORKFLOW_AGENTS`` = board agents)
     description: str = ""
@@ -277,6 +279,7 @@ def build_catalog(s: Settings) -> Catalog:
             quiet_skips=("nothing new",),
             ai=("uni-planner",),
             reacts_to=("act-university",),
+            reaction="comments",
             description="The AI turns new Moodle and Teams material into tickets on the "
             "University board and keeps them current (never deletes, closes).",
         ),  # fmt: skip
@@ -342,26 +345,58 @@ def build_catalog(s: Settings) -> Catalog:
             ai=("job-matcher",),
             description="The AI rates new postings against the job profiles.",
         ),  # fmt: skip
+        # the application cycle: you apply → the writer drafts → you review and send
+        Process(
+            "start-application",
+            "Start application",
+            MANUAL,
+            "'Apply' on the Jobs page",
+            enabled=bool(s.github_token and s.applications_project),
+            outputs=("applications",),
+            reacts_to=("act-job-assessments",),
+            reaction="Apply",
+            run_path=None,
+            hint="On the Jobs page: 'Apply' at a posting.",
+            description="Opens the ticket in New on the applications board and the folder in "
+            "Career/Applications with a snapshot of the posting.",
+        ),  # fmt: skip
+        _job(
+            "application-writer",
+            "Application writer",
+            s.agents_interval if agents_on else 0,
+            job="agents",
+            inputs=("applications",),
+            outputs=("act-applications",),
+            reacts_to=("act-applications",),
+            reaction="Active",
+            checks=("github",),
+            ai=("application-writer",),
+            description="Takes applications you move to Active: researches, writes CV and "
+            "cover letter into the folder and moves the ticket to In Review.",
+        ),  # fmt: skip
         _job(
             "applications-board",
-            "Applications board",
+            "Applications watcher",
             s.applications_interval,
             enabled=bool(s.github_token and s.applications_project),
             outputs=("applications",),
             checks=("github",),
             reacts_to=("act-applications",),
-            description="Watches the applications board, freezes what was sent.",
+            reaction="Sent",
+            description="Reacts to Sent: freezes the PDFs and keeps letter and CV as examples; "
+            "forgets applications whose ticket was deleted.",
         ),  # fmt: skip
         _job(
             "agents",
             "AI teammates",
             s.agents_interval if agents_on else 0,
-            inputs=("applications",),
-            outputs=("act-tasks", "act-applications"),
-            reacts_to=("act-tasks", "act-applications"),
+            outputs=("act-tasks",),
+            reacts_to=("act-tasks",),
+            reaction="Todo, KI: comments",
             checks=("github",),
             ai=(WORKFLOW_AGENTS,),
-            description="Mirrors the board contracts and lets the agents take their tickets.",
+            description="Mirrors the board contracts and lets the agents (assistant, profile "
+            "designer) take the tickets you approve.",
         ),  # fmt: skip
         # technical foundation
         _job(
