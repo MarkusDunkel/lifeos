@@ -136,3 +136,38 @@ describe("buildFlows", () => {
     expect(g.edges.some((e) => e.source === "plan")).toBe(false); // the loop is no input edge
   });
 });
+
+describe("lanes", () => {
+  it("never lets an edge run behind a box", async () => {
+    const { buildFlows } = await import("./layout");
+    const nodes: FlowNode[] = [
+      node("cal", "source"),
+      node("moodle", "source"),
+      { ...node("kb", "target"), group: "vault" },
+      { ...node("plan", "target"), group: "vault" },
+      { ...node("act", "target"), kind: "actionable" },
+      { ...node("day", "target"), kind: "actionable" },
+    ];
+    const processes = [
+      proc("sync", ["moodle"], ["kb"]),
+      proc("uni", ["kb"], ["act"]),
+      proc("planner", ["cal", "plan"], ["day"]), // cal skips the vault column
+    ];
+    const g = buildFlows(nodes, processes);
+    const col = (id: string) => g.placed.find((p) => p.id === id)!.column;
+    for (const e of g.edges) {
+      const source = e.source.startsWith("group:") ? "kb" : e.source;
+      const span = col(e.target) - col(source);
+      expect(e.via?.length ?? 0).toBe(Math.max(0, span - 1));
+      for (const v of e.via ?? []) {
+        const c = Math.round(v.x / 260);
+        for (const p of g.placed.filter((x) => x.column === c)) {
+          expect(v.y < p.y - 2 || v.y > p.y + 48).toBe(true); // the lane is free
+        }
+        for (const box of g.groups.filter((b) => Math.round((b.x + 12) / 260) === c)) {
+          expect(v.y < box.y || v.y > box.y + box.height).toBe(true);
+        }
+      }
+    }
+  });
+});

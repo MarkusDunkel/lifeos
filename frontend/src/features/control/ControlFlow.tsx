@@ -131,7 +131,31 @@ function LoopEdge({ id, sourceX, sourceY, targetX, targetY, style, data }: EdgeP
   );
 }
 
-const edgeTypes = { loop: LoopEdge };
+type RoutedData = { via: { x: number; y: number }[] };
+
+/**
+ * An edge that skips columns: it crosses each column in its own free lane (a straight
+ * stretch where no box stands) and curves only in the gaps between columns.
+ */
+function RoutedEdge({ id, sourceX, sourceY, targetX, targetY, style, data }: EdgeProps<Edge<RoutedData>>) {
+  const points = [{ x: sourceX, y: sourceY }];
+  for (const v of data?.via ?? []) points.push({ x: v.x, y: v.y }, { x: v.x + WIDTH, y: v.y });
+  points.push({ x: targetX, y: targetY });
+  let path = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    if (i % 2 === 0) {
+      path += ` L ${b.x} ${b.y}`; // through a lane
+    } else {
+      const dx = (b.x - a.x) / 2; // across a gap
+      path += ` C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`;
+    }
+  }
+  return <BaseEdge id={id} path={path} style={style} />;
+}
+
+const edgeTypes = { loop: LoopEdge, routed: RoutedEdge };
 
 export function ControlFlow({
   status,
@@ -202,7 +226,9 @@ export function ControlFlow({
         id: e.id,
         source: e.source,
         target: e.target,
-        type: "default", // bezier: every edge has its own curve, no shared channels
+        // bezier between neighbouring columns; through free lanes when it skips columns
+        type: e.via ? "routed" : "default",
+        data: e.via ? { via: e.via } : undefined,
         animated: level === "fail" && on,
         style: {
           stroke: LEVEL_STYLE[level].edge,
@@ -215,6 +241,7 @@ export function ControlFlow({
     const mainBottom = Math.max(
       0,
       ...graph.placed.filter((p) => !graph.band || p.y < graph.band.y).map((p) => p.y + 52),
+      ...graph.edges.flatMap((e) => (e.via ?? []).filter((v) => !graph.band || v.y < graph.band.y).map((v) => v.y + 12)),
     );
     const loops: Edge<LoopData>[] = graph.feedback.map((e, i) => {
       const on = lit === null || (lit.has(e.source) && lit.has(e.target));

@@ -42,13 +42,21 @@ export const WIDTH = 200;
 const GROUP_HEAD = 30; // space for the box title above the first member
 const GROUP_PAD = 14; // space below the last member
 const NODE_HEIGHT = 46; // rendered height of a box (two text lines)
+const LANE = 14; // free slot an edge takes in a column it crosses
+const LANE_GAP = 10;
 const GROUP_LABELS: Record<string, string> = { vault: "Vault · ready/knowledge" };
 
 export const groupId = (group: string) => `group:${group}`;
 
 export type Placed = { id: string; column: number; row: number; x: number; y: number };
 export type GroupBox = { id: string; label: string; x: number; y: number; width: number; height: number };
-export type GraphEdge = { id: string; source: string; target: string; process: string };
+export type GraphEdge = {
+  id: string;
+  source: string;
+  target: string;
+  process: string;
+  via?: { x: number; y: number }[]; // left edge of each crossed column, at the lane's height
+};
 export type Graph = {
   placed: Placed[];
   groups: GroupBox[];
@@ -112,107 +120,6 @@ export function buildGraph(nodes: FlowNode[], processes: ProcessHealth[]): Graph
     for (const n of nodes) if (n.kind === "actionable") column.set(n.id, makerColumn + 1);
   }
 
-  // neighbours for the sweeps
-  const preds = new Map<string, string[]>();
-  const succs = new Map<string, string[]>();
-  const link = (a: string, b: string) => {
-    succs.set(a, [...(succs.get(a) ?? []), b]);
-    preds.set(b, [...(preds.get(b) ?? []), a]);
-  };
-  for (const p of flow) {
-    for (const i of p.inputs) link(i, pid(p));
-    for (const o of p.outputs) link(pid(p), o);
-  }
-
-  const items = [...nodes.map((n) => n.id), ...flow.map(pid)];
-  const catalogOrder = new Map(items.map((id, i) => [id, i]));
-  const maxColumn = Math.max(0, ...column.values());
-  const columns: string[][] = Array.from({ length: maxColumn + 1 }, (_, c) =>
-    items.filter((id) => (column.get(id) ?? 0) === c),
-  );
-  // y position of every item; starts packed, then follows the neighbours
-  const pos = new Map<string, number>();
-  for (const col of columns) col.forEach((id, i) => pos.set(id, i * ROW));
-  const meanPos = (ids: string[] | undefined) => {
-    const ys = (ids ?? []).map((n) => pos.get(n)).filter((y): y is number => y !== undefined);
-    return ys.length ? mean(ys) : null;
-  };
-
-  const sortColumn = (c: number, neighbours: Map<string, string[]>) => {
-    const own = new Map(columns[c].map((id) => [id, meanPos(neighbours.get(id)) ?? pos.get(id) ?? 0]));
-    const groupScore = new Map<string, number>();
-    for (const id of columns[c]) {
-      const g = byId.get(id)?.group;
-      if (g && !groupScore.has(g)) {
-        groupScore.set(g, mean(columns[c].filter((x) => byId.get(x)?.group === g).map((x) => own.get(x)!)));
-      }
-    }
-    // members of a group share the group's score, so they stay together
-    const key = (id: string) => {
-      const g = byId.get(id)?.group;
-      return g ? groupScore.get(g)! : own.get(id)!;
-    };
-    columns[c].sort(
-      (a, b) =>
-        key(a) - key(b) ||
-        Number(!byId.get(a)?.group) - Number(!byId.get(b)?.group) ||
-        own.get(a)! - own.get(b)! ||
-        catalogOrder.get(a)! - catalogOrder.get(b)!,
-    );
-  };
-
-  // place a column top-down: each item as close to the average height of its predecessors
-  // as the items above allow (``align``), or packed (the sources)
-  const boxes = new Map<number, GroupBox[]>();
-  const placeColumn = (c: number, align: boolean) => {
-    const found: GroupBox[] = [];
-    let cursor = 0;
-    let open: { group: string; top: number; bottom: number } | null = null;
-    const close = () => {
-      if (!open) return;
-      found.push({
-        id: groupId(open.group), label: GROUP_LABELS[open.group] ?? open.group,
-        x: c * COLUMN - 12, y: open.top, width: WIDTH + 24, height: open.bottom + GROUP_PAD - open.top,
-      });
-      cursor = open.bottom + GROUP_PAD + (ROW - NODE_HEIGHT);
-      open = null;
-    };
-    for (const id of columns[c]) {
-      const g = byId.get(id)?.group ?? null;
-      if (open && open.group !== g) close();
-      const desired = align ? (meanPos(preds.get(id)) ?? cursor) : cursor;
-      if (g && !open) {
-        const top = Math.max(cursor, desired - GROUP_HEAD);
-        open = { group: g, top, bottom: top };
-        cursor = top + GROUP_HEAD;
-      }
-      const y = Math.max(cursor, desired);
-      pos.set(id, y);
-      cursor = y + ROW;
-      if (open) open.bottom = y + NODE_HEIGHT;
-    }
-    close();
-    boxes.set(c, found);
-  };
-
-  for (let round = 0; round < 2; round++) {
-    for (let c = 1; c <= maxColumn; c++) {
-      sortColumn(c, preds);
-      placeColumn(c, true);
-    }
-    sortColumn(0, succs); // sources next to what reads them
-    placeColumn(0, false);
-  }
-  for (let c = 1; c <= maxColumn; c++) {
-    sortColumn(c, preds);
-    placeColumn(c, true);
-  }
-
-  const placed: Placed[] = columns.flatMap((col, c) =>
-    col.map((id, row) => ({ id, column: c, row, x: c * COLUMN, y: pos.get(id) ?? 0 })),
-  );
-  const groups = [...boxes.values()].flat();
-
   // edges; inputs from a group member collapse into one edge from the group box
   const edges: GraphEdge[] = [];
   const links: [string, string][] = [];
@@ -237,6 +144,138 @@ export function buildGraph(nodes: FlowNode[], processes: ProcessHealth[]): Graph
     }
   }
   for (const n of nodes) if (n.group) links.push([n.id, groupId(n.group)]);
+
+  // An edge that skips columns gets a free slot (a "lane") in every column it crosses, so it
+  // never runs behind a box: the columns grow instead.
+  const realSource = (id: string) => (id.startsWith("group:") ? ((members.get(id.slice(6)) ?? [])[0] ?? id) : id);
+  const colOf = (id: string) => column.get(realSource(id)) ?? 0;
+  const lanes = new Map<string, string[]>(); // edge id -> lane ids, left to right
+  const isLane = (id: string) => id.startsWith("lane:");
+  for (const e of edges) {
+    const ids: string[] = [];
+    for (let c = colOf(e.source) + 1; c < colOf(e.target); c++) {
+      const id = `lane:${e.id}:${c}`;
+      column.set(id, c);
+      ids.push(id);
+    }
+    if (ids.length) lanes.set(e.id, ids);
+  }
+
+  // neighbours for the sweeps (an edge with lanes links through them)
+  const preds = new Map<string, string[]>();
+  const succs = new Map<string, string[]>();
+  const link = (a: string, b: string) => {
+    succs.set(a, [...(succs.get(a) ?? []), b]);
+    preds.set(b, [...(preds.get(b) ?? []), a]);
+  };
+  for (const e of edges) {
+    const chain = [realSource(e.source), ...(lanes.get(e.id) ?? []), e.target];
+    for (let i = 1; i < chain.length; i++) link(chain[i - 1], chain[i]);
+  }
+
+  const items = [...nodes.map((n) => n.id), ...flow.map(pid), ...[...lanes.values()].flat()];
+  const catalogOrder = new Map(items.map((id, i) => [id, i]));
+  const maxColumn = Math.max(0, ...column.values());
+  const columns: string[][] = Array.from({ length: maxColumn + 1 }, (_, c) =>
+    items.filter((id) => (column.get(id) ?? 0) === c),
+  );
+  // centre line (y) of every item; starts packed, then follows the neighbours
+  const half = (id: string) => (isLane(id) ? LANE / 2 : NODE_HEIGHT / 2);
+  const step = (id: string) => (isLane(id) ? LANE + LANE_GAP : ROW);
+  const mid = new Map<string, number>();
+  for (const col of columns) {
+    let y = 0;
+    for (const id of col) {
+      mid.set(id, y + half(id));
+      y += step(id);
+    }
+  }
+  const meanMid = (ids: string[] | undefined) => {
+    const ys = (ids ?? []).map((n) => mid.get(n)).filter((y): y is number => y !== undefined);
+    return ys.length ? mean(ys) : null;
+  };
+
+  const sortColumn = (c: number, neighbours: Map<string, string[]>) => {
+    const own = new Map(columns[c].map((id) => [id, meanMid(neighbours.get(id)) ?? mid.get(id) ?? 0]));
+    const groupScore = new Map<string, number>();
+    for (const id of columns[c]) {
+      const g = byId.get(id)?.group;
+      if (g && !groupScore.has(g)) {
+        groupScore.set(g, mean(columns[c].filter((x) => byId.get(x)?.group === g).map((x) => own.get(x)!)));
+      }
+    }
+    // members of a group share the group's score, so they stay together
+    const key = (id: string) => {
+      const g = byId.get(id)?.group;
+      return g ? groupScore.get(g)! : own.get(id)!;
+    };
+    columns[c].sort(
+      (a, b) =>
+        key(a) - key(b) ||
+        Number(!byId.get(a)?.group) - Number(!byId.get(b)?.group) ||
+        own.get(a)! - own.get(b)! ||
+        catalogOrder.get(a)! - catalogOrder.get(b)!,
+    );
+  };
+
+  // place a column top-down: each item as close to the average height of its predecessors
+  // as the items above allow (align), or packed (the sources)
+  const boxes = new Map<number, GroupBox[]>();
+  const placeColumn = (c: number, align: boolean) => {
+    const found: GroupBox[] = [];
+    let cursor = 0; // top of the next free slot
+    let open: { group: string; top: number; bottom: number } | null = null;
+    const close = () => {
+      if (!open) return;
+      found.push({
+        id: groupId(open.group), label: GROUP_LABELS[open.group] ?? open.group,
+        x: c * COLUMN - 12, y: open.top, width: WIDTH + 24, height: open.bottom + GROUP_PAD - open.top,
+      });
+      cursor = open.bottom + GROUP_PAD + LANE_GAP;
+      open = null;
+    };
+    for (const id of columns[c]) {
+      const g = byId.get(id)?.group ?? null;
+      if (open && open.group !== g) close();
+      const wanted = align ? meanMid(preds.get(id)) : null;
+      const desiredTop = wanted === null ? cursor : wanted - half(id);
+      if (g && !open) {
+        const top = Math.max(cursor, desiredTop - GROUP_HEAD);
+        open = { group: g, top, bottom: top };
+        cursor = top + GROUP_HEAD;
+      }
+      const top = Math.max(cursor, desiredTop);
+      mid.set(id, top + half(id));
+      cursor = top + step(id);
+      if (open) open.bottom = top + NODE_HEIGHT;
+    }
+    close();
+    boxes.set(c, found);
+  };
+
+  for (let round = 0; round < 2; round++) {
+    for (let c = 1; c <= maxColumn; c++) {
+      sortColumn(c, preds);
+      placeColumn(c, true);
+    }
+    sortColumn(0, succs); // sources next to what reads them
+    placeColumn(0, false);
+  }
+  for (let c = 1; c <= maxColumn; c++) {
+    sortColumn(c, preds);
+    placeColumn(c, true);
+  }
+
+  const placed: Placed[] = columns.flatMap((col, c) =>
+    col
+      .filter((id) => !isLane(id))
+      .map((id, row) => ({ id, column: c, row, x: c * COLUMN, y: (mid.get(id) ?? 0) - half(id) })),
+  );
+  const groups = [...boxes.values()].flat();
+  for (const e of edges) {
+    const ids = lanes.get(e.id);
+    if (ids) e.via = ids.map((id) => ({ x: (column.get(id) ?? 0) * COLUMN, y: mid.get(id) ?? 0 }));
+  }
   const feedback = flow.flatMap((p) =>
     (p.reactsTo ?? [])
       .filter((a) => byId.has(a))
@@ -307,7 +346,12 @@ export function buildFlows(nodes: FlowNode[], processes: ProcessHealth[]): Flows
   });
   const base = buildGraph([...baseNodes.values()], procs);
 
-  const bottom = Math.max(0, ...main.placed.map((p) => p.y + ROW), ...main.groups.map((g) => g.y + g.height));
+  const bottom = Math.max(
+    0,
+    ...main.placed.map((p) => p.y + ROW),
+    ...main.groups.map((g) => g.y + g.height),
+    ...main.edges.flatMap((e) => (e.via ?? []).map((v) => v.y + ROW / 2)),
+  );
   const top = bottom + BAND_GAP;
   const links: [string, string][] = [...main.links, ...base.links];
   for (const key of baseNodes.keys()) {
@@ -318,7 +362,10 @@ export function buildFlows(nodes: FlowNode[], processes: ProcessHealth[]): Flows
   return {
     placed: [...main.placed, ...base.placed.map((p) => ({ ...p, y: p.y + top }))],
     groups: [...main.groups, ...base.groups.map((g) => ({ ...g, y: g.y + top }))],
-    edges: [...main.edges, ...base.edges],
+    edges: [
+      ...main.edges,
+      ...base.edges.map((e) => (e.via ? { ...e, via: e.via.map((v) => ({ ...v, y: v.y + top })) } : e)),
+    ],
     links,
     feedback: main.feedback,
     band: { y: top - 44, label: "Technical foundation · carries everything, ends in no actionable" },
