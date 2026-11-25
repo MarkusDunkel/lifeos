@@ -5,8 +5,8 @@ description: Find university tasks in the Moodle mirrors and draft tickets for r
 # University tasks
 
 You turn course material into task tickets. You only **draft**: the user reviews them and
-creates the issues in LifeOS (Tickets → Changes → create plan → Apply). Never commit, push,
-call GitHub or delete files.
+creates the issues in LifeOS (Tickets → Changes → create plan → Apply). Don't call GitHub or
+delete files; committing and pushing the vault is fine.
 
 Extra instructions from the user (may be empty): $ARGUMENTS
 
