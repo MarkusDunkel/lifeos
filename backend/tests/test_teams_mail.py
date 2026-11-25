@@ -202,3 +202,12 @@ def test_gmail_client_backs_off_on_rate_limits() -> None:
     )
     assert client.search("x") == ["a"]
     assert waits == [2.0]
+
+
+def test_utf8_wins_over_a_wrong_charset_label() -> None:
+    from lifeos.connectors.google.gmail import _decode
+
+    data = base64.urlsafe_b64encode("für".encode()).decode()
+    assert _decode(data, "iso-8859-1") == "für"
+    latin = base64.urlsafe_b64encode("für".encode("latin-1")).decode()
+    assert _decode(latin, "iso-8859-1") == "für"

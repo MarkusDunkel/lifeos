@@ -129,7 +129,11 @@ def _charset(part: dict[str, Any]) -> str:
 
 def _decode(data: str, charset: str) -> str:
     raw = base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
-    try:
-        return raw.decode(charset or "utf-8")
-    except (LookupError, UnicodeDecodeError):
-        return raw.decode("utf-8", errors="replace")
+    # Valid UTF-8 wins: some senders declare iso-8859-1 for UTF-8 bytes ("fÃ¼r" instead of
+    # "für"); real Latin-1 text with umlauts is never valid UTF-8 and falls through.
+    for encoding in ("utf-8", charset or "utf-8"):
+        try:
+            return raw.decode(encoding)
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return raw.decode("utf-8", errors="replace")
