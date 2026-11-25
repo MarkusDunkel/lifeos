@@ -188,7 +188,8 @@ def test_oauth_flow_stores_tokens_and_refreshes(tmp_path):
     scope = (
         "openid email https://www.googleapis.com/auth/calendar.calendarlist.readonly "
         "https://www.googleapis.com/auth/calendar.events.readonly "
-        "https://www.googleapis.com/auth/calendar.app.created"
+        "https://www.googleapis.com/auth/calendar.app.created "
+        "https://www.googleapis.com/auth/gmail.readonly"
     )
     auth, seen = _auth(
         tmp_path,

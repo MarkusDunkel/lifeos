@@ -201,6 +201,16 @@ class Settings(BaseSettings):
         default="Planning",
         description="Folder in the knowledge hub for calendars, goals, plans and the journal.",
     )
+    teams_dir: str = Field(
+        default="Teams",
+        description="Folder in the knowledge hub for Teams messages (and the PC's Teams files).",
+    )
+    teams_mail_sync_at: str | None = Field(
+        default=None,
+        pattern=r"^([01]\d|2[0-3]):[0-5]\d$",
+        description="Daily time (HH:MM, LIFEOS_TIMEZONE) at which `lifeos worker` imports the "
+        "Teams messages from Gmail (read-only) and commits them as `teams-mail: …`.",
+    )
     calendar_sync_interval: int = Field(
         default=0,
         ge=0,

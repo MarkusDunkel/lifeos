@@ -64,7 +64,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     vault = Vault.open(settings.vault_root)
     git = git_sync_for(settings)
     study = StudyService(vault, settings.timezone, committer=background_committer(git))
-    mcp = build_mcp(study) if settings.mcp_path_token else None
+    mcp = None
+    if settings.mcp_path_token:
+        from lifeos.connectors.teamsmail.setup import gmail_factory
+
+        def mail():  # looked up per call: works as soon as Google is (re)connected
+            factory = gmail_factory(settings)
+            return factory() if factory else None
+
+        mcp = build_mcp(study, mail)
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI):

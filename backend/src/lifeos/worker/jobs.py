@@ -115,6 +115,35 @@ def moodle_job(moodle: MoodleSync, missing: list[str], git: GitSync) -> Callable
     return run
 
 
+def teams_mail_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]:
+    """Import the Teams messages from Gmail, commit them as ``teams-mail: …`` and push."""
+    from lifeos.connectors.google.auth import GoogleError
+    from lifeos.connectors.teamsmail.setup import build_teams_mail
+
+    def run() -> JobResult:
+        importer = build_teams_mail(settings, Vault.open(settings.vault_root))
+        try:
+            report = importer.run()
+        except (GoogleError, RuntimeError) as exc:
+            return JobResult("error", f"Teams mail: {exc}")
+        summary = report.summary()
+        pushed = ""
+        try:
+            committed = git.commit_paths(
+                [importer.target_dir],
+                lambda files: f"teams-mail: {summary}\n\n{file_list(files)}",
+            )
+        except GitError as exc:
+            return JobResult("error", f"{summary}; commit failed: {exc}")
+        if committed:
+            pushed = f"; git sync {git.run().status}"
+        if report.errors:
+            return JobResult("error", f"{summary}{pushed}; {len(report.errors)} error(s)")
+        return JobResult("ok", summary + pushed)
+
+    return run
+
+
 def applications_board_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]:
     """Poll the applications board and run the handler of each column change once;
     release the postings of applications whose ticket was deleted."""
@@ -357,6 +386,14 @@ def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
                 "moodle-sync",
                 Daily(parse_time(settings.moodle_sync_at), ZoneInfo(settings.timezone)),
                 moodle_job(moodle, missing, git),
+            )
+        )
+    if settings.teams_mail_sync_at:
+        jobs.append(
+            Job(
+                "teams-mail",
+                Daily(parse_time(settings.teams_mail_sync_at), ZoneInfo(settings.timezone)),
+                teams_mail_job(settings, git),
             )
         )
     if settings.applications_interval > 0:

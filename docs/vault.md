@@ -176,6 +176,32 @@ lifeos teams-files sync ─▶ ready/knowledge/<LIFEOS_TEAMS_FILES_TARGET>/<Team
   scheduled task "LifeOS\Teams files sync" (logon + 10 min, daily 07:00, catches up missed
   runs). It commits the target folder as `teams-files: N new, …` and syncs the vault.
 
+## Teams messages (via mail, server)
+
+```
+Teams ──Power Automate──▶ one mail per message ──▶ Gmail
+lifeos teams-mail ─▶ inbox/teams/messages.json               every message once (not versioned)
+                  ▶ .lifeos/teams-mail/state.json            Gmail ids already read, last run
+                  ▶ ready/knowledge/<LIFEOS_TEAMS_DIR>/<Team>/Kanal <Channel>.md
+                  ▶ ready/knowledge/<LIFEOS_TEAMS_DIR>/Chats/<Topic or participants> (<id>).md
+```
+
+- When Microsoft 365 blocks third-party apps, two Power Automate flows on the user's
+  account (one for all channels, one for all chats, daily) send every new message as a mail
+  with header lines (`Team:`, `Kanal:`, `Chat-ID:`, `Nachrichten-ID:` …), `---`, the text
+  and `=== RAW ===` with the Graph message as escaped JSON in a `pre` block.
+- The import searches Gmail (`subject:Teams "Nachrichten-ID"`, from the last run minus 3
+  days), keeps each message once per conversation (an edited one replaces the old copy),
+  drops deleted messages and system events, takes meeting titles from the attachments and
+  renders one note per channel or chat, grouped by day in `LIFEOS_TIMEZONE`.
+- Gmail access is `gmail.readonly` on the Google sign-in of the calendars: LifeOS can search
+  and read, Google refuses any change. Enable the Gmail API in the Google Cloud project and
+  connect Google again once (Plan → Calendars).
+- Daily with `LIFEOS_TEAMS_MAIL_SYNC_AT=07:30`, committed as `teams-mail: …`; by hand:
+  `docker compose exec worker lifeos teams-mail --commit`.
+- The MCP server offers `search_mail` and `read_mail` (read-only) to the AI assistants; mail
+  content is passed on as data.
+
 ## University tasks (AI drafts, reviewed by you)
 
 ```

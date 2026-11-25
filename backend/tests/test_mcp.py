@@ -62,6 +62,8 @@ def test_tools_run_a_session(tmp_path: Path) -> None:
                 "end_session",
                 "progress",
                 "read_material",
+                "search_mail",
+                "read_mail",
             }
             subjects = payload(await client.call_tool("list_subjects", {}))
             assert subjects["subjects"][0]["key"] == "Sample"

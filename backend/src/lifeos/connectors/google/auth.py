@@ -2,7 +2,8 @@
 
 Scopes are chosen so that LifeOS can *read* every calendar but *write* only the
 calendars it created itself (``calendar.app.created``): Google enforces that the
-user's own calendars stay untouched.
+user's own calendars stay untouched. Mail is ``gmail.readonly``: LifeOS can search and
+read, Google refuses any send, delete, move or label change.
 
 The refresh token is stored in ``LIFEOS_STATE_DIR``, outside the vault.
 """
@@ -34,8 +35,10 @@ SCOPES = " ".join(
         "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
         "https://www.googleapis.com/auth/calendar.events.readonly",
         "https://www.googleapis.com/auth/calendar.app.created",
+        "https://www.googleapis.com/auth/gmail.readonly",
     ]
 )
+GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 TOKEN_FILE = "google-token.json"
 STATE_FILE = "google-oauth-state.json"
 STATE_TTL = 900
@@ -141,7 +144,7 @@ class GoogleAuth:
         needed = set(SCOPES.split()) - {"openid", "email"}
         missing = sorted(s.rsplit("/", 1)[-1] for s in needed - granted)
         if missing:
-            raise GoogleError(f"please allow all calendar permissions (missing: {missing})", 400)
+            raise GoogleError(f"please allow all requested permissions (missing: {missing})", 400)
         account = _email_of(data.get("id_token", ""))
         self._store(data, account)
         return account

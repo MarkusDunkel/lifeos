@@ -78,6 +78,12 @@ def main(argv: list[str] | None = None) -> int:
     teams_files.add_argument(
         "--commit", action="store_true", help="commit the notes and sync the vault afterwards"
     )
+    teams_mail = sub.add_parser(
+        "teams-mail", help="import the Teams messages from Gmail (read-only) into the vault"
+    )
+    teams_mail.add_argument(
+        "--commit", action="store_true", help="commit the notes and sync the vault afterwards"
+    )
     sub.add_parser("worker", help="run background jobs (vault git sync)")
     sub.add_parser("git-sync", help="sync the vault with its git remote once")
 
@@ -108,6 +114,22 @@ def main(argv: list[str] | None = None) -> int:
         return _moodle_sync()
     if args.cmd == "teams-files":
         return _teams_files(args)
+    if args.cmd == "teams-mail":
+        from lifeos.core.config import get_settings
+        from lifeos.core.git_sync import git_sync_for
+        from lifeos.worker.jobs import teams_mail_job
+
+        settings = get_settings()
+        if not args.commit:
+            from lifeos.connectors.teamsmail.setup import build_teams_mail
+            from lifeos.connectors.teamsmail.sync import report_dict
+            from lifeos.core.vault import Vault
+
+            _print(report_dict(build_teams_mail(settings, Vault.open(settings.vault_root)).run()))
+            return 0
+        result = teams_mail_job(settings, git_sync_for(settings))()
+        print(f"{result.status}: {result.message}")
+        return 0 if result.status == "ok" else 1
     if args.cmd == "jobsearch":
         return _jobsearch(args)
     if args.cmd == "agents":
