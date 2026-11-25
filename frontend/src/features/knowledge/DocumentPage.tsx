@@ -4,6 +4,7 @@ import { ArrowLeft, Link2, Pencil, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { backlinksQuery, deleteDoc, treeQuery } from "./api";
 import { ConflictBanner, docBtn, EditButtons } from "./DocEditor";
+import { MirrorNotice } from "../control/MirrorBadge";
 import { MirrorBar } from "../mirrors/MirrorBar";
 import { mirrorOf } from "../mirrors/mirror";
 import { assetUrl, flattenFiles, isImage, isMarkdown, splitFrontmatter } from "./links";
@@ -112,6 +113,7 @@ function MarkdownPage({ path, startInEdit }: { path: string; startInEdit: boolea
           </div>
         ) : (
           <div className="mx-auto max-w-3xl px-4 py-6 sm:px-8">
+            <MirrorNotice path={path} />
             {mirror && <MirrorBar meta={mirror} body={parts.body} />}
             <MarkdownView content={content} path={path} files={files} hideFrontmatter={mirror !== null} />
             {backlinks.data && backlinks.data.length > 0 && (

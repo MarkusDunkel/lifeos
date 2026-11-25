@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ChevronRight, File, FilePlus, Folder, Image, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ApiError } from "../../lib/api";
+import { MirrorDot } from "../control/MirrorBadge";
 import { saveDoc, searchQuery, treeQuery } from "./api";
 import { isImage, isMarkdown, type TreeNode } from "./links";
 
@@ -213,6 +214,7 @@ function TreeItem(props: TreeProps) {
           <ChevronRight className={`size-3.5 shrink-0 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
           <Folder className="size-4 shrink-0 text-sky-500" />
           <span className="truncate">{node.name}</span>
+          <MirrorDot path={node.path} />
         </button>
         {open && <TreeChildren {...props} depth={depth + 1} />}
       </li>

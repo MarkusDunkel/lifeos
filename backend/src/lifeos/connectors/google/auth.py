@@ -168,6 +168,8 @@ class GoogleAuth:
                 "access_token": data["access_token"],
                 "expires_at": self._clock() + int(data.get("expires_in", 3600)) - 60,
                 "account": account or previous.get("account"),
+                # granted permissions, for the control room (refreshes may omit them)
+                "scope": data.get("scope") or previous.get("scope"),
             },
         )
 

@@ -377,6 +377,23 @@ def planner_job(settings: Settings, git: GitSync, *, queue_only: bool) -> Callab
     return run
 
 
+def control_report_job(settings: Settings) -> Callable[[], JobResult]:
+    """Let the AI supervisor explain the yellow and red processes of the control room."""
+    from lifeos.agents.workflows import build_llm_factory
+    from lifeos.modules.control.service import Control
+    from lifeos.modules.control.supervisor import Supervisor
+
+    jobs_file = settings.state_dir / "jobs.json" if settings.state_dir else None
+    control = Control(settings, Vault.open(settings.vault_root), jobs_file)
+    supervisor = Supervisor(control, build_llm_factory(settings))
+
+    def run() -> JobResult:
+        status, message = supervisor.run()
+        return JobResult(status, message)
+
+    return run
+
+
 def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
     jobs: list[Job] = []
     if settings.moodle_sync_at:
@@ -425,4 +442,12 @@ def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
         )
     if settings.git_sync_interval > 0:
         jobs.append(Job("git-sync", Every(settings.git_sync_interval), git_sync_job(git)))
+    if settings.control_report_interval > 0:
+        jobs.append(
+            Job(
+                "control-report",
+                Every(settings.control_report_interval),
+                control_report_job(settings),
+            )
+        )
     return jobs

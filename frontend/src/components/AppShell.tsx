@@ -1,6 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Bot, BookOpen, Briefcase, CalendarCheck, ClipboardList, Compass, FileCheck, GraduationCap, KanbanSquare, NotebookPen, Settings, StickyNote } from "lucide-react";
+import { Activity, Bot, BookOpen, Briefcase, CalendarCheck, ClipboardList, Compass, FileCheck, GraduationCap, KanbanSquare, NotebookPen, Settings, StickyNote } from "lucide-react";
 import type { ReactNode } from "react";
+import { controlQuery } from "../features/control/api";
+import { LEVEL_STYLE } from "../features/control/layout";
 
 const NAV = [
   { to: "/plan", label: "Plan", icon: CalendarCheck },
@@ -14,8 +17,17 @@ const NAV = [
   { to: "/jobs", label: "Jobs", icon: Briefcase },
   { to: "/career", label: "Career", icon: Compass },
   { to: "/agents", label: "Agents", icon: Bot },
+  { to: "/control", label: "Control", icon: Activity },
   { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
+
+/** Red or yellow dot on the Control entry while something needs attention. */
+function Alert({ to }: { to: string }) {
+  const control = useQuery({ ...controlQuery, enabled: true });
+  const level = control.data?.level;
+  if (to !== "/control" || !level || (level !== "warn" && level !== "fail")) return null;
+  return <span className={`absolute top-1 right-3 size-2 rounded-full ${LEVEL_STYLE[level].dot}`} />;
+}
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -27,11 +39,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link
             key={to}
             to={to}
-            className="flex w-16 flex-col items-center gap-1 rounded-xl py-2 text-[11px] text-slate-500 hover:bg-slate-200/60 dark:hover:bg-slate-800"
+            className="relative flex w-16 flex-col items-center gap-1 rounded-xl py-2 text-[11px] text-slate-500 hover:bg-slate-200/60 dark:hover:bg-slate-800"
             activeProps={{ className: "!bg-sky-100 !text-sky-800 dark:!bg-sky-900/50 dark:!text-sky-200" }}
           >
             <Icon className="size-5" />
             {label}
+            <Alert to={to} />
           </Link>
         ))}
       </nav>
@@ -44,11 +57,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link
             key={to}
             to={to}
-            className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] text-slate-500"
+            className="relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] text-slate-500"
             activeProps={{ className: "!text-sky-600 dark:!text-sky-400" }}
           >
             <Icon className="size-5" />
             {label}
+            <Alert to={to} />
           </Link>
         ))}
       </nav>

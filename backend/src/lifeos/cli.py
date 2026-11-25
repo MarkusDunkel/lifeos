@@ -283,6 +283,13 @@ def _applications_setup() -> int:
     return 0
 
 
+# outcome of `jobsearch autorun` → control room status (the rest counts as skipped)
+AUTORUN_STATUS = {
+    "imported": "ok", "done-today": "ok", "failed": "error", "blocked": "error",
+    "not-configured": "error",
+}  # fmt: skip
+
+
 def _jobsearch(args) -> int:
     from lifeos.connectors.devjobs.client import DevjobsClient, DevjobsError
     from lifeos.modules.jobsearch.importer import (
@@ -313,6 +320,7 @@ def _jobsearch(args) -> int:
 
     settings = load_settings(args.env_file)
     if args.action == "autorun":
+        from lifeos.modules.control.reporter import reported
         from lifeos.modules.jobsearch.autorun import (
             app_dir,
             autorun,
@@ -321,13 +329,17 @@ def _jobsearch(args) -> int:
         )
 
         setup_logging(app_dir())
-        try:
-            outcome = autorun(settings, default_notifier(), app_dir())
-        except Exception:  # no console: make sure the log tells what happened
-            import logging
+        with reported("job-import", args.env_file) as run:
+            try:
+                outcome = autorun(settings, default_notifier(), app_dir())
+            except Exception:  # no console: make sure the log tells what happened
+                import logging
 
-            logging.getLogger("lifeos.jobsearch.autorun").exception("autorun failed")
-            return 1
+                logging.getLogger("lifeos.jobsearch.autorun").exception("autorun failed")
+                run.message = "autorun failed, see the log on the PC"
+                return 1
+            run.status = AUTORUN_STATUS.get(outcome, "skipped")
+            run.message = outcome
         import logging
 
         logging.getLogger("lifeos.jobsearch.autorun").info("autorun: %s", outcome)
@@ -342,17 +354,23 @@ def _jobsearch(args) -> int:
         if done == total or done % 10 == 0:
             print(f"\r{done}/{total} postings fetched", end="", flush=True)
 
-    try:
-        result = run_import(server, devjobs, args.limit, progress)
-    except (DevjobsError, ServerError) as exc:
-        print(f"\nimport stopped: {exc}", file=sys.stderr)
-        return 1
-    except KeyboardInterrupt:
-        print("\nimport interrupted; the next run continues", file=sys.stderr)
-        return 130
-    finally:
-        devjobs.close()
-        server.close()
+    from lifeos.modules.control.reporter import reported
+
+    with reported("job-import", args.env_file) as run:
+        try:
+            result = run_import(server, devjobs, args.limit, progress)
+        except (DevjobsError, ServerError) as exc:
+            print(f"\nimport stopped: {exc}", file=sys.stderr)
+            run.message = f"import stopped: {exc}"
+            return 1
+        except KeyboardInterrupt:
+            print("\nimport interrupted; the next run continues", file=sys.stderr)
+            run.status, run.message = "skipped", "interrupted"
+            return 130
+        finally:
+            devjobs.close()
+            server.close()
+        run.status, run.message = "ok", result.summary()
     print(f"\n{result.listed} postings listed on devjobs.at; {result.summary()}")
     return 0
 
@@ -389,22 +407,35 @@ def _teams_files(args: argparse.Namespace) -> int:
     if source is None:
         print("no source folder: pass --source or set LIFEOS_TEAMS_FILES_DIR", file=sys.stderr)
         return 2
+    from lifeos.modules.control.reporter import reported
+
     mirror = FolderMirror(Vault.open(settings.vault_root), source, settings.teams_files_target)
-    try:
-        report = mirror.run()
-    except FolderError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-    _print({**asdict(report), "summary": report.summary()})
-    if args.commit:
-        git = GitSync(settings.vault_root)
-        committed = git.commit_paths(
-            [mirror.target_dir],
-            lambda files: f"teams-files: {report.summary()}\n\n{file_list(files)}",
-        )
-        if committed:
-            _print(asdict(git.run()))
-    return 1 if report.errors and not report.changed else 0
+    with reported("teams-files", args.env_file) as run:
+        try:
+            report = mirror.run()
+        except FolderError as exc:
+            print(str(exc), file=sys.stderr)
+            run.message = str(exc)
+            return 1
+        _print({**asdict(report), "summary": report.summary()})
+        run.status, run.message = "ok", report.summary()
+        if args.commit:
+            git = GitSync(settings.vault_root)
+            committed = git.commit_paths(
+                [mirror.target_dir],
+                lambda files: f"teams-files: {report.summary()}\n\n{file_list(files)}",
+            )
+            if committed:
+                sync = git.run()
+                _print(asdict(sync))
+                if sync.status not in ("ok", "skipped"):
+                    run.status = "error"
+                    run.message += f"; vault sync {sync.status}: {sync.message}"
+        failed = bool(report.errors) and not report.changed
+        if report.errors:
+            run.status = "error" if failed else run.status
+            run.message += f"; {len(report.errors)} error(s)"
+    return 1 if failed else 0
 
 
 def _moodle_sync() -> int:

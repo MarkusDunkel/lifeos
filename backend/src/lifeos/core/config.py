@@ -115,6 +115,24 @@ class Settings(BaseSettings):
             "Random, at least 32 characters (`lifeos secret`). Unset = import disabled."
         ),
     )
+    control_report_token: str | None = Field(
+        default=None,
+        min_length=32,
+        description=(
+            "Bearer token for /api/control/report/* (the PC tasks report their runs to the "
+            "control room). Random, at least 32 characters (`lifeos secret`). Unset = the PC "
+            "processes show as not set up."
+        ),
+    )
+    control_report_interval: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Seconds between checks of the AI supervisor in `lifeos worker` "
+            "(agents/control-room.md): it explains yellow and red processes in the control "
+            "room, calling the model only when the problems change. 0 = off."
+        ),
+    )
     jobsearch_evaluate_interval: int = Field(
         default=0,
         ge=0,

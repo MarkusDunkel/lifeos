@@ -85,9 +85,33 @@ Future writers (OneDrive, tickets, study progress, agents) follow the same patte
 | `planner-queue` | every minute (with the calendar sync): run the day planner for queued wishes, "plan again", changed goals or appointments | `LIFEOS_CALENDAR_SYNC_INTERVAL` |
 | `calendar-planner` | daily at a local time: re-plan the next 7 days | `LIFEOS_PLANNER_AT=17:30` |
 | `git-sync` | every N seconds | `LIFEOS_GIT_SYNC_INTERVAL` |
+| `control-report` | every N seconds: the AI supervisor explains yellow and red processes (calls the model only when the problems change) | `LIFEOS_CONTROL_REPORT_INTERVAL` |
 
-The last run of every job is kept in `state/jobs.json` (`GET /api/jobs/status`), so a
-restart neither repeats nor forgets a daily job. Moodle syncs from the web app and the
+The last run of every job (plus its last 20 runs) is kept in `state/jobs.json`
+(`GET /api/jobs/status`), so a restart neither repeats nor forgets a daily job.
+
+### Control room
+
+`/control` shows every process that feeds LifeOS – worker jobs, the PC tasks, manual syncs
+and the host deployer – as a flow diagram (sources → processes → targets) and a table.
+The catalog (`modules/control/catalog.py`) knows each process's place, trigger and
+deadlines; the traffic lights are fixed rules evaluated on request (`GET
+/api/control/status`): red for a failed run, a missing precondition (e.g. the Google token
+lacks the Gmail permission) or a last success older than the deadline; yellow when late or
+skipped. Interval jobs warn after 3 and fail after 6 intervals (at least 5/15 min), daily
+jobs warn 1 h and fail 4 h after their slot. A stopped worker turns every worker job red.
+
+- PC tasks (`jobsearch autorun`, `teams-files sync`) report each run to
+  `POST /api/control/report/<process>` with `LIFEOS_CONTROL_REPORT_TOKEN` (stored in
+  `state/pc-jobs.json`); without the token they show as not set up.
+- "Run now" on a worker job writes `state/job-requests.json`; the worker runs it at its next
+  tick. Manual syncs call their own endpoints.
+- The host deployer writes `state/deploy/heartbeat.json` on every run.
+- The AI supervisor (`agents/control-room.md` in the vault: `model`, `billing`,
+  `daily_limit`, `language`) only explains; it writes `state/control-report.json` and
+  creates no tickets or notifications.
+- Knowledge folders written by a mirror process carry a marker in the tree and a notice
+  above each note: hand edits there are overwritten by the next sync. Moodle syncs from the web app and the
 worker exclude each other through a file lock. Only one machine should sync Moodle (the
 server): the mirror's state (`.lifeos/moodle/state.json`) is not versioned.
 

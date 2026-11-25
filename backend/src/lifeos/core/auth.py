@@ -19,7 +19,10 @@ COOKIE_NAME = "lifeos_session"
 SESSION_PAYLOAD = "owner"
 PUBLIC_API_PREFIXES = ("/api/auth/", "/api/health")
 # Machine clients with a bearer token: path prefix → Settings field holding the token.
-TOKEN_API_PREFIXES = {"/api/jobsearch/import/": "jobsearch_import_token"}
+TOKEN_API_PREFIXES = {
+    "/api/jobsearch/import/": "jobsearch_import_token",
+    "/api/control/report/": "control_report_token",
+}
 
 _hasher = PasswordHasher()
 

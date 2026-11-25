@@ -53,7 +53,9 @@ def run_worker(
 
     for job in jobs:
         log.info("job %s: %s", job.name, job.schedule)
-    scheduler = Scheduler(jobs, jobs_state_file(settings))
+    from lifeos.modules.control.store import RunRequests
+
+    scheduler = Scheduler(jobs, jobs_state_file(settings), requests=RunRequests(settings.state_dir))
     while not stop.is_set():
         scheduler.tick()
         stop.wait(tick)

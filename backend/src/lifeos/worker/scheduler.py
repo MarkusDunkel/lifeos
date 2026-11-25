@@ -15,11 +15,21 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from pathlib import Path
+from typing import Protocol
 from zoneinfo import ZoneInfo
 
 log = logging.getLogger("lifeos.worker")
 
 OK_STATES = ("ok", "skipped")
+HISTORY = 20  # runs kept per job for the control room's timeline
+_NEVER = datetime.min.replace(tzinfo=UTC)
+
+
+class RunRequestSource(Protocol):
+    """ "Run now" requests (``{job: requestedAt}``), see ``lifeos.modules.control.store``."""
+
+    def all(self) -> dict[str, str]: ...
+    def done(self, job: str) -> None: ...
 
 
 @dataclass
@@ -77,8 +87,10 @@ class Scheduler:
         jobs: list[Job],
         state_file: Path | None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        requests: RunRequestSource | None = None,
     ) -> None:
         self.jobs = jobs
+        self.requests = requests
         self.state_file = state_file
         self.clock = clock
         self.state: dict[str, dict] = self._load()
@@ -86,13 +98,18 @@ class Scheduler:
     def tick(self) -> list[str]:
         """Run every job that is due now; returns the names of the jobs that ran."""
         ran = []
+        requested = self.requests.all() if self.requests else {}
         for job in self.jobs:
             now = self.clock()
             entry = self.state.setdefault(job.name, {})
-            if not job.schedule.due(now, entry):
+            asked = _parse(requested.get(job.name))
+            on_request = asked is not None and asked > (_parse(entry.get("lastRun")) or _NEVER)
+            if not on_request and not job.schedule.due(now, entry):
                 continue
             result = self._run(job)
             self._record(job, entry, now, result)
+            if job.name in requested and self.requests:
+                self.requests.done(job.name)
             ran.append(job.name)
         if ran:
             self._save()
@@ -119,6 +136,10 @@ class Scheduler:
         entry["message"] = result.message
         if result.status in OK_STATES:
             entry["lastSuccess"] = entry["lastRun"]
+        history = entry.setdefault("history", [])
+        history.append({"at": entry["lastRun"], "status": result.status,
+                        "message": result.message[:200]})  # fmt: skip
+        del history[:-HISTORY]
 
     def status(self) -> dict[str, dict]:
         return self._load()

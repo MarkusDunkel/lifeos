@@ -37,6 +37,8 @@ from lifeos.modules.career.matcher import Matcher
 from lifeos.modules.career.prefilter import FitIndex
 from lifeos.modules.career.router import CareerService
 from lifeos.modules.career.router import build_router as career_router
+from lifeos.modules.control.router import build_router as control_router
+from lifeos.modules.control.service import Control
 from lifeos.modules.jobsearch.router import build_router as jobsearch_router
 from lifeos.modules.jobsearch.store import JobStore
 from lifeos.modules.knowledge.index import KnowledgeIndex
@@ -161,6 +163,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(_moodle_router(settings, vault))
     jobs_file = settings.state_dir / "jobs.json" if settings.state_dir else None
     app.include_router(vault_sync_router(git, settings.git_sync_interval, jobs_file))
+    app.include_router(control_router(Control(settings, vault, jobs_file)))
     app.include_router(study_router(study))
     jobs = JobStore(vault)
     fit = FitIndex(vault, jobs)
