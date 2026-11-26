@@ -121,7 +121,7 @@ class ChosenEducation(BaseModel):
 class CvSections(BaseModel):
     experience: str = "Arbeitserfahrung"
     education: str = "Ausbildung"
-    more: str = "Weiteres zu meiner Person"
+    more: str = "Fähigkeiten und Interessen"
 
 
 class CvLayout(BaseModel):

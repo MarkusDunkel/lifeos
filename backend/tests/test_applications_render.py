@@ -221,7 +221,7 @@ def test_the_draft_names_sections_and_rows_and_sets_the_font_size(vault: Vault) 
     d.cv.layout.font_size = 11
     profile = load_profile(vault)
     text = PdfReader(io.BytesIO(render(d, profile).cv)).pages[0].extract_text()
-    assert "Kenntnisse" in text and "Weiteres zu meiner Person" not in text
+    assert "Kenntnisse" in text and "Fähigkeiten und Interessen" not in text
     assert "Application Management: Requirements" in text
     assert "Technische Kenntnisse" not in text  # the draft's rows replace the defaults
     md = cv_markdown(resolve_cv(d.cv, profile.master))
@@ -238,3 +238,12 @@ def test_the_cv_is_spread_over_the_page_and_pictured_for_the_reviewer(vault: Vau
     assert filled.images["letter"][0].startswith(bytes([0x89]) + b"PNG")
     d.cv.layout.fill_pages = False
     assert render(d, load_profile(vault)).spread == 1.0
+
+
+def test_the_last_section_is_called_faehigkeiten_und_interessen_by_default(vault: Vault) -> None:
+    from lifeos.modules.applications.model import CvSections
+    from lifeos.modules.applications.render import render
+
+    assert CvSections().more == "Fähigkeiten und Interessen"
+    text = PdfReader(io.BytesIO(render(draft(), load_profile(vault)).cv)).pages[0].extract_text()
+    assert "Fähigkeiten und Interessen" in text and "Weiteres zu meiner Person" not in text
