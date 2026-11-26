@@ -170,7 +170,8 @@ ids, position titles only from `title` or `title_variants`. Facts about the owne
 master CV and from the owner's comments; the research is only about the company, and you never
 invent facts. Bullets may be reworded but never extended with facts neither source contains.
 Letter paragraphs are plain text without Markdown. `technical_skills` and `skill_groups` stay
-empty unless a tailored version helps; `skill_groups` gives one line per group.
+empty unless a tailored version helps; `skill_groups` gives one row per group
+(label in bold, same level as interests and languages, no heading row).
 
 You shape the CV freely: the section titles (`sections`), the rows of the last section
 (`more_rows`, each "label: items" – e.g. skill groups as their own rows, interests,
