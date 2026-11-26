@@ -202,10 +202,11 @@ def test_skill_groups_are_one_line_each_in_pdf_and_markdown(vault: Vault) -> Non
                          SkillGroup(label="Betrieb", items="Linux, Docker")]  # fmt: skip
     profile = load_profile(vault)
     cv = PdfReader(io.BytesIO(render(d, profile).cv)).pages[0].extract_text()
-    assert "Technische Kenntnisse:" in cv and "Daten: SQL, dbt" in cv
+    assert "Technische Kenntnisse" not in cv and "Daten: SQL, dbt" in cv
     assert "Betrieb: Linux, Docker" in cv and "Python, SQL" not in cv  # replaces the line
     md = cv_markdown(resolve_cv(d.cv, profile.master))
-    assert "- **Technische Kenntnisse:**\n  - Daten: SQL, dbt\n  - Betrieb: Linux, Docker" in md
+    assert "- **Daten:** SQL, dbt\n- **Betrieb:** Linux, Docker\n" in md
+    assert "Technische Kenntnisse" not in md
     assert "Python, SQL" not in md and "- **Sprachen:** Deutsch, Englisch" in md
 
 

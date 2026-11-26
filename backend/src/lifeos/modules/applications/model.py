@@ -223,8 +223,10 @@ def resolve_cv(cv: CvSelection, master: MasterCv) -> dict:
 def more_rows(cv: CvSelection, master: MasterCv) -> list[dict]:
     """Rows of the last section: ``{label, items, indent}``; a row without items is a heading.
 
-    The draft's own rows win; otherwise technical skills (grouped if there are groups),
-    interests and languages from the master, with the draft's tailored skills.
+    The draft's own rows win; otherwise technical skills, interests and languages from the
+    master, with the draft's tailored skills. Skill groups are rows of their own (label in
+    bold, not indented) on the same level as interests and languages, without a heading
+    "Technische Kenntnisse" (Refs MarkusDunkel/lifeos-board#41).
     """
     if cv.more_rows:
         return [{"label": r.label, "items": r.items, "indent": False} for r in cv.more_rows]
@@ -233,8 +235,7 @@ def more_rows(cv: CvSelection, master: MasterCv) -> list[dict]:
     technical = cv.technical_skills.strip() or skills.technical
     rows: list[dict] = []
     if groups:
-        rows.append({"label": "Technische Kenntnisse", "items": "", "indent": False})
-        rows += [{"label": g.label, "items": g.items, "indent": True} for g in groups]
+        rows += [{"label": g.label, "items": g.items, "indent": False} for g in groups]
     elif technical:
         rows.append({"label": "Technische Kenntnisse", "items": technical, "indent": False})
     for label, value in (("Interessen", skills.interests), ("Sprachen", skills.languages)):
