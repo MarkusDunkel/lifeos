@@ -56,9 +56,12 @@ function Item({ data }: NodeProps<Node<ItemData>>) {
       } ${data.dimmed ? "opacity-25" : ""}`}
     >
       {data.kind !== "source" && <Handle type="target" position={Position.Left} className="!bg-slate-400" />}
-      <div className="flex items-center gap-1.5 text-xs font-medium text-slate-800 dark:text-slate-100">
+      <div
+        title={data.label}
+        className="flex items-center gap-1.5 text-xs leading-tight font-medium text-slate-800 dark:text-slate-100"
+      >
         {data.kind !== "source" && <span className={`size-2 shrink-0 rounded-full ${style.dot}`} />}
-        <span className="truncate">{data.label}</span>
+        <span className="line-clamp-2">{data.label}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {Kind && <Kind className="size-3.5 text-slate-500" aria-label="actionable" />}
           {data.ai && <Sparkles className="size-3.5 text-violet-500" aria-label="calls an AI model" />}

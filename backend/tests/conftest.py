@@ -12,6 +12,12 @@ from lifeos.main import create_app
 PASSWORD = "correct horse battery staple"
 
 
+@pytest.fixture(autouse=True)
+def _no_restore_pause(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The board mirror waits for GitHub between restore rounds; fakes need no waiting."""
+    monkeypatch.setattr("lifeos.agents.mirror.RESTORE_PAUSE", 0.0)
+
+
 @pytest.fixture
 def vault_root(tmp_path: Path) -> Path:
     root = tmp_path / "vault"

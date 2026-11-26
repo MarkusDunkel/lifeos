@@ -45,7 +45,8 @@ class Node:
     ref: str = ""  # the global id, e.g. ``D-8``, see ``REFS``
 
 
-EXPLAINER = "Control room explainer"  # the process that writes the explanation on /control
+# the process that writes the explanation at the top of /control
+EXPLAINER = "Explain the problems on this page"
 WORKFLOW_AGENTS = "@workflow"  # the board agents (`runner: workflow` in agents/)
 VAULT = "vault"
 # targets that live in the vault: one box in the diagram, one arrow to the vault sync
@@ -196,78 +197,76 @@ def build_catalog(s: Settings) -> Catalog:
         Node("devjobs", "devjobs.at", "source", "job postings"),
         Node("github-boards", "GitHub boards", "source", "tickets and comments"),
         # what LifeOS keeps (vault and state)
-        Node("kb-moodle", s.moodle_dir, "dataset", f"{kb}/{s.moodle_dir}", s.moodle_dir),
-        Node(
-            "kb-teams-chats", f"{teams}/Chats", "dataset", f"{kb}/{teams}/Chats", f"{teams}/Chats"
-        ),
-        Node("kb-teams-files", f"{teams} files", "dataset", f"{kb}/{teams}/…", teams),
+        Node("kb-moodle", "Moodle courses", "dataset", f"{kb}/{s.moodle_dir}", s.moodle_dir),
+        Node("kb-teams-chats", "Teams chats", "dataset", f"{kb}/{teams}/Chats", f"{teams}/Chats"),
+        Node("kb-teams-files", "Teams files", "dataset", f"{kb}/{teams}/…", teams),
         Node(
             "kb-presentations",
-            s.presentations_dir,
+            "Presentation notes",
             "dataset",
             f"{kb}/{s.presentations_dir}",
             s.presentations_dir,
         ),  # fmt: skip
         Node(
             "kb-planning",
-            s.planning_dir,
+            "Goals, wishes and journal",
             "dataset",
-            "goals, wishes, journal",
+            f"{kb}/{s.planning_dir}",
             s.planning_dir,
             local=True,
         ),  # fmt: skip
-        Node("applications", "Applications", "dataset", "frozen PDFs, released postings"),
+        Node("applications", "Application folders", "dataset", "drafts, frozen PDFs, postings"),
         Node("job-postings", "Job postings", "dataset", "imported postings"),
         Node("postings-commute", "Postings with commute", "dataset", "car and bike times added"),
         # actionables: what makes the owner act
         Node(
             "act-university",
-            "University board",
+            "Do the university work",
             "actionable",
-            "exams, submissions, deadlines",
+            "University board: exams, submissions, deadlines",
             url=_project_url(s.university_project),
         ),  # fmt: skip
         Node(
             "act-day-plan",
-            "Day plan",
+            "Follow the day plan",
             "actionable",
-            "calendar 'LifeOS'",
+            "Google calendar 'LifeOS'",
             url="https://calendar.google.com",
         ),  # fmt: skip
         Node(
             "act-job-assessments",
-            "Job assessments",
+            "Pick jobs to apply for",
             "actionable",
-            "apply / maybe / no",
+            "Jobs page: apply / maybe / no",
             url="/jobs",
         ),  # fmt: skip
         Node(
             "act-applications",
-            "Applications board",
+            "Review and send applications",
             "actionable",
-            "documents to review",
+            "Applications board: CV and letter to review",
             url=_project_url(s.applications_project),
         ),  # fmt: skip
         Node(
             "act-tasks",
-            "LifeOS Tasks",
+            "Approve and review AI work",
             "actionable",
-            "AI work to review",
+            "LifeOS Tasks board: approve tickets, review results",
             url=_project_url(tasks_board),
         ),  # fmt: skip
         # second order: actionables and the control room as data for new actionables
         Node(
             "boards",
-            "Boards",
+            "All boards",
             "dataset",
             "University, Applications, LifeOS Tasks",
             derived_from=("act-university", "act-applications", "act-tasks"),
         ),  # fmt: skip
-        Node("control-room", "Control room", "dataset", "flows and lights", local=True),
-        Node("control-explanation", "Explanation", "dataset", "what is wrong and what to do"),
+        Node("control-room", "Process lights", "dataset", "this page: flows, lights", local=True),
+        Node("control-explanation", "Problem explanation", "dataset", "what is wrong, what to do"),
         # technical foundation
         Node("pull-requests", "Pull requests", "source", "released by the assistant"),
-        Node("tickets", "Ticket copy", "dataset", "ready/tickets"),
+        Node("tickets", "Tickets in the vault", "dataset", "ready/tickets"),
         Node("app-live", "Running app", "dataset", "deployed branch"),
         Node("vault-remote", "Vault repository", "dataset", "private GitHub repo"),
         Node("claude-code-pc", "Claude Code on the PC", "source", "session transcripts"),
@@ -283,7 +282,7 @@ def build_catalog(s: Settings) -> Catalog:
     processes = [
         _daily(
             "moodle-sync",
-            "Moodle sync",
+            "Mirror Moodle courses",
             s.moodle_sync_at,
             inputs=("moodle",),
             outputs=("kb-moodle",),
@@ -294,7 +293,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         (_job if s.teams_mail_interval > 0 else _daily)(
             "teams-mail",
-            "Teams messages",
+            "Import Teams chats from Gmail",
             s.teams_mail_interval or s.teams_mail_sync_at,
             inputs=("gmail",),
             outputs=("kb-teams-chats",),
@@ -304,7 +303,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         Process(
             "teams-files",
-            "Teams files",
+            "Mirror Teams files from the PC",
             PC,
             "daily 07:00 and at logon",
             enabled=pc_on,
@@ -319,7 +318,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         Process(
             "presentations",
-            "Presentations sync",
+            "Turn presentations into notes",
             MANUAL,
             "button",
             enabled=bool(s.ms_client_id and s.onedrive_folder and s.state_dir),
@@ -333,7 +332,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         _job(
             "uni-planner",
-            "Study planner",
+            "Turn course material into university tickets",
             s.uni_planner_interval,
             enabled=bool(s.github_token and s.university_project),
             inputs=("kb-moodle", "kb-teams-chats", "kb-teams-files"),
@@ -350,7 +349,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         _job(
             "calendar-sync",
-            "Calendar sync",
+            "Copy appointments into the LifeOS calendar",
             s.calendar_sync_interval,
             inputs=("google-calendar",),
             outputs=("act-day-plan",),
@@ -359,7 +358,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         _daily(
             "calendar-planner",
-            "Day planner",
+            "Plan the coming days",
             s.planner_at,
             inputs=("google-calendar", "kb-planning"),
             outputs=("act-day-plan",),
@@ -369,7 +368,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         _job(
             "planner-queue",
-            "Planner queue",
+            "Re-plan after changes",
             60 if s.calendar_sync_interval > 0 else 0,
             inputs=("google-calendar", "kb-planning"),
             outputs=("act-day-plan",),
@@ -379,7 +378,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         Process(
             "job-import",
-            "Job import",
+            "Fetch job postings from devjobs.at",
             PC,
             "hourly and at logon",
             enabled=pc_on,
@@ -394,7 +393,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         _job(
             "commute",
-            "Commute times",
+            "Add commute times to postings",
             HOUR if s.ors_api_key else 0,
             inputs=("job-postings",),
             outputs=("postings-commute",),
@@ -403,7 +402,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         _job(
             "job-matcher",
-            "Job matcher",
+            "Rate postings against the job profiles",
             600 if agents_on else 0,
             inputs=("postings-commute",),
             outputs=("act-job-assessments",),
@@ -414,7 +413,7 @@ def build_catalog(s: Settings) -> Catalog:
         # the application cycle: you apply → the writer drafts → you review and send
         Process(
             "start-application",
-            "Start application",
+            "Start an application",
             MANUAL,
             "'Apply' on the Jobs page",
             enabled=bool(s.github_token and s.applications_project),
@@ -429,7 +428,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         _job(
             "application-writer",
-            "Application writer",
+            "Write CV and cover letter",
             s.agents_interval if agents_on else 0,
             job="agents",
             inputs=("applications",),
@@ -443,7 +442,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         _job(
             "applications-board",
-            "Applications watcher",
+            "Archive sent applications",
             s.applications_interval,
             enabled=bool(s.github_token and s.applications_project),
             outputs=("applications",),
@@ -455,7 +454,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         _job(
             "agents",
-            "AI teammates",
+            "Work on approved LifeOS tasks",
             s.agents_interval if agents_on else 0,
             outputs=("act-tasks",),
             reacts_to=("act-tasks",),
@@ -468,7 +467,7 @@ def build_catalog(s: Settings) -> Catalog:
         # second order
         _job(
             "lifeos-manager",
-            "LifeOS manager",
+            "Keep LifeOS running",
             s.manager_interval if s.github_token else 0,
             inputs=("boards", "control-room", "control-explanation"),
             outputs=("act-tasks",),
@@ -489,7 +488,7 @@ def build_catalog(s: Settings) -> Catalog:
         # technical foundation
         _job(
             "git-sync",
-            "Vault sync",
+            "Sync the vault with GitHub",
             s.git_sync_interval,
             inputs=VAULT_TARGETS,
             outputs=("vault-remote",),
@@ -499,7 +498,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         Process(
             "deployer",
-            "Deployer",
+            "Test and deploy released changes",
             HOST,
             "every few seconds",
             enabled=releases,
@@ -513,7 +512,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         Process(
             "tickets",
-            "Ticket copy",
+            "Copy GitHub tickets into the vault",
             MANUAL,
             "button",
             enabled=bool(s.github_token),
@@ -528,7 +527,7 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         Process(
             "claude-usage",
-            "Claude Code usage",
+            "Report Claude Code token usage",
             PC,
             "every 15 min and at logon",
             enabled=pc_on,

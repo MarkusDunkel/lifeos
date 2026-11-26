@@ -21,6 +21,9 @@ export type AgentQuota = {
   runsToday: number;
   dailyLimit: number | null;
   exhausted: boolean;
+  /** Tokens of all its model calls today (local day), and what the API billed for them. */
+  tokensToday: number;
+  usdToday: number;
   note: string;
   limits: string[];
 };

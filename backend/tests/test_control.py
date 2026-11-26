@@ -121,7 +121,7 @@ def test_missing_precondition_is_red_and_targets_inherit(tmp_path):
     level, reason = light(result, "teams-mail")
     assert level == FAIL and "reconnect" in reason
     node = next(n for n in result["nodes"] if n["id"] == "kb-teams-chats")
-    assert node["level"] == FAIL and "Teams messages" in node["reason"]
+    assert node["level"] == FAIL and "Import Teams chats from Gmail" in node["reason"]
 
 
 def test_pc_processes(tmp_path):
@@ -360,7 +360,7 @@ def test_actionable_trusts_upstream_and_counts_new_material(tmp_path):
     status = Control(s, Vault.open(s.vault_root), s.state_dir / "jobs.json").status(now)
     uni = next(n for n in status["nodes"] if n["id"] == "act-university")
     assert uni["kind"] == "actionable" and uni["url"] == "https://github.com/users/me/projects/5"
-    assert uni["level"] == "warn" and "Moodle sync" in uni["reason"]
+    assert uni["level"] == "warn" and "Mirror Moodle courses" in uni["reason"]
     based = {b["id"]: b for b in uni["trust"]["basedOn"]}
     assert based["kb-moodle"]["level"] == "fail" and based["kb-moodle"]["newSince"] == 1
     assert based["kb-teams-files"]["newSince"] == 0  # Teams/Chats belongs to its own node
@@ -418,7 +418,8 @@ def test_second_order_manager_and_derived_boards(tmp_path):
     nodes = {n["id"]: n for n in result["nodes"]}
     assert nodes["act-tasks"]["level"] == FAIL  # the AI teammates failed
     assert nodes["boards"]["kind"] == "dataset"
-    assert nodes["boards"]["level"] == FAIL and "LifeOS Tasks" in nodes["boards"]["reason"]
+    assert nodes["boards"]["level"] == FAIL
+    assert "Approve and review AI work" in nodes["boards"]["reason"]
     assert nodes["control-room"]["level"] == "ok"
     off = run(tmp_path, {}, github_token="t")
     assert not next(p for p in off["processes"] if p["id"] == "lifeos-manager")["enabled"]
@@ -498,7 +499,16 @@ def test_agent_quotas_mark_a_used_up_daily_limit(tmp_path):
     today = NOW.astimezone(TZ).date().isoformat()
     target.write_text(json.dumps({"days": {today: {"auto": 1, "manual": 0}}}), encoding="utf-8")
     report = {"callsDay": today, "calls": {"n": 2}}
-    quotas = agent_quotas(vault, build_catalog(s), NOW.astimezone(TZ), report)
+    ledger = [
+        {"at": iso(timedelta(hours=1)), "process": "control-report", "tokens": 500},
+        {"at": iso(timedelta(hours=2)), "process": "control-report", "tokens": 250, "usd": 0.01},
+        {"at": iso(timedelta(days=2)), "process": "control-report", "tokens": 999},  # not today
+        {"at": iso(timedelta(hours=1)), "process": "agents", "detail": "job-matcher", "tokens": 7},
+    ]
+    quotas = agent_quotas(vault, build_catalog(s), NOW.astimezone(TZ), report, ledger=ledger)
+    assert quotas["control-room"]["tokensToday"] == 750
+    assert quotas["control-room"]["usdToday"] == 0.01
+    assert quotas["job-matcher"]["tokensToday"] == 7
     room = quotas["control-room"]
     assert room["runsToday"] == 2 and room["dailyLimit"] == 2 and room["exhausted"]
     assert [p["ref"] for p in room["processes"]] == ["P-46"]

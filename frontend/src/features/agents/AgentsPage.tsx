@@ -3,6 +3,7 @@ import { useLocation } from "@tanstack/react-router";
 import { Bot, TriangleAlert } from "lucide-react";
 import { useEffect } from "react";
 import { ApiError } from "../../lib/api";
+import { compact } from "../control/tokens";
 import { type AgentQuota, type AgentSummary, agentsQuery, type Billing, BILLING_LABELS, setBilling } from "./api";
 
 /** When it runs, how often it ran today and what limits it has. */
@@ -50,6 +51,10 @@ function QuotaBox({ quota }: { quota: AgentQuota }) {
             />
           </div>
         )}
+        <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+          <span className="font-medium">{compact(quota.tokensToday)}</span> tokens burned today
+          {quota.usdToday > 0 && ` · $${quota.usdToday.toFixed(2)} billed by the API`}
+        </p>
         {quota.note && <p className="mt-1 text-xs text-slate-500">{quota.note}</p>}
         {exhausted && (
           <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">

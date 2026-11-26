@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,10 @@ log = logging.getLogger("lifeos.agents")
 
 STATUS = "Status"
 SHORT_DESCRIPTION_LIMIT = 250
+# GitHub clears the items' values of a field whose options were replaced *asynchronously*:
+# values written back right away can be wiped again. So wait, write back, check, repeat.
+RESTORE_PAUSE = 3.0
+RESTORE_ROUNDS = 5
 
 
 def split_project(ref: str) -> tuple[str, int]:
@@ -125,9 +130,11 @@ class BoardMirror:
         state_file: Path,
         on_drift: Callable[[BoardContract, list[str]], None] | None = None,
         on_views: Callable[[BoardContract, list[ViewSpec]], None] | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.gh = gh
         self.state_file = state_file
+        self.sleep = sleep
         self.on_drift = on_drift
         self.on_views = on_views  # views were created that need settings the API cannot make
 
@@ -271,10 +278,29 @@ class BoardMirror:
             node["id"]: item_values(node, project.fields).get(field_name)
             for node in self.gh.project_items(project.id)
         }
+        # a copy of the old values, so they can be restored by hand if all else fails
+        backup = self.state_file.with_name(f"values-before-{owner}-{number}-{field_name}.json")
+        write_atomic(backup, json.dumps(before, ensure_ascii=False, indent=1))
+        wanted = {
+            item_id: (renames or {}).get(value, value)
+            for item_id, value in before.items()
+            if (renames or {}).get(value, value) in options
+        }
         self.gh.set_options(f.id, options, descriptions)
         fresh = self.gh.project(owner, number)
         new_field = fresh.fields[field_name]
-        for item_id, value in before.items():
-            value = (renames or {}).get(value, value)
-            if value in options:
+        missing = dict(wanted)
+        for _ in range(RESTORE_ROUNDS):
+            self.sleep(RESTORE_PAUSE)
+            for item_id, value in missing.items():
                 self.gh.set_field(fresh.id, item_id, new_field, value)
+            self.sleep(RESTORE_PAUSE)
+            now = {
+                node["id"]: item_values(node, fresh.fields).get(field_name)
+                for node in self.gh.project_items(fresh.id)
+            }
+            missing = {i: v for i, v in wanted.items() if now.get(i) != v}
+            if not missing:
+                return
+        log.warning("%s: %d value(s) of '%s' could not be restored, see %s",
+                    f"{owner}/{number}", len(missing), field_name, backup)  # fmt: skip

@@ -36,8 +36,8 @@ thing to do (a button in LifeOS, a command, "turn on the PC", or "nothing, it re
 itself"). Name what is affected (which folder or calendar is out of date). Problems with one
 cause (e.g. the worker is down) get one finding. Be brief: the summary is one or two
 sentences, each finding one sentence for cause and one for action. When you name a process
-in the text, use its label with its global id, e.g. "Moodle sync (P-30)". Never invent facts
-that are not in the data; say when the cause is unclear. {language}"""
+in the text, use its label with its global id, e.g. "Mirror Moodle courses (P-30)". Never
+invent facts that are not in the data; say when the cause is unclear. {language}"""
 
 
 class Finding(BaseModel):

@@ -104,7 +104,8 @@ ticket for the owner. No ticket waits although its reason is gone.
 
 Every source, dataset, actionable and process has a global id (`ref`: S-, D-, A- or P- and
 a number unique across all, e.g. P-30); the owner may use it alone, even just the number.
-In tickets and explanations name a block by its label with that id, e.g. "Moodle sync (P-30)".
+In tickets and explanations name a block by its label with that id, e.g.
+"Mirror Moodle courses (P-30)".
 
 How you work:
 - Read CLAUDE.md and your notes ({notes}) first: earlier cases and what helped. When you

@@ -123,12 +123,32 @@ def _limits(raw: dict) -> list[str]:
     return out
 
 
+def _tokens_today(ledger: list[dict], agent: str, jobs: set[str], now: datetime) -> dict:
+    """Tokens (and API dollars) booked to the agent today, local time: board agents are
+    named in ``detail``, the others by the job their process runs in."""
+    tokens, usd = 0, 0.0
+    for line in ledger:
+        detail = line.get("detail")
+        if not (detail == agent or (not detail and line.get("process") in jobs)):
+            continue
+        try:
+            at = datetime.fromisoformat(str(line["at"]).replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            continue
+        if at.astimezone(now.tzinfo).date() != now.date():
+            continue
+        tokens += int(line.get("tokens", 0))
+        usd += float(line.get("usd", 0.0))
+    return {"tokensToday": tokens, "usdToday": round(usd, 4)}
+
+
 def agent_quotas(
     vault: Vault, catalog: Catalog, now: datetime, report: dict | None,
-    config: AgentConfig | None = None,
+    config: AgentConfig | None = None, ledger: list[dict] | None = None,
 ) -> dict[str, dict]:  # fmt: skip
     """Per agent: the processes that call it (with their schedule), how many runs it had
-    today, its daily limit and whether that is used up – for the agents page."""
+    today, its daily limit and whether that is used up, and the tokens it used today –
+    for the agents page. ``now`` is local time."""
     cfg = config or load_config(vault)
     today = now.date().isoformat()
     usage = ai_usage(vault, catalog, now, report, cfg)
@@ -151,7 +171,10 @@ def agent_quotas(
             note = f"automatic {auto} of {auto_limit}, on request {manual} of {manual_limit}"
             if auto >= auto_limit and not exhausted:
                 note += " – automatic runs used up, requests still work"
-        result[name] = {
+        # the board agents share one job ("agents"): their calls are told apart by `detail`
+        shared = {p.job or p.id for p in catalog.processes if WORKFLOW_AGENTS in p.ai}
+        jobs = {p.job or p.id for p in catalog.processes if name in p.ai} - shared
+        result[name] = _tokens_today(ledger or [], name, jobs, now) | {
             "processes": processes,
             "runsToday": runs,
             "dailyLimit": limit,

@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from lifeos.connectors.github.sync import STATE_DIR as GITHUB_STATE
 from lifeos.connectors.onedrive.sync import STATE_FILE as PRESENTATIONS_STATE
+from lifeos.core import tokens
 from lifeos.core.config import Settings
 from lifeos.core.vault import KNOWLEDGE, Vault, VaultPathError
 from lifeos.modules.applications.service import STATE_DIR as APPLICATIONS_STATE
@@ -81,7 +82,8 @@ class Control:
     def agent_quotas(self, now: datetime | None = None) -> dict[str, dict]:
         """Per agent: its processes, runs today, daily limit, used up or not."""
         now = (now or datetime.now(UTC)).astimezone(self.tz)
-        return agent_quotas(self.vault, self.catalog, now, self.report())
+        ledger = tokens.read(self.state_dir / tokens.LEDGER_FILE) if self.state_dir else []
+        return agent_quotas(self.vault, self.catalog, now, self.report(), ledger=ledger)
 
     def manager_notes(self) -> dict[str, dict[str, Any]]:
         """What the LifeOS manager says about each yellow or red light: its explanation,

@@ -382,6 +382,23 @@ def test_renamed_agent_keeps_its_tickets(gh, vault) -> None:
     assert agent.former_options == ["AI: Helper"]
 
 
+def test_values_wiped_late_by_github_are_written_again(gh, vault) -> None:
+    item = gh.ticket(3, "Running task", Status="In Progress")
+    real = gh.set_field
+    lost = []
+
+    def flaky(project_id, item_id, field, value):  # GitHub clears the first write later
+        if not lost:
+            lost.append(value)
+            return None
+        return real(project_id, item_id, field, value)
+
+    gh.set_field = flaky
+    mirrored(gh, vault)  # replaces the Status options
+    assert lost == ["In Progress"]
+    assert gh.values(item)["Status"] == "In Progress"
+
+
 def test_mirror_reports_drift_once_instead_of_overwriting(gh, vault) -> None:
     mirrored(gh, vault)
     gh.projects[4]["readme"] = "edited on GitHub"
