@@ -10,7 +10,7 @@
 #let sp = float(sys.inputs.at("spread", default: "1"))
 #let size = layout.at("font_size", default: 10.0) * 1pt
 #let titles = cv.at("sections", default: (
-  experience: "Arbeitserfahrung", education: "Ausbildung", more: "Weiteres zu meiner Person",
+  experience: "Arbeitserfahrung", education: "Ausbildung", more: "Fähigkeiten und Interessen",
 ))
 
 #set document(title: p.name + " – Lebenslauf", author: p.name)
