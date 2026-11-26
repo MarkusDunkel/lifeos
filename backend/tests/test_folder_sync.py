@@ -118,3 +118,40 @@ def test_task_xml_runs_sync_with_commit() -> None:
     )
     assert "teams-files sync --commit --env-file" in xml
     assert "2026-01-01T07:00:00" in xml
+
+
+def _git(root: Path, *args: str) -> str:
+    import subprocess
+
+    return subprocess.run(
+        ["git", "-C", str(root), *args], check=True, capture_output=True, text=True
+    ).stdout
+
+
+def test_sync_commits_without_console(
+    vault_root: Path, source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The scheduled task runs under pythonw, where ``sys.stdout`` is ``None``."""
+    import sys
+
+    from lifeos.cli import main
+
+    _git(vault_root, "init", "-q")
+    _git(vault_root, "config", "user.email", "test@example.com")
+    _git(vault_root, "config", "user.name", "Test")
+    _git(vault_root, "add", "-A")
+    _git(vault_root, "commit", "-q", "-m", "init")
+    # Environment variables win over the env file: pin the vault, never report anywhere.
+    monkeypatch.setenv("LIFEOS_VAULT_ROOT", str(vault_root))
+    for key in ("CONTROL_SERVER_URL", "JOBSEARCH_SERVER_URL", "CONTROL_REPORT_TOKEN"):
+        monkeypatch.delenv(f"LIFEOS_{key}", raising=False)
+    env = tmp_path / ".env"
+    env.write_text(f"LIFEOS_VAULT_ROOT={vault_root}\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "stdout", None)
+
+    args = ["teams-files", "sync", "--env-file", str(env), "--source", str(source), "--commit"]
+    code = main(args)
+
+    assert code == 0
+    assert _git(vault_root, "log", "-1", "--format=%s").startswith("teams-files:")
+    assert not _git(vault_root, "status", "--porcelain", "--", KB)

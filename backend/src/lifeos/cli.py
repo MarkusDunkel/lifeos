@@ -202,10 +202,27 @@ def _claude_usage(args: argparse.Namespace) -> int:
 
 
 def _print(data) -> None:
+    """Print ``data`` as UTF-8 JSON; never fails.
+
+    Scheduled tasks run under ``pythonw`` where ``sys.stdout`` is ``None``. The output is
+    only informative (the result goes to the control panel), so it is skipped there and a
+    failing write never stops the caller (e.g. before the vault commit).
+    """
     import json
 
+    out = sys.stdout
+    if out is None:
+        return
     text = json.dumps(data, indent=2, ensure_ascii=False)
-    sys.stdout.buffer.write(text.encode("utf-8") + b"\n")
+    try:
+        buffer = getattr(out, "buffer", None)
+        if buffer is not None:
+            buffer.write(text.encode("utf-8") + b"\n")
+            buffer.flush()
+        else:
+            out.write(text + "\n")
+    except (OSError, ValueError, UnicodeError):
+        pass
 
 
 def _tasks(args) -> int:
