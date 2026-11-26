@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { Activity, Bot, BookOpen, Briefcase, CalendarCheck, ClipboardList, Compass, FileCheck, GraduationCap, KanbanSquare, NotebookPen, Settings, StickyNote } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { controlQuery } from "../features/control/api";
 import { LEVEL_STYLE } from "../features/control/layout";
 
@@ -30,6 +30,12 @@ function Alert({ to }: { to: string }) {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const bar = useRef<HTMLElement>(null);
+  const path = useRouterState({ select: (s) => s.location.pathname });
+  // the bottom bar scrolls sideways on narrow phones: keep the current page's entry in view
+  useEffect(() => {
+    bar.current?.querySelector<HTMLElement>("[data-status=active]")?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [path]);
   return (
     <div className="flex h-full flex-col md:flex-row">
       {/* Desktop rail */}
@@ -52,12 +58,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="min-h-0 min-w-0 flex-1">{children}</main>
 
       {/* Mobile bottom bar */}
-      <nav className="flex shrink-0 justify-around border-t border-slate-200 bg-slate-50 pb-[env(safe-area-inset-bottom)] md:hidden dark:border-slate-800 dark:bg-slate-900">
+      <nav
+        ref={bar}
+        className="flex shrink-0 [scrollbar-width:none] overflow-x-auto overscroll-x-contain border-t border-slate-200 bg-slate-50 pb-[env(safe-area-inset-bottom)] md:hidden dark:border-slate-800 dark:bg-slate-900">
         {NAV.map(({ to, label, icon: Icon }) => (
           <Link
             key={to}
             to={to}
-            className="relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] text-slate-500"
+            className="relative flex min-w-16 flex-1 shrink-0 flex-col items-center gap-0.5 py-2 text-[10px] whitespace-nowrap text-slate-500"
             activeProps={{ className: "!text-sky-600 dark:!text-sky-400" }}
           >
             <Icon className="size-5" />
