@@ -79,10 +79,18 @@ def run_round(
     if mirror_only:
         return events, failed
     releases = Releases(gh, vault, cfg, git, queue, app)
+    turns = TurnMirror(gh, vault.resolve(TURN_STATE))
+
+    def sync_turns() -> None:
+        try:
+            events.extend(turns.sync(cfg))
+        except (GitHubError, ValueError) as exc:
+            events.append(f"turn: {exc}")
+
     for contract in order:
         team = Team(
             gh, vault, cfg, contract, workflows, vault.resolve(runs_state(contract.board)),
-            git=git, timezone=timezone, repo=repo, releases=releases,
+            git=git, timezone=timezone, repo=repo, releases=releases, on_turn=sync_turns,
         )  # fmt: skip
         try:
             events += team.poll()
@@ -90,7 +98,7 @@ def run_round(
             events.append(f"{contract.board}: {exc}")
             failed = True
     try:
-        events += TurnMirror(gh, vault.resolve(TURN_STATE)).sync(cfg)
+        events += turns.sync(cfg)
     except (GitHubError, ValueError) as exc:
         events.append(f"turn: {exc}")
         failed = True

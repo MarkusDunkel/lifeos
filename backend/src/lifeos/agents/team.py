@@ -202,8 +202,12 @@ class Team:
         texts: Texts | None = None,
         repo: str | None = None,
         releases: Any | None = None,
+        on_turn: Callable[[], None] | None = None,
     ) -> None:
         self.gh = gh
+        # whose turn changed on a ticket (taken, blocked, handed over): mirror it right away,
+        # not only at the end of the round – a run can take many minutes
+        self.on_turn = on_turn or (lambda: None)
         self.repo = repo  # repository for new tickets in the inbox (proposals)
         self.releases = releases  # lifeos.agents.releases.Releases
         self.vault = vault
@@ -295,6 +299,7 @@ class Team:
         self.gh.add_comment(ticket.issue_id, comments.interrupted_comment(self.t, agent, minutes))
         state.pop(ticket.item_id, None)
         self._save(state)
+        self.on_turn()
         return f"#{ticket.number}: run interrupted → blocked"
 
     # -- one run ------------------------------------------------------------------
@@ -323,6 +328,7 @@ class Team:
             "issue": ticket.number,
         }
         self._save(state)
+        self.on_turn()
 
         link, revision, dirty = self.instructions(agent)
         instructions = comments.instructions_line(self.t, link, revision, dirty)
@@ -408,6 +414,7 @@ class Team:
         state = self._load()
         state.pop(ticket.item_id, None)
         self._save(state)
+        self.on_turn()
         return f"#{ticket.number} {agent.name}: {outcome}" + (f" – {summary}" if summary else "")
 
     def _release(

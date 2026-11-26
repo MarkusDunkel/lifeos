@@ -135,3 +135,31 @@ def test_title_is_mirrored(gh: FakeGitHub, vault: Vault) -> None:
     cfg = load_config(vault)
     BoardMirror(gh, vault.resolve(".lifeos/agents/boards.json")).sync(cfg.boards["tasks"], cfg)
     assert gh.projects[3]["title"] == "Team Tasks"
+
+
+def test_turn_is_mirrored_while_the_agent_works(gh: FakeGitHub, vault: Vault) -> None:
+    from test_agents import HELPER
+
+    from lifeos.agents.service import run_round
+    from lifeos.agents.team import RunResult
+
+    (vault.root / "agents").mkdir()
+    (vault.root / "agents/helper.md").write_text(HELPER, encoding="utf-8")
+    item = gh.ticket(3, "stuck", Status="In Progress", Responsible="AI: Helper", AI="blocked")
+    issue = lambda: gh.issues[gh.items[item]["issue"]]  # noqa: E731
+    run_round(gh, vault, {}, "someone/board")
+    assert issue()["assignees"]["nodes"] == [{"login": "owner"}]  # blocked: the owner's turn
+
+    seen = []
+
+    def help_(ctx) -> RunResult:
+        # in the middle of the run: already the AI's turn on the issue
+        seen.append(
+            (list(issue()["assignees"]["nodes"]), [n["name"] for n in issue()["labels"]["nodes"]])
+        )
+        return RunResult(report="done", summary="done")
+
+    gh.values(item).pop("AI")  # the block is lifted
+    run_round(gh, vault, {"help": help_}, "someone/board")
+    assert seen == [([], [TURN_LABEL])]
+    assert issue()["assignees"]["nodes"] == [{"login": "owner"}]  # Review: the owner again

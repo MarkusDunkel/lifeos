@@ -50,6 +50,8 @@ from lifeos.agents.config import AGENTS_DIR, AgentConfig, load_config
 from lifeos.agents.inbox import assistant_option, create_inbox_ticket
 from lifeos.agents.llm import LlmSettings
 from lifeos.agents.mirror import STATUS, split_project
+from lifeos.agents.service import TURN_STATE
+from lifeos.agents.turn import TurnMirror
 from lifeos.connectors.github.client import GitHubError, item_values
 from lifeos.core.vault import STATE, Vault, write_atomic
 
@@ -489,6 +491,12 @@ class Manager:
                 unblocked.add(u.url)
             except (GitHubError, KeyError) as exc:
                 events.append(f"failed unblock #{item['number']}: {exc}")
+
+        if unblocked:  # it is the AI's turn again: mirror it now, not after the next round
+            try:
+                events += TurnMirror(gh, self.vault.resolve(TURN_STATE)).sync(cfg)
+            except (GitHubError, ValueError) as exc:
+                events.append(f"failed turn: {exc}")
 
         known = {p["id"]: p for p in self.status()["processes"]}
         for r in result.run_now:
