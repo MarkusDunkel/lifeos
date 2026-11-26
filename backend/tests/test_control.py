@@ -420,3 +420,9 @@ def test_second_order_manager_and_derived_boards(tmp_path):
     assert nodes["control-room"]["level"] == "ok"
     off = run(tmp_path, {}, github_token="t")
     assert not next(p for p in off["processes"] if p["id"] == "lifeos-manager")["enabled"]
+
+
+def test_teams_mail_interval_overrides_daily_slot(tmp_path):
+    cat = build_catalog(settings(tmp_path, teams_mail_interval=3600))
+    proc = next(p for p in cat.processes if p.id == "teams-mail")
+    assert proc.every == 3600 and proc.daily_at is None and proc.trigger == "hourly"

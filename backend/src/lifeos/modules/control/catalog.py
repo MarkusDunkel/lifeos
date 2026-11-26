@@ -245,10 +245,10 @@ def build_catalog(s: Settings) -> Catalog:
             run_path="/api/moodle/sync",
             description="Mirrors the Moodle courses and commits them as `moodle: …`.",
         ),  # fmt: skip
-        _daily(
+        (_job if s.teams_mail_interval > 0 else _daily)(
             "teams-mail",
             "Teams messages",
-            s.teams_mail_sync_at,
+            s.teams_mail_interval or s.teams_mail_sync_at,
             inputs=("gmail",),
             outputs=("kb-teams-chats",),
             checks=("google", "gmail"),

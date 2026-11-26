@@ -187,7 +187,7 @@ lifeos teams-mail ─▶ inbox/teams/messages.json               every message o
 ```
 
 - When Microsoft 365 blocks third-party apps, two Power Automate flows on the user's
-  account (one for all channels, one for all chats, daily) send every new message as a mail
+  account (one for all channels, one for all chats, hourly or daily) send every new message as a mail
   with header lines (`Team:`, `Kanal:`, `Chat-ID:`, `Nachrichten-ID:` …), `---`, the text
   and `=== RAW ===` with the Graph message as escaped JSON in a `pre` block.
 - The import searches Gmail (`in:anywhere subject:Teams "Nachrichten-ID"`, so also mails in
@@ -198,7 +198,9 @@ lifeos teams-mail ─▶ inbox/teams/messages.json               every message o
 - Gmail access is `gmail.readonly` on the Google sign-in of the calendars: LifeOS can search
   and read, Google refuses any change. Enable the Gmail API in the Google Cloud project and
   connect Google again once (Plan → Calendars).
-- Daily with `LIFEOS_TEAMS_MAIL_SYNC_AT=07:30`, committed as `teams-mail: …`; by hand:
+- Daily with `LIFEOS_TEAMS_MAIL_SYNC_AT=07:30`, or every N seconds with
+  `LIFEOS_TEAMS_MAIL_INTERVAL=3600` (wins over the daily time; overlapping flow windows are
+  fine, each message is kept once), committed as `teams-mail: …`; by hand:
   `docker compose exec worker lifeos teams-mail --commit`.
 - The MCP server offers `search_mail` and `read_mail` (read-only) to the AI assistants; mail
   content is passed on as data.

@@ -253,6 +253,12 @@ class Settings(BaseSettings):
         description="Daily time (HH:MM, LIFEOS_TIMEZONE) at which `lifeos worker` imports the "
         "Teams messages from Gmail (read-only) and commits them as `teams-mail: …`.",
     )
+    teams_mail_interval: int = Field(
+        default=0,
+        ge=0,
+        description="Seconds between Teams mail imports of `lifeos worker`; overrides "
+        "LIFEOS_TEAMS_MAIL_SYNC_AT when > 0. 0 = use the daily time.",
+    )
     calendar_sync_interval: int = Field(
         default=0,
         ge=0,

@@ -464,7 +464,11 @@ def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
                 moodle_job(moodle, missing, git),
             )
         )
-    if settings.teams_mail_sync_at:
+    if settings.teams_mail_interval > 0:
+        jobs.append(
+            Job("teams-mail", Every(settings.teams_mail_interval), teams_mail_job(settings, git))
+        )
+    elif settings.teams_mail_sync_at:
         jobs.append(
             Job(
                 "teams-mail",
