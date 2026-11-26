@@ -86,7 +86,7 @@ Future writers (OneDrive, tickets, study progress, agents) follow the same patte
 | `calendar-planner` | daily at a local time: re-plan the next 7 days | `LIFEOS_PLANNER_AT=17:30` |
 | `git-sync` | every N seconds | `LIFEOS_GIT_SYNC_INTERVAL` |
 | `control-report` | every N seconds: the AI supervisor explains yellow and red processes (calls the model only when the problems change) | `LIFEOS_CONTROL_REPORT_INTERVAL` |
-| `lifeos-manager` | every N seconds: the LifeOS manager reads all boards and the control room, fixes what it can, opens tickets for the rest (model only when something changed, at least daily) | `LIFEOS_MANAGER_INTERVAL=7200` |
+| `lifeos-manager` | every N seconds: the watch of the LifeOS manager (code only); a repair run for new events (cooldown), a daily ideas run | `LIFEOS_MANAGER_INTERVAL=120` |
 
 The last run of every job (plus its last 20 runs) is kept in `state/jobs.json`
 (`GET /api/jobs/status`), so a restart neither repeats nor forgets a daily job.
@@ -150,9 +150,16 @@ jobs warn 1 h and fail 4 h after their slot. A stopped worker turns every worker
 `lifeos-manager` (`modules/manager/service.py`, agent file `agents/lifeos-manager.md`, needs
 `billing: subscription`) looks after the whole system. The code builds the picture: the
 control room status and every item of every board (`LIFEOS_GITHUB_PROJECTS`, applications,
-University) with fields and recent comments, plus the manager's own earlier tickets. When
-that picture is unchanged and the last run is less than 20 h ago, no model is called.
-Otherwise Claude Code runs with every tool directly in the vault (like the assistant with
+University) with fields and recent comments, plus the manager's own earlier tickets. Two beats decide whether the model runs:
+
+- The **watch** (every check, code only) compares with the last check: a ticket that became
+  `AI = blocked`, a process whose light got worse, an owner's comment on one of the
+  manager's tickets. Any of these starts a **repair run**, at most one model run per
+  `repair_cooldown_minutes` (agent file, default 15); it may not create proposals.
+- The **ideas run**, once a day from `ideas_at` (agent file, default 07:00 local time),
+  looks at everything and may add proposals.
+
+The first check after a deploy only remembers what is there. Then Claude Code runs with every tool directly in the vault (like the assistant with
 `access: full`) and may fix vault files itself. It answers with board actions the code checks
 and applies: `unblock` (clears `AI = blocked`), `run_now` (a worker job, via
 `state/job-requests.json`), `comments`, `create_tickets` in the inbox (`needs_you` →

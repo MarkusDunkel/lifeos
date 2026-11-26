@@ -3,13 +3,21 @@
 A worker job of the second order: it reads actionables (every board) and the control room
 itself as data, and makes a new actionable – tickets in the inbox of the LifeOS Tasks board.
 
+Two beats:
+
+- **Watch** (every check, a few minutes apart, code only): it looks for events that need a
+  reaction – a ticket that became blocked, a process that turned yellow or red (or worse),
+  an owner's comment on one of the manager's tickets. Then a **repair run** follows, at
+  most one every ``repair_cooldown_minutes`` (agent file); it creates no proposals.
+- **Ideas run** (daily at ``ideas_at``, agent file): the full look at everything, including
+  proposals that pursue the owner's vision.
+
 Each run:
 
 1. The code builds the picture: the control room status (every process with its
    description, inputs, outputs, light and recent runs, plus the AI diagnosis) and every
    item of every board (column, fields, assignees, recent comments), and the manager's
-   own earlier tickets. When that picture did not change since the last run and the last
-   run is less than ``REFRESH`` ago, the model is not called.
+   own earlier tickets.
 2. Claude Code runs with every tool directly in the vault (``access: full``, an owner's
    deliberate choice, like the assistant): it investigates and may fix vault files itself.
 3. It answers with a fixed set of board actions, which the code checks and applies:
@@ -23,13 +31,12 @@ most ``max_open_proposals`` proposals open.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import shlex
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -50,7 +57,8 @@ log = logging.getLogger("lifeos.manager")
 
 AGENT = "lifeos-manager"
 STATE_FILE = f"{STATE}/agents/{AGENT}.json"
-REFRESH = timedelta(hours=20)  # runs at least about once a day, for new proposals
+REPAIR, IDEAS = "repair", "ideas"
+LEVEL_RANK = {"ok": 0, "warn": 1, "check": 2, "fail": 2}
 AI_FIELD = "AI"
 RUNNING, BLOCKED = "running", "blocked"
 KEEP_CLOSED_DAYS = 30
@@ -63,9 +71,11 @@ TIMEOUT_MINUTES = 45
 SYSTEM = """\
 You are the LifeOS manager. LifeOS is the owner's personal system: background jobs on a
 server, scheduled tasks on the owner's PC, AI agents working on GitHub boards. You look after
-the whole system, every few hours, like a careful operations lead who also thinks ahead.
+the whole system like a careful operations lead who also thinks ahead.
 You run on the owner's server inside the LifeOS worker container, with every tool and no
 permission prompts. The working directory is the owner's vault (a git repository).
+
+{mode}
 
 Your job, in this order:
 1. Stuck work: tickets that wait although their reason is gone. Example: a ticket blocked
@@ -102,6 +112,18 @@ Rules:
 <manager_instructions>
 {instructions}
 </manager_instructions>"""
+
+
+MODES = {
+    REPAIR: """\
+This is a REPAIR run. The watch started it because of the `events` in the data (new blocks,
+worse lights, the owner's comments on your tickets). Handle those (points 1 to 3 below) and
+whatever else is plainly broken. Do not create proposals – the daily ideas run does that;
+the code refuses them here.""",
+    IDEAS: """\
+This is the daily IDEAS run: look at everything (points 1 to 4 below), including proposals
+that pursue the owner's vision.""",
+}
 
 
 class Unblock(BaseModel):
@@ -245,14 +267,36 @@ class Manager:
             if c["ok"] is not True
         ]  # fmt: skip
 
-    def fingerprint(self, items: list[dict[str, Any]], status: dict[str, Any]) -> str:
-        """Changes with any ticket (column, fields, comments) or any control-room problem."""
-        key = {
-            "items": sorted((i["url"], i["status"] or "", i["state"], i["updated"],
-                             json.dumps(i["fields"], sort_keys=True)) for i in items),
-            "problems": sorted(json.dumps(p, sort_keys=True) for p in self.problems(status)),
+    def watch(self, items: list[dict[str, Any]], status: dict[str, Any]) -> dict[str, Any]:
+        """What the watch compares between checks."""
+        return {
+            "blocked": sorted(i["url"] for i in items
+                              if i["state"] == "open" and i["fields"].get(AI_FIELD) == BLOCKED),
+            "problems": {p["id"]: p["level"] for p in self.problems(status)},
+            "own": {i["url"]: i["updated"] for i in items
+                    if i["openedBy"] == AGENT and i["state"] == "open"},
         }  # fmt: skip
-        return hashlib.sha1(json.dumps(key).encode()).hexdigest()[:16]
+
+    def events(
+        self, gh: Any, items: list[dict[str, Any]], seen: dict[str, Any], now: dict[str, Any]
+    ) -> list[str]:
+        """New since the last run: blocked tickets, worse lights, owner comments on the
+        manager's tickets (other agents' comments there are no reason to run)."""
+        by_url = {i["url"]: i for i in items}
+        found = [f"blocked: #{by_url[u]['number']} {by_url[u]['title']}"
+                 for u in now["blocked"] if u not in seen.get("blocked", [])]  # fmt: skip
+        before = seen.get("problems", {})
+        for pid, level in now["problems"].items():
+            if LEVEL_RANK.get(level, 0) > LEVEL_RANK.get(before.get(pid, "ok"), 0):
+                found.append(f"control room: {pid} is {level}")
+        for u, updated in now["own"].items():
+            old = seen.get("own", {}).get(u)
+            if old is None or old == updated:
+                continue
+            notes = gh.issue_comments(by_url[u]["issueId"])
+            if notes and comments.agent_of(notes[-1]["body"]) is None:
+                found.append(f"your comment on #{by_url[u]['number']} {by_url[u]['title']}")
+        return found
 
     def picture(self, gh: Any, items: list[dict[str, Any]], status: dict[str, Any]) -> dict:
         boards = []
@@ -311,25 +355,48 @@ class Manager:
         today = now.astimezone(self.tz).date().isoformat()
         state = self.state()
         runs_today = (state.get("runs") or {}).get(today, 0)
-        limit = int(agent.raw.get("daily_limit", 12))
+        limit = int(agent.raw.get("daily_limit", 30))
+        cooldown = timedelta(minutes=int(agent.raw.get("repair_cooldown_minutes", 15)))
+        ideas_at = _time(str(agent.raw.get("ideas_at", "07:00")))
 
         gh = self.gh_factory()
         boards = self.boards(gh)
         items = self.items(gh, boards)
         status = self.status()
-        sig = self.fingerprint(items, status)
-        last = _parse(state.get("lastRun"))
-        if not force and state.get("fingerprint") == sig and last and now - last < REFRESH:
-            return "skipped", "nothing changed"
+        watched = self.watch(items, status)
+        if "watch" not in state:  # first check: what is there now is known, not news
+            state["watch"] = watched
+            last = _parse(state.get("lastRun"))
+            if last and last.astimezone(self.tz).date().isoformat() == today:
+                state["ideasDay"] = today
+            self._save(state)
+            return "skipped", "nothing new (first check)"
+        found = self.events(gh, items, state["watch"], watched)
+        local = now.astimezone(self.tz)
+        if force or (state.get("ideasDay") != today and local.time() >= ideas_at):
+            mode = IDEAS
+        elif found:
+            last_repair = _parse(state.get("lastRepair"))
+            if last_repair and now - last_repair < cooldown:
+                wait = cooldown - (now - last_repair)
+                return "skipped", (f"waiting: {len(found)} event(s), next repair run in "
+                                   f"{max(1, round(wait.total_seconds() / 60))} min")  # fmt: skip
+            mode = REPAIR
+        else:
+            state["watch"] = watched  # e.g. a light got better: remember the new level
+            self._save(state)
+            return "skipped", "nothing new"
         if runs_today >= limit:
             return "skipped", f"daily limit of {limit} runs reached"
 
         language = agent.raw.get("language") or "English"
         max_open = int(agent.raw.get("max_open_proposals", 3))
         system = SYSTEM.format(
-            max_open=max_open, language=language, instructions=agent.body.strip()
-        )
-        prompt = json.dumps(self.picture(gh, items, status), ensure_ascii=False, indent=1)
+            max_open=max_open, language=language, instructions=agent.body.strip(),
+            mode=MODES[mode],
+        )  # fmt: skip
+        picture = self.picture(gh, items, status) | {"run": mode, "events": found}
+        prompt = json.dumps(picture, ensure_ascii=False, indent=1)
         effort = agent.raw.get("effort")
         minutes = int(agent.raw.get("timeout_minutes", TIMEOUT_MINUTES))
         cli = self.claude(self.settings, minutes * 60)
@@ -356,21 +423,25 @@ class Manager:
             return "error", f"the answer did not match the expected format: {exc}"
 
         texts = Texts.load(self.vault)
-        events = self.apply(gh, boards, items, result, cfg, texts, max_open)
+        events = self.apply(gh, boards, items, result, cfg, texts, max_open, mode)
         state["runs"] = {today: runs_today + 1}  # only today's count matters
         state["lastRun"] = now.isoformat(timespec="seconds")
+        state["lastRepair"] = now.isoformat(timespec="seconds")
+        if mode == IDEAS:
+            state["ideasDay"] = today
         # what the run itself changed on the boards is not news for the next run
-        state["fingerprint"] = self.fingerprint(self.items(gh, boards), self.status())
-        state["last"] = {"summary": result.summary, "fixed": result.fixed, "events": events,
+        state["watch"] = self.watch(self.items(gh, boards), self.status())
+        state["last"] = {"run": mode, "reasons": found, "summary": result.summary,
+                         "fixed": result.fixed, "events": events,
                          "pleaseCheck": result.please_check, "files": changed,
                          "tokens": call.tokens}  # fmt: skip
         self._save(state)
-        runlog = self._runlog(started, result, events, changed, call.tokens, log_rel)
+        runlog = self._runlog(started, mode, found, result, events, changed, call.tokens, log_rel)
         self.commit(
             [*changed, log_rel, runlog], f"agent({AGENT}): {result.summary[:72]}\n"
         )  # fmt: skip
         failed = [e for e in events if e.startswith("refused") or e.startswith("failed")]
-        message = f"{result.summary[:160]} · {len(events) - len(failed)} action(s)"
+        message = f"{mode} run: {result.summary[:160]} · {len(events) - len(failed)} action(s)"
         if changed:
             message += f", {len(changed)} file(s)"
         if failed:
@@ -382,6 +453,7 @@ class Manager:
     def apply(
         self, gh: Any, boards: list[Board], items: list[dict[str, Any]],
         result: ManagerResult, cfg: AgentConfig, texts: Texts, max_open: int,
+        mode: str = IDEAS,
     ) -> list[str]:  # fmt: skip
         events: list[str] = []
         by_url = {i["url"]: i for i in items}
@@ -444,6 +516,9 @@ class Manager:
             and proposal_label in i["body"]
         )  # fmt: skip
         for t in result.create_tickets:
+            if t.kind == "proposal" and mode != IDEAS:
+                events.append(f"refused proposal '{t.title[:60]}': only in the daily ideas run")
+                continue
             if t.kind == "proposal" and open_proposals >= max_open:
                 events.append(f"refused proposal '{t.title[:60]}': {max_open} already open")
                 continue
@@ -479,13 +554,14 @@ class Manager:
         return rel
 
     def _runlog(
-        self, started: datetime, result: ManagerResult, events: list[str],
-        changed: list[str], tokens: int, log_rel: str,
+        self, started: datetime, mode: str, reasons: list[str], result: ManagerResult,
+        events: list[str], changed: list[str], tokens: int, log_rel: str,
     ) -> str:  # fmt: skip
         rel = f"{AGENTS_DIR}/{AGENT}/runs.md"
         path = self.vault.resolve(rel)
         text = path.read_text(encoding="utf-8") if path.is_file() else "# Runs\n"
-        lines = ["", f"## {started:%Y-%m-%d %H:%M} · {result.summary[:120]}", ""]
+        lines = ["", f"## {started:%Y-%m-%d %H:%M} · {mode} · {result.summary[:120]}", ""]
+        lines += [f"- because: {r}" for r in reasons]
         lines += [f"- fixed: {f}" for f in result.fixed]
         lines += [f"- {e}" for e in events]
         lines += [f"- file: `{c}`" for c in changed]
@@ -497,6 +573,11 @@ class Manager:
 
 def _nodes(issue: dict[str, Any], key: str) -> list[dict[str, Any]]:
     return (issue.get(key) or {}).get("nodes") or []
+
+
+def _time(value: str) -> time:
+    hours, minutes = (int(x) for x in value.split(":"))
+    return time(hours, minutes)
 
 
 def _parse(value: str | None) -> datetime | None:

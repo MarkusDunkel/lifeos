@@ -96,13 +96,20 @@ def gh() -> GitHub:
     return fake
 
 
-def manager(gh, vault, claude, requested=None, commits=None, st=None) -> Manager:
+def manager(gh, vault, claude, requested=None, commits=None, st=None, clock=None,
+            prime=True) -> Manager:  # fmt: skip
+    """``prime``: an earlier check saw an empty system, so what exists now is news."""
     requested = requested if requested is not None else []
     commits = commits if commits is not None else []
+    if prime and not vault.resolve(STATE_FILE).exists():
+        vault.resolve(STATE_FILE).parent.mkdir(parents=True, exist_ok=True)
+        vault.resolve(STATE_FILE).write_text(
+            json.dumps({"watch": {"blocked": [], "problems": {}, "own": {}}}), "utf-8"
+        )
     return Manager(
         vault, lambda: st or status(), lambda: gh, ["someone/3", "someone/4"], "someone/board",
         requested.append, lambda paths, msg: commits.append((paths, msg)),
-        claude=claude, clock=lambda: NOW,
+        claude=claude, clock=clock or (lambda: NOW),
     )  # fmt: skip
 
 
@@ -167,23 +174,68 @@ def test_tickets_land_in_new_and_proposals_are_capped(gh, vault) -> None:
     assert "refused proposal 'Automate Y'" in message
 
 
-def test_skips_the_model_when_nothing_changed(gh, vault) -> None:
+def test_watch_repair_runs_with_cooldown_and_ideas_once_a_day(gh, vault) -> None:
     gh.ticket(3, "Something", Status="Todo")
-    claude = FakeClaude(answer())
-    m = manager(gh, vault, claude)
-    assert m.run()[0] == "ok"
-    assert m.run() == ("skipped", "nothing changed")
-    assert len(claude.calls) == 1
-    # a new problem in the control room is news
+    clock = [NOW]
+    claude = FakeClaude(answer(create_tickets=[{"kind": "proposal", "title": "Idea", "body": "…"}]))
+    m = manager(gh, vault, claude, clock=lambda: clock[0])
+    # 10:00 is past ideas_at (07:00): the daily ideas run, with proposals
+    status_, message = m.run()
+    assert status_ == "ok" and message.startswith("ideas run"), message
+    assert json.loads(claude.calls[0]["prompt"])["run"] == "ideas"
+    assert "Idea" in {i["title"] for i in gh.issues.values()}
+    # two minutes later: nothing new, no model
+    clock[0] += timedelta(minutes=2)
+    assert m.run() == ("skipped", "nothing new")
+    # a ticket gets blocked: repair run, no proposals
+    blocked = gh.ticket(3, "Stuck", Status="Todo", AI="blocked")
+    clock[0] += timedelta(minutes=14)  # the cooldown counts from any model run
+    status_, message = m.run()
+    assert message.startswith("repair run") and "refused proposal" in message, message
+    picture = json.loads(claude.calls[1]["prompt"])
+    assert picture["run"] == "repair" and picture["events"] == ["blocked: #3 Stuck"]
+    assert "REPAIR run" in claude.calls[1]["system"]
+    # a light turns red within the cooldown: it waits, then runs
     m.status = lambda: status("fail")
-    assert m.run()[0] == "ok"
-    assert len(claude.calls) == 2
-    # once a day it runs anyway
-    state = json.loads(vault.resolve(STATE_FILE).read_text("utf-8"))
-    state["lastRun"] = (NOW - timedelta(hours=21)).isoformat()
-    vault.resolve(STATE_FILE).write_text(json.dumps(state), "utf-8")
-    assert m.run()[0] == "ok"
-    assert len(claude.calls) == 3
+    clock[0] += timedelta(minutes=5)
+    status_, message = m.run()
+    assert status_ == "skipped" and message.startswith("waiting: 1 event(s)"), message
+    clock[0] += timedelta(minutes=11)
+    assert m.run()[1].startswith("repair run")
+    assert json.loads(claude.calls[2]["prompt"])["events"] == ["control room: moodle-sync is fail"]
+    # still red, still blocked: no news
+    clock[0] += timedelta(minutes=20)
+    assert m.run() == ("skipped", "nothing new")
+    assert gh.values(blocked)["AI"] == "blocked"
+    # the next morning: the ideas run again
+    clock[0] = NOW + timedelta(days=1)
+    assert m.run()[1].startswith("ideas run")
+    assert len(claude.calls) == 4
+
+
+def test_owner_comments_on_its_tickets_are_events_others_are_not(gh, vault) -> None:
+    clock = [NOW]
+    claude = FakeClaude(answer(create_tickets=[{"kind": "needs_you", "title": "Fix", "body": "…"}]))
+    m = manager(gh, vault, claude, clock=lambda: clock[0])
+    m.run()  # ideas run creates the ticket
+    issue = next(i for i in gh.issues.values() if i["title"] == "Fix")
+    clock[0] += timedelta(minutes=20)
+    gh.clock = clock[0]
+    gh.add_comment(issue["id"], comments.marker("assistant") + "\nTaken")
+    assert m.run() == ("skipped", "nothing new")
+    clock[0] += timedelta(minutes=2)
+    gh.clock = clock[0]
+    gh.add_comment(issue["id"], "Done, the PC is on.")
+    assert m.run()[1].startswith("repair run")
+    assert json.loads(claude.calls[-1]["prompt"])["events"] == ["your comment on #1 Fix"]
+
+
+def test_first_check_only_remembers(gh, vault) -> None:
+    gh.ticket(3, "Old block", Status="Todo", AI="blocked")
+    claude = FakeClaude(answer())
+    m = manager(gh, vault, claude, prime=False)
+    assert m.run() == ("skipped", "nothing new (first check)")
+    assert claude.calls == []
 
 
 def test_files_it_changes_are_committed(gh, vault) -> None:

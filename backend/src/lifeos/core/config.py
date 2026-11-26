@@ -144,8 +144,9 @@ class Settings(BaseSettings):
         description=(
             "Seconds between runs of the LifeOS manager in `lifeos worker` "
             "(agents/lifeos-manager.md): reads the boards and the control room, fixes what it "
-            "can, opens tickets in LifeOS Tasks for the rest. Skips the model when nothing "
-            "changed (at most once a day). 0 = off."
+            "can, opens tickets in LifeOS Tasks for the rest. Each check is code only; the "
+            "model runs for new events (repair, cooldown in the agent file) and once a day "
+            "(ideas, `ideas_at`). 0 = off."
         ),
     )
     control_report_interval: int = Field(

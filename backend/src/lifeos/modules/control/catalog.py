@@ -427,14 +427,16 @@ def build_catalog(s: Settings) -> Catalog:
             reacts_to=("act-tasks",),
             reaction="comments",
             checks=("github",),
-            quiet_skips=("nothing changed",),
+            quiet_skips=("nothing new", "waiting"),
             ai=("lifeos-manager",),
             second_order=True,
             warn_after=max(3 * s.manager_interval, 6 * HOUR),
             fail_after=max(6 * s.manager_interval, 26 * HOUR),
-            description="The AI looks after the whole system: lifts blocks whose cause is "
-            "gone, fixes faults it can fix, and opens tickets in LifeOS Tasks for what needs "
-            "you and for improvement proposals.",
+            description="The AI looks after the whole system. The watch (code) checks for new "
+            "blocks, worse lights and your comments on its tickets; then a repair run follows "
+            "(at most every 15 min): lift blocks whose cause is gone, fix faults, open a "
+            "ticket for what needs you. Once a day, in the morning, an ideas run adds "
+            "improvement proposals.",
         ),  # fmt: skip
         # technical foundation
         _job(
