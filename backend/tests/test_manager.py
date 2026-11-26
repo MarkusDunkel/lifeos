@@ -230,12 +230,19 @@ def test_owner_comments_on_its_tickets_are_events_others_are_not(gh, vault) -> N
     assert json.loads(claude.calls[-1]["prompt"])["events"] == ["your comment on #1 Fix"]
 
 
-def test_first_check_only_remembers(gh, vault) -> None:
+def test_first_check_remembers_lights_but_looks_at_existing_blocks(gh, vault) -> None:
     gh.ticket(3, "Old block", Status="Todo", AI="blocked")
+    clock = [NOW]
     claude = FakeClaude(answer())
-    m = manager(gh, vault, claude, prime=False)
+    m = manager(gh, vault, claude, prime=False, st=status("fail"), clock=lambda: clock[0])
+    state = {"lastRun": NOW.isoformat()}  # the manager ran today before the update
+    vault.resolve(STATE_FILE).parent.mkdir(parents=True, exist_ok=True)
+    vault.resolve(STATE_FILE).write_text(json.dumps(state), "utf-8")
     assert m.run() == ("skipped", "nothing new (first check)")
     assert claude.calls == []
+    clock[0] += timedelta(minutes=2)
+    assert m.run()[1].startswith("repair run")  # not the ideas run: that ran today
+    assert json.loads(claude.calls[0]["prompt"])["events"] == ["blocked: #1 Old block"]
 
 
 def test_files_it_changes_are_committed(gh, vault) -> None:

@@ -159,7 +159,8 @@ University) with fields and recent comments, plus the manager's own earlier tick
 - The **ideas run**, once a day from `ideas_at` (agent file, default 07:00 local time),
   looks at everything and may add proposals.
 
-The first check after a deploy only remembers what is there. Then Claude Code runs with every tool directly in the vault (like the assistant with
+The first check after a deploy remembers the lights and comments it finds; tickets blocked
+at that moment count as new, so the next repair run looks at them once. Then Claude Code runs with every tool directly in the vault (like the assistant with
 `access: full`) and may fix vault files itself. It answers with board actions the code checks
 and applies: `unblock` (clears `AI = blocked`), `run_now` (a worker job, via
 `state/job-requests.json`), `comments`, `create_tickets` in the inbox (`needs_you` →

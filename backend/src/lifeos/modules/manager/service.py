@@ -364,8 +364,10 @@ class Manager:
         items = self.items(gh, boards)
         status = self.status()
         watched = self.watch(items, status)
-        if "watch" not in state:  # first check: what is there now is known, not news
-            state["watch"] = watched
+        if "watch" not in state:
+            # first check: lights and comments now are known, not news; but every blocked
+            # ticket is looked at once by the next repair run
+            state["watch"] = watched | {"blocked": []}
             last = _parse(state.get("lastRun"))
             if last and last.astimezone(self.tz).date().isoformat() == today:
                 state["ideasDay"] = today
