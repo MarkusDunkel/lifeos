@@ -36,9 +36,12 @@ export const LEVEL_STYLE: Record<Level, { dot: string; box: string; text: string
 export const checkLevel = (c: Check): Level => (c.ok ? "ok" : c.ok === null ? "warn" : "fail");
 
 
-export const COLUMN = 260;
 export const ROW = 66;
-export const WIDTH = 200;
+export const WIDTH = 200; // sources, datasets, actionables
+export const PROCESS_WIDTH = 2 * WIDTH; // processes: their names are whole phrases
+const COLUMN_GAP = 60; // between two columns
+/** The box width of an item in the map. */
+export const widthOf = (id: string) => (id.startsWith("p:") ? PROCESS_WIDTH : WIDTH);
 const GROUP_HEAD = 30; // space for the box title above the first member
 const GROUP_PAD = 14; // space below the last member
 const NODE_HEIGHT = 46; // rendered height of a box (two text lines)
@@ -48,14 +51,15 @@ const GROUP_LABELS: Record<string, string> = { vault: "Vault · ready/knowledge"
 
 export const groupId = (group: string) => `group:${group}`;
 
-export type Placed = { id: string; column: number; row: number; x: number; y: number };
+export type Placed = { id: string; column: number; row: number; x: number; y: number; width: number };
 export type GroupBox = { id: string; label: string; x: number; y: number; width: number; height: number };
 export type GraphEdge = {
   id: string;
   source: string;
   target: string;
   process: string;
-  via?: { x: number; y: number }[]; // left edge of each crossed column, at the lane's height
+  // each crossed column: its left edge, its width and the lane's height
+  via?: { x: number; y: number; width: number; column: number }[];
   floor?: number; // feedback loops: the height they run back along
 };
 export type Graph = {
@@ -191,6 +195,10 @@ export function buildGraph(
   const columns: string[][] = Array.from({ length: maxColumn + 1 }, (_, c) =>
     items.filter((id) => (column.get(id) ?? 0) === c),
   );
+  // a column is as wide as its widest box (a process column twice as wide)
+  const colWidth = columns.map((col) => Math.max(WIDTH, ...col.filter((id) => !isLane(id)).map(widthOf)));
+  const colX: number[] = [];
+  colWidth.reduce((x, w, c) => ((colX[c] = x), x + w + COLUMN_GAP), 0);
   // centre line (y) of every item; starts packed, then follows the neighbours
   const half = (id: string) => (isLane(id) ? LANE / 2 : NODE_HEIGHT / 2);
   const step = (id: string) => (isLane(id) ? LANE + LANE_GAP : ROW);
@@ -241,7 +249,7 @@ export function buildGraph(
       if (!open) return;
       found.push({
         id: groupId(open.group), label: GROUP_LABELS[open.group] ?? open.group,
-        x: c * COLUMN - 12, y: open.top, width: WIDTH + 24, height: open.bottom + GROUP_PAD - open.top,
+        x: colX[c] - 12, y: open.top, width: colWidth[c] + 24, height: open.bottom + GROUP_PAD - open.top,
       });
       cursor = open.bottom + GROUP_PAD + LANE_GAP;
       open = null;
@@ -281,12 +289,20 @@ export function buildGraph(
   const placed: Placed[] = columns.flatMap((col, c) =>
     col
       .filter((id) => !isLane(id))
-      .map((id, row) => ({ id, column: c, row, x: c * COLUMN, y: (mid.get(id) ?? 0) - half(id) })),
+      .map((id, row) => ({
+        id, column: c, row, x: colX[c] + (colWidth[c] - widthOf(id)) / 2,
+        y: (mid.get(id) ?? 0) - half(id), width: widthOf(id),
+      })),
   );
   const groups = [...boxes.values()].flat();
   for (const e of edges) {
     const ids = lanes.get(e.id);
-    if (ids) e.via = ids.map((id) => ({ x: (column.get(id) ?? 0) * COLUMN, y: mid.get(id) ?? 0 }));
+    if (ids) {
+      e.via = ids.map((id) => {
+        const c = column.get(id) ?? 0;
+        return { x: colX[c], y: mid.get(id) ?? 0, width: colWidth[c], column: c };
+      });
+    }
   }
   const feedback = flow.flatMap((p) =>
     (p.reactsTo ?? [])

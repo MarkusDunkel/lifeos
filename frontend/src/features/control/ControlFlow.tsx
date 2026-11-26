@@ -15,7 +15,7 @@ import "@xyflow/react/dist/style.css";
 import { Flag, Hand, Monitor, Server, Sparkles, Wrench } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ControlStatus, Level, Where } from "./api";
-import { buildFlows, FOUNDATION, LEVEL_STYLE, originalId, trace, VAULT_STUB, WIDTH } from "./layout";
+import { buildFlows, FOUNDATION, LEVEL_STYLE, originalId, trace, VAULT_STUB, widthOf } from "./layout";
 
 const WHERE_ICON: Record<Where, typeof Server> = { server: Server, pc: Monitor, manual: Hand, host: Wrench };
 export { WHERE_ICON };
@@ -28,6 +28,7 @@ export const WHERE_LABEL: Record<Where, string> = {
 
 type ItemData = {
   label: string;
+  width: number;
   ref?: string;
   sub: string;
   level: Level;
@@ -50,7 +51,7 @@ function Item({ data }: NodeProps<Node<ItemData>>) {
   const Kind = data.kind === "actionable" ? Flag : null;
   return (
     <div
-      style={{ width: WIDTH }}
+      style={{ width: data.width }}
       className={`border px-3 py-1.5 text-left shadow-sm transition-opacity ${shape} ${look} ${
         data.selected ? "ring-2 ring-sky-500" : ""
       } ${data.dimmed ? "opacity-25" : ""}`}
@@ -136,7 +137,7 @@ function LoopEdge({ id, sourceX, sourceY, targetX, targetY, style, data }: EdgeP
   );
 }
 
-type RoutedData = { via: { x: number; y: number }[] };
+type RoutedData = { via: { x: number; y: number; width: number }[] };
 
 /**
  * An edge that skips columns: it crosses each column in its own free lane (a straight
@@ -144,7 +145,7 @@ type RoutedData = { via: { x: number; y: number }[] };
  */
 function RoutedEdge({ id, sourceX, sourceY, targetX, targetY, style, data }: EdgeProps<Edge<RoutedData>>) {
   const points = [{ x: sourceX, y: sourceY }];
-  for (const v of data?.via ?? []) points.push({ x: v.x, y: v.y }, { x: v.x + WIDTH, y: v.y });
+  for (const v of data?.via ?? []) points.push({ x: v.x, y: v.y }, { x: v.x + v.width, y: v.y });
   points.push({ x: targetX, y: targetY });
   let path = `M ${points[0].x} ${points[0].y}`;
   for (let i = 1; i < points.length; i++) {
@@ -210,17 +211,17 @@ export function ControlFlow({
       if (p) {
         return {
           id, type: "item", position: { x, y },
-          data: { label: p.label, ref: p.ref, sub: p.trigger, level: p.level, kind: "process", where: p.where, mirror: p.mirror, ai: p.ai.length > 0, ...common },
+          data: { label: p.label, width: widthOf(id), ref: p.ref, sub: p.trigger, level: p.level, kind: "process", where: p.where, mirror: p.mirror, ai: p.ai.length > 0, ...common },
         };
       }
       const n = nodeOf(id);
       const kind = id.startsWith(FOUNDATION) && n.kind !== "dataset" ? "source" : n.kind;
       return {
         id, type: "item", position: { x, y },
-        data: { label: n.label, ref: "ref" in n ? n.ref : undefined, sub: n.detail, level: n.level, kind, ...common },
+        data: { label: n.label, width: widthOf(id), ref: "ref" in n ? n.ref : undefined, sub: n.detail, level: n.level, kind, ...common },
       };
     });
-    const width = Math.max(0, ...graph.placed.map((p) => p.x)) + WIDTH;
+    const width = Math.max(0, ...graph.placed.map((p) => p.x + p.width));
     const band: Node<BandData>[] = graph.bands.map((b, i) => ({
       id: `band:${i}`, type: "band", position: { x: 0, y: b.y }, data: { label: b.label, width },
       selectable: false, draggable: false,

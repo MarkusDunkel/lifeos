@@ -210,11 +210,11 @@ describe("lanes", () => {
       const span = col(e.target) - col(source);
       expect(e.via?.length ?? 0).toBe(Math.max(0, span - 1));
       for (const v of e.via ?? []) {
-        const c = Math.round(v.x / 260);
+        const c = v.column;
         for (const p of g.placed.filter((x) => x.column === c)) {
           expect(v.y < p.y - 2 || v.y > p.y + 48).toBe(true); // the lane is free
         }
-        for (const box of g.groups.filter((b) => Math.round((b.x + 12) / 260) === c)) {
+        for (const box of g.groups.filter((b) => b.x + 12 === v.x)) {
           expect(v.y < box.y || v.y > box.y + box.height).toBe(true);
         }
       }
