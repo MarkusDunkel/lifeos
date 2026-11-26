@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { Activity, Bot, Play, RefreshCw, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 import {
@@ -14,6 +15,7 @@ import { ControlFlow, WHERE_LABEL } from "./ControlFlow";
 import { ActionableDetails, ActionableStrip } from "./Actionable";
 import { formatAgo } from "./format";
 import { Legend } from "./Legend";
+import { RefBadge } from "./RefBadge";
 import { TokenChart } from "./TokenChart";
 import { checkLevel, LEVEL_RANK, LEVEL_STYLE, originalId } from "./layout";
 
@@ -58,7 +60,7 @@ export function ControlPage() {
         <>
           <ReportCard s={s} onSelect={(id) => setSelected(`p:${id}`)} />
           <ActionableStrip s={s} onSelect={setSelected} />
-          <SystemStrip s={s} onSelect={(id) => setSelected(`p:${id}`)} />
+          <SystemStrip s={s} />
           <div className="hidden md:block">
             <ControlFlow status={s} selected={selected} onSelect={setSelected} />
           </div>
@@ -87,14 +89,23 @@ function Overall({ s }: { s: ControlStatus }) {
   );
 }
 
+/** The process that writes the explanation at the top of the page. */
+const EXPLAINER = "control-report";
+
 function ReportCard({ s, onSelect }: { s: ControlStatus; onSelect: (id: string) => void }) {
   const r = s.report;
   if (!r) return null;
   const stale = Date.now() - Date.parse(r.at) > 6 * 3600_000;
+  const explainer = s.processes.find((p) => p.id === EXPLAINER);
   return (
     <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/40">
-      <div className="mb-1 flex items-center gap-2 text-sm font-medium">
-        <Bot className="size-4 text-sky-600" /> AI diagnosis
+      <div className="mb-1 flex flex-wrap items-center gap-2 text-sm font-medium">
+        <Bot className="size-4 text-sky-600" />
+        <button className="hover:underline" onClick={() => onSelect(EXPLAINER)}>
+          {explainer?.label ?? "Explanation"}
+        </button>
+        <RefBadge value={explainer?.ref} />
+        {explainer && <AgentLinks agents={explainer.ai} />}
         <span className="text-xs font-normal text-slate-500">
           {formatAgo(r.at)}
           {stale ? " · may be outdated" : ""}
@@ -107,7 +118,8 @@ function ReportCard({ s, onSelect }: { s: ControlStatus; onSelect: (id: string) 
             <li key={f.process + f.cause}>
               <button className="font-medium text-sky-700 hover:underline dark:text-sky-300" onClick={() => onSelect(f.process)}>
                 {s.processes.find((p) => p.id === f.process)?.label ?? f.process}
-              </button>
+              </button>{" "}
+              <RefBadge value={s.processes.find((p) => p.id === f.process)?.ref} />
               : {f.cause} <span className="text-slate-500">→ {f.action}</span>
             </li>
           ))}
@@ -117,8 +129,8 @@ function ReportCard({ s, onSelect }: { s: ControlStatus; onSelect: (id: string) 
   );
 }
 
-function SystemStrip({ s, onSelect }: { s: ControlStatus; onSelect: (id: string) => void }) {
-  const helpers = s.processes.filter((p) => p.system && p.enabled);
+/** The system checks (worker, …); every process is drawn in the map below. */
+function SystemStrip({ s }: { s: ControlStatus }) {
   return (
     <div className="flex flex-wrap gap-2">
       {s.system.map((c) => (
@@ -131,17 +143,6 @@ function SystemStrip({ s, onSelect }: { s: ControlStatus; onSelect: (id: string)
           <span className="font-medium">{c.label}</span>
           <span className="text-slate-500">{c.message}</span>
         </span>
-      ))}
-      {helpers.map((p) => (
-        <button
-          key={p.id}
-          onClick={() => onSelect(p.id)}
-          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs ${LEVEL_STYLE[p.level].box}`}
-        >
-          <Dot level={p.level} className="size-2" />
-          <span className="font-medium">{p.label}</span>
-          <span className="text-slate-500">{p.reason}</span>
-        </button>
       ))}
     </div>
   );
@@ -207,7 +208,9 @@ function ProcessTable({ s, onSelect }: { s: ControlStatus; onSelect: (id: string
       <table className="w-full text-left text-sm">
         <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-900">
           <tr>
+            <th className="px-3 py-2">ID</th>
             <th className="px-3 py-2">Process</th>
+            <th className="px-3 py-2">Agent</th>
             <th className="px-3 py-2">Runs</th>
             <th className="px-3 py-2">Last success</th>
             <th className="px-3 py-2">State</th>
@@ -220,11 +223,16 @@ function ProcessTable({ s, onSelect }: { s: ControlStatus; onSelect: (id: string
               onClick={() => onSelect(p.id)}
               className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
             >
+              <td className="px-3 py-2 whitespace-nowrap">
+                <RefBadge value={p.ref} />
+              </td>
               <td className="px-3 py-2">
                 <div className="flex items-center gap-2 font-medium">
                   <Dot level={p.level} /> {p.label}
-                  {p.ai.length > 0 && <AiChip />}
                 </div>
+              </td>
+              <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                {p.ai.length > 0 ? <AgentLinks agents={p.ai} /> : <span className="text-slate-400">–</span>}
               </td>
               <td className="px-3 py-2 text-slate-500">
                 <div>{WHERE_LABEL[p.where]}</div>
@@ -256,7 +264,7 @@ function Panel({ s, id, onClose }: { s: ControlStatus; id: string; onClose: () =
       ) : node ? (
         <div className="space-y-3">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
-            {node.kind === "dataset" && <Dot level={node.level} />} {node.label}
+            {node.kind === "dataset" && <Dot level={node.level} />} {node.label} <RefBadge value={node.ref} />
           </h2>
           <p className="text-sm text-slate-500">
             {node.kind === "source" ? "Source" : "Target"} · {node.detail}
@@ -267,7 +275,7 @@ function Panel({ s, id, onClose }: { s: ControlStatus; id: string; onClose: () =
               .filter((p) => p.inputs.includes(node.id) || p.outputs.includes(node.id))
               .map((p) => (
                 <li key={p.id} className="flex items-center gap-2">
-                  <Dot level={p.level} className="size-2" /> {p.label}
+                  <Dot level={p.level} className="size-2" /> {p.label} <RefBadge value={p.ref} />
                   <span className="text-xs text-slate-500">{p.outputs.includes(node.id) ? "writes here" : "reads here"}</span>
                 </li>
               ))}
@@ -292,7 +300,7 @@ function ProcessDetails({ s, p }: { s: ControlStatus; p: ProcessHealth }) {
     <div className="space-y-4">
       <div>
         <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <Dot level={p.level} /> {p.label}
+          <Dot level={p.level} /> {p.label} <RefBadge value={p.ref} />
         </h2>
         {p.ai.length > 0 && <AiChip />}
         <p className="text-sm text-slate-500">
@@ -316,7 +324,7 @@ function ProcessDetails({ s, p }: { s: ControlStatus; p: ProcessHealth }) {
       {finding && (
         <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm dark:border-sky-900 dark:bg-sky-950/40">
           <div className="mb-1 flex items-center gap-1.5 font-medium">
-            <Bot className="size-4 text-sky-600" /> AI diagnosis
+            <Bot className="size-4 text-sky-600" /> {s.processes.find((x) => x.id === EXPLAINER)?.label ?? "Explanation"}
           </div>
           <div>{finding.cause}</div>
           <div className="mt-1 text-slate-600 dark:text-slate-300">→ {finding.action}</div>
@@ -445,7 +453,7 @@ function AiDetails({ agents }: { agents: AiAgent[] }) {
         {agents.map((a) => (
           <li key={a.agent}>
             <div className="font-medium">
-              {a.title} <span className="font-normal text-slate-500">· agents/{a.agent}.md</span>
+              <AgentLink agent={a} /> <span className="font-normal text-slate-500">· agents/{a.agent}.md</span>
             </div>
             {a.configured ? (
               <div className="text-xs text-slate-600 dark:text-slate-300">
@@ -459,5 +467,27 @@ function AiDetails({ agents }: { agents: AiAgent[] }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+/** An agent's title, linking to its card on the agents page. */
+function AgentLink({ agent }: { agent: AiAgent }) {
+  if (!agent.configured) return <span>{agent.title}</span>;
+  return (
+    <Link to="/agents" hash={agent.agent} className="text-violet-700 hover:underline dark:text-violet-300">
+      {agent.title}
+    </Link>
+  );
+}
+
+function AgentLinks({ agents }: { agents: AiAgent[] }) {
+  if (agents.length === 0) return <span className="text-xs text-amber-600">no agent set up</span>;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-normal">
+      <Sparkles className="size-3.5 shrink-0 text-violet-500" />
+      {agents.map((a) => (
+        <AgentLink key={a.agent} agent={a} />
+      ))}
+    </span>
   );
 }

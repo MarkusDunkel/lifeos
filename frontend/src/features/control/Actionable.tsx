@@ -3,6 +3,7 @@ import type { BasedOn, ControlStatus, FlowNode, Generator, Level } from "./api";
 
 import { formatAgo } from "./format";
 import { LEVEL_STYLE } from "./layout";
+import { RefBadge } from "./RefBadge";
 
 function Dot({ level, className = "size-2.5" }: { level: Level; className?: string }) {
   return <span className={`inline-block shrink-0 rounded-full ${LEVEL_STYLE[level].dot} ${className}`} />;
@@ -82,7 +83,7 @@ export function ActionableDetails({ s, node }: { s: ControlStatus; node: FlowNod
     <div className="space-y-4">
       <div>
         <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <Flag className="size-5 text-slate-500" /> {node.label}
+          <Flag className="size-5 text-slate-500" /> {node.label} <RefBadge value={node.ref} />
         </h2>
         <p className="text-sm text-slate-500">Actionable · {node.detail}</p>
       </div>
@@ -153,7 +154,8 @@ export function ActionableStrip({ s, onSelect }: { s: ControlStatus; onSelect: (
           >
             <div className="flex items-center gap-1.5 text-sm font-medium text-slate-800 dark:text-slate-100">
               <Flag className="size-3.5 text-slate-500" /> {n.label}
-              <Dot level={n.level} className="ml-auto size-2.5" />
+              <RefBadge value={n.ref} className="ml-auto" />
+              <Dot level={n.level} className="size-2.5" />
             </div>
             <div className={`mt-0.5 line-clamp-2 ${style.text}`}>
               {n.level === "ok" ? "Trustworthy" : n.reason}

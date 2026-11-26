@@ -28,6 +28,7 @@ export const WHERE_LABEL: Record<Where, string> = {
 
 type ItemData = {
   label: string;
+  ref?: string;
   sub: string;
   level: Level;
   kind: "source" | "process" | "dataset" | "actionable";
@@ -65,6 +66,7 @@ function Item({ data }: NodeProps<Node<ItemData>>) {
         </span>
       </div>
       <div className="truncate text-[10px] text-slate-500">
+        {data.ref && <span className="font-mono text-slate-600 dark:text-slate-300">{data.ref} · </span>}
         {data.mirror ? "mirror · " : ""}
         {data.sub}
       </div>
@@ -205,14 +207,14 @@ export function ControlFlow({
       if (p) {
         return {
           id, type: "item", position: { x, y },
-          data: { label: p.label, sub: p.trigger, level: p.level, kind: "process", where: p.where, mirror: p.mirror, ai: p.ai.length > 0, ...common },
+          data: { label: p.label, ref: p.ref, sub: p.trigger, level: p.level, kind: "process", where: p.where, mirror: p.mirror, ai: p.ai.length > 0, ...common },
         };
       }
       const n = nodeOf(id);
       const kind = id.startsWith(FOUNDATION) && n.kind !== "dataset" ? "source" : n.kind;
       return {
         id, type: "item", position: { x, y },
-        data: { label: n.label, sub: n.detail, level: n.level, kind, ...common },
+        data: { label: n.label, ref: "ref" in n ? n.ref : undefined, sub: n.detail, level: n.level, kind, ...common },
       };
     });
     const width = Math.max(0, ...graph.placed.map((p) => p.x)) + WIDTH;

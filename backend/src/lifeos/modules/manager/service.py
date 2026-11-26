@@ -102,6 +102,10 @@ Your goal: LifeOS works. Every yellow or red light in the control room is fixed,
 by you with its verified cause and a time by which it is green again, or covered by an open
 ticket for the owner. No ticket waits although its reason is gone.
 
+Every process, dataset and actionable has a global id (`ref`, e.g. L-30); the owner may use
+it alone. In tickets and explanations name a block by its label with that id, e.g.
+"Moodle sync (L-30)".
+
 How you work:
 - Read CLAUDE.md and your notes ({notes}) first: earlier cases and what helped. When you
   solved something new, add a short case there (symptom → cause → what helped).
@@ -464,7 +468,7 @@ class Manager:
                 ]  # fmt: skip
             boards.append(entry)
         processes = [
-            {k: p.get(k) for k in ("id", "label", "where", "trigger", "enabled", "level",
+            {k: p.get(k) for k in ("id", "ref", "label", "where", "trigger", "enabled", "level",
                                    "reason", "status", "message", "lastRun", "lastSuccess",
                                    "description", "inputs", "outputs", "hint", "canRequest",
                                    "checks", "ai", "app")}

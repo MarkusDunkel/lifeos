@@ -18,6 +18,8 @@ export type AiAgent = {
 
 export type ProcessHealth = {
   id: string;
+  /** Global id ``L-n``: unique across processes, datasets and actionables. */
+  ref: string;
   label: string;
   where: Where;
   trigger: string;
@@ -37,7 +39,6 @@ export type ProcessHealth = {
   canRequest: boolean;
   hint: string;
   mirror: boolean;
-  system: boolean;
   foundation: boolean;
   secondOrder?: boolean;
   reactsTo: string[];
@@ -94,6 +95,8 @@ export type Trust = {
 
 export type FlowNode = {
   id: string;
+  /** Global id ``L-n`` (copies in the rows below keep the original's). */
+  ref?: string;
   label: string;
   kind: "source" | "dataset" | "actionable";
   detail: string;

@@ -34,8 +34,9 @@ Explain each problem to the owner in plain words: the most likely cause and the 
 thing to do (a button in LifeOS, a command, "turn on the PC", or "nothing, it recovers by
 itself"). Name what is affected (which folder or calendar is out of date). Problems with one
 cause (e.g. the worker is down) get one finding. Be brief: the summary is one or two
-sentences, each finding one sentence for cause and one for action. Never invent facts that
-are not in the data; say when the cause is unclear. {language}"""
+sentences, each finding one sentence for cause and one for action. When you name a process
+in the text, use its label with its global id, e.g. "Moodle sync (L-30)". Never invent facts
+that are not in the data; say when the cause is unclear. {language}"""
 
 
 class Finding(BaseModel):
@@ -74,8 +75,8 @@ class Supervisor:
         names = {n["id"]: f"{n['label']} ({n['detail']})" if n["detail"] else n["label"]
                  for n in status["nodes"]}  # fmt: skip
         found = [
-            {k: p[k] for k in ("id", "label", "where", "trigger", "level", "reason", "status",
-                               "message", "lastRun", "lastSuccess", "checks", "hint",
+            {k: p[k] for k in ("id", "ref", "label", "where", "trigger", "level", "reason",
+                               "status", "message", "lastRun", "lastSuccess", "checks", "hint",
                                "description")}
             | {"recentRuns": p["history"][-5:],
                "writes": [names.get(o, o) for o in p["outputs"]]}

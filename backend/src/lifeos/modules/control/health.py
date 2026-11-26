@@ -70,13 +70,13 @@ class ProcessHealth:
     can_request: bool = False  # a worker job: "run now" queues it for the worker
     hint: str = ""
     mirror: bool = False
-    system: bool = False
     foundation: bool = False
     second_order: bool = False
     reacts_to: list[str] = field(default_factory=list)
     reaction: str = ""
     ai: list[dict] = field(default_factory=list)  # agents (model, billing, runs today)
     app: dict | None = None  # PC tasks: the app commit they ran on vs. the server's
+    ref: str = ""  # the global id ``L-n``
 
 
 @dataclass
@@ -193,8 +193,8 @@ def _one(p: Process, src: Sources, now: datetime, tz: ZoneInfo, worker: Check) -
         last_run=entry.get("lastRun"), last_success=entry.get("lastSuccess"),
         history=entry.get("history", []), checks=[asdict(c) for c in checks],
         run_path=p.run_path, can_request=p.where == SERVER and p.enabled, hint=p.hint,
-        mirror=p.mirror, system=p.system, foundation=p.foundation, second_order=p.second_order,
-        reacts_to=list(p.reacts_to), reaction=p.reaction, ai=src.ai.get(p.id, []),
+        mirror=p.mirror, foundation=p.foundation, second_order=p.second_order,
+        reacts_to=list(p.reacts_to), reaction=p.reaction, ai=src.ai.get(p.id, []), ref=p.ref,
     )  # fmt: skip
     if p.where == PC:
         health.app = _pc_app(entry.get("app"), src.server_version)

@@ -368,7 +368,7 @@ def test_actionable_trusts_upstream_and_counts_new_material(tmp_path):
     assert uni["trust"]["generators"]["uni-planner"]["summary"] == "2 new"
     assert "moodle-sync" in uni["trust"]["upstream"]
     foundation = {p["id"] for p in status["processes"] if p["foundation"]}
-    assert foundation == {"git-sync", "deployer", "tickets"}
+    assert foundation == {"git-sync", "deployer", "tickets", "claude-usage"}
 
 
 def test_application_cycle(tmp_path):
@@ -412,7 +412,9 @@ def test_second_order_manager_and_derived_boards(tmp_path):
                  manager_interval=7200)  # fmt: skip
     manager = next(p for p in result["processes"] if p["id"] == "lifeos-manager")
     assert manager["enabled"] and manager["secondOrder"]
-    assert manager["inputs"] == ["boards", "control-room"] and manager["outputs"] == ["act-tasks"]
+    assert manager["inputs"] == ["boards", "control-room", "control-explanation"] and manager[
+        "outputs"
+    ] == ["act-tasks"]
     nodes = {n["id"]: n for n in result["nodes"]}
     assert nodes["act-tasks"]["level"] == FAIL  # the AI teammates failed
     assert nodes["boards"]["kind"] == "dataset"
@@ -443,3 +445,25 @@ def test_teams_mail_interval_overrides_daily_slot(tmp_path):
     cat = build_catalog(settings(tmp_path, teams_mail_interval=3600))
     proc = next(p for p in cat.processes if p.id == "teams-mail")
     assert proc.every == 3600 and proc.daily_at is None and proc.trigger == "hourly"
+
+
+def test_every_block_has_a_unique_global_ref(tmp_path):
+    import re
+
+    from lifeos.modules.control.catalog import REFS, RETIRED
+
+    cat = build_catalog(settings(tmp_path))
+    refs = [n.ref for n in cat.nodes] + [p.ref for p in cat.processes]
+    assert all(re.fullmatch(r"L-\d+", r) for r in refs), refs
+    assert len(refs) == len(set(refs))  # one count for nodes and processes together
+    assert len(REFS) == len(set(REFS.values()))
+    assert not set(RETIRED) & set(REFS.values())
+    assert len(refs) == len(REFS)  # no stale entries in the table
+
+
+def test_daily_limit_of_the_explainer_is_no_warning(tmp_path):
+    ok = iso(timedelta(minutes=1))
+    job = {"lastRun": ok, "lastSuccess": ok, "status": "skipped",
+           "message": "daily limit of 12 diagnoses reached"}  # fmt: skip
+    result = run(tmp_path, {"control-report": job}, control_report_interval=300)
+    assert light(result, "control-report")[0] == OK

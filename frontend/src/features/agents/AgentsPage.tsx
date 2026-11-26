@@ -1,17 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "@tanstack/react-router";
 import { Bot, TriangleAlert } from "lucide-react";
+import { useEffect } from "react";
 import { ApiError } from "../../lib/api";
 import { type AgentSummary, agentsQuery, type Billing, BILLING_LABELS, setBilling } from "./api";
 
 export function AgentsPage() {
   const overview = useQuery(agentsQuery);
   const data = overview.data;
+  // /agents#<name> (e.g. from the control room): scroll to that agent's card
+  const focus = useLocation({ select: (l) => l.hash });
+  useEffect(() => {
+    if (focus && data) document.getElementById(focus)?.scrollIntoView({ block: "center" });
+  }, [focus, data]);
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6 md:p-8">
       <div>
         <h1 className="text-2xl font-semibold">Agents</h1>
         <p className="mt-1 text-sm text-slate-500">
-          AI teammates on the boards. Their definitions live in the vault under <code>agents/</code>.
+          Every AI agent LifeOS calls: the teammates on the boards and the agents behind the processes in the control
+          room. Their definitions live in the vault under <code>agents/</code>.
         </p>
       </div>
       {overview.isLoading && <p className="text-slate-400">Loading…</p>}
@@ -23,13 +31,13 @@ export function AgentsPage() {
       ))}
       {data && data.agents.length === 0 && <p className="text-slate-500">No agents defined yet.</p>}
       {data?.agents.map((agent) => (
-        <AgentCard key={agent.name} agent={agent} options={data.billingOptions} />
+        <AgentCard key={agent.name} agent={agent} options={data.billingOptions} focused={agent.name === focus} />
       ))}
     </div>
   );
 }
 
-function AgentCard({ agent, options }: { agent: AgentSummary; options: Billing[] }) {
+function AgentCard({ agent, options, focused }: { agent: AgentSummary; options: Billing[]; focused: boolean }) {
   const queryClient = useQueryClient();
   const change = useMutation({
     mutationFn: (billing: Billing) => setBilling(agent, billing),
@@ -37,11 +45,18 @@ function AgentCard({ agent, options }: { agent: AgentSummary; options: Billing[]
   });
   const error = change.error;
   return (
-    <section className="space-y-4 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+    <section
+      id={agent.name}
+      className={`scroll-mt-4 space-y-4 rounded-xl border p-4 ${
+        focused ? "border-sky-500 ring-2 ring-sky-500/40" : "border-slate-200 dark:border-slate-800"
+      }`}
+    >
       <div className="flex items-start gap-3">
         <Bot className="mt-0.5 size-5 shrink-0 text-sky-600" />
         <div className="min-w-0">
-          <h2 className="font-medium">{agent.title}</h2>
+          <h2 className="font-medium">
+            {agent.title} <span className="font-mono text-xs font-normal text-slate-500">{agent.name}</span>
+          </h2>
           <p className="text-sm text-slate-500">
             {agent.boardTitle ?? agent.board ?? "no board"} · {agent.model} · <code>{agent.path}</code>
           </p>

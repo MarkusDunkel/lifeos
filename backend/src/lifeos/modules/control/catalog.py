@@ -42,8 +42,10 @@ class Node:
     local: bool = False  # kept by the owner, not written by a process
     # a dataset made of other nodes (e.g. all boards): takes their worst light
     derived_from: tuple[str, ...] = ()
+    ref: str = ""  # the global id ``L-n``, see ``REFS``
 
 
+EXPLAINER = "Control room explainer"  # the process that writes the explanation on /control
 WORKFLOW_AGENTS = "@workflow"  # the board agents (`runner: workflow` in agents/)
 VAULT = "vault"
 # targets that live in the vault: one box in the diagram, one arrow to the vault sync
@@ -51,6 +53,42 @@ VAULT_TARGETS = (
     "kb-moodle", "kb-teams-chats", "kb-teams-files", "kb-presentations", "kb-planning",
     "applications",
 )  # fmt: skip
+
+# The global id of every building block (source, dataset, actionable, process): one count
+# for all, like issue numbers, so "L-12" alone says what is meant. A number is never
+# reused: a block that goes away moves its number to ``RETIRED``; a new one takes the next.
+REFS: dict[str, str] = {
+    # sources
+    "moodle": "L-1", "gmail": "L-2", "onedrive-pc": "L-3", "onedrive": "L-4",
+    "google-calendar": "L-5", "devjobs": "L-6", "github-boards": "L-7",
+    # datasets
+    "kb-moodle": "L-8", "kb-teams-chats": "L-9", "kb-teams-files": "L-10",
+    "kb-presentations": "L-11", "kb-planning": "L-12", "applications": "L-13",
+    "job-postings": "L-14", "postings-commute": "L-15",
+    # actionables
+    "act-university": "L-16", "act-day-plan": "L-17", "act-job-assessments": "L-18",
+    "act-applications": "L-19", "act-tasks": "L-20",
+    # second order and foundation nodes
+    "boards": "L-21", "control-room": "L-22", "control-explanation": "L-23",
+    "pull-requests": "L-24", "tickets": "L-25", "app-live": "L-26", "vault-remote": "L-27",
+    "claude-code-pc": "L-28", "token-usage": "L-29",
+    # processes
+    "moodle-sync": "L-30", "teams-mail": "L-31", "teams-files": "L-32",
+    "presentations": "L-33", "uni-planner": "L-34", "calendar-sync": "L-35",
+    "calendar-planner": "L-36", "planner-queue": "L-37", "job-import": "L-38",
+    "commute": "L-39", "job-matcher": "L-40", "start-application": "L-41",
+    "application-writer": "L-42", "applications-board": "L-43", "agents": "L-44",
+    "lifeos-manager": "L-45", "control-report": "L-46", "git-sync": "L-47",
+    "deployer": "L-48", "tickets-copy": "L-49", "claude-usage": "L-50",
+}  # fmt: skip
+RETIRED: tuple[str, ...] = ()  # numbers of blocks that are gone: never hand them out again
+
+
+def ref_of(block_id: str, kind: str = "node") -> str:
+    """The ``L-n`` of a node or process (the process "tickets" shares its id with the
+    dataset it writes, so processes are looked up as ``<id>-copy`` there)."""
+    key = "tickets-copy" if kind == "process" and block_id == "tickets" else block_id
+    return REFS.get(key, "")
 
 
 @dataclass(frozen=True)
@@ -70,7 +108,6 @@ class Process:
     run_path: str | None = None  # POST endpoint that runs it now
     hint: str = ""  # how to run it by hand
     mirror: bool = False  # its outputs are mirrors: hand edits are overwritten
-    system: bool = False  # infrastructure, shown in the system strip, not the diagram
     foundation: bool = False  # technical foundation: own band below the flow
     # reads actionables or the control room and makes a new actionable: own row below
     second_order: bool = False
@@ -82,6 +119,7 @@ class Process:
     quiet_skips: tuple[str, ...] = ()  # skip messages that are normal, not a warning
     ai: tuple[str, ...] = ()  # agents whose model it calls (``WORKFLOW_AGENTS`` = board agents)
     description: str = ""
+    ref: str = ""  # the global id ``L-n``, see ``REFS``
 
 
 @dataclass
@@ -222,14 +260,20 @@ def build_catalog(s: Settings) -> Catalog:
             "University, Applications, LifeOS Tasks",
             derived_from=("act-university", "act-applications", "act-tasks"),
         ),  # fmt: skip
-        Node("control-room", "Control room", "dataset", "flows, lights, AI diagnosis", local=True),
+        Node("control-room", "Control room", "dataset", "flows and lights", local=True),
+        Node("control-explanation", "Explanation", "dataset", "what is wrong and what to do"),
         # technical foundation
         Node("pull-requests", "Pull requests", "source", "released by the assistant"),
         Node("tickets", "Ticket copy", "dataset", "ready/tickets"),
         Node("app-live", "Running app", "dataset", "deployed branch"),
         Node("vault-remote", "Vault repository", "dataset", "private GitHub repo"),
+        Node("claude-code-pc", "Claude Code on the PC", "source", "session transcripts"),
+        Node("token-usage", "Token usage", "dataset", "Burned tokens chart"),
     ]
-    nodes = [replace(n, group=VAULT) if n.id in VAULT_TARGETS else n for n in nodes]
+    nodes = [
+        replace(n, group=VAULT if n.id in VAULT_TARGETS else n.group, ref=ref_of(n.id))
+        for n in nodes
+    ]  # fmt: skip
     agents_on = s.agents_interval > 0 and bool(s.github_token)
     releases = agents_on and bool(s.app_repo)
     pc_on = bool(s.control_report_token)
@@ -324,7 +368,8 @@ def build_catalog(s: Settings) -> Catalog:
             "planner-queue",
             "Planner queue",
             60 if s.calendar_sync_interval > 0 else 0,
-            system=True,
+            inputs=("google-calendar", "kb-planning"),
+            outputs=("act-day-plan",),
             quiet_skips=("nothing queued",),
             ai=("calendar-planner",),
             description="Re-plans within a minute after wishes or changed appointments.",
@@ -422,7 +467,7 @@ def build_catalog(s: Settings) -> Catalog:
             "lifeos-manager",
             "LifeOS manager",
             s.manager_interval if s.github_token else 0,
-            inputs=("boards", "control-room"),
+            inputs=("boards", "control-room", "control-explanation"),
             outputs=("act-tasks",),
             reacts_to=("act-tasks",),
             reaction="comments",
@@ -484,7 +529,9 @@ def build_catalog(s: Settings) -> Catalog:
             PC,
             "every 15 min and at logon",
             enabled=pc_on,
-            system=True,
+            inputs=("claude-code-pc",),
+            outputs=("token-usage",),
+            foundation=True,
             warn_after=26 * HOUR,
             fail_after=4 * DAY,
             hint="On the PC: `lifeos claude-usage install-autostart --env-file <env>` registers "
@@ -494,14 +541,20 @@ def build_catalog(s: Settings) -> Catalog:
         ),  # fmt: skip
         _job(
             "control-report",
-            "AI diagnosis",
+            EXPLAINER,
             s.control_report_interval,
-            system=True,
+            inputs=("control-room",),
+            outputs=("control-explanation",),
+            second_order=True,
             warn_after=30 * MIN,
             fail_after=2 * HOUR,
-            quiet_skips=("all green", "unchanged", "no agents/control-room.md"),
+            quiet_skips=("all green", "unchanged", "no agents/control-room.md", "daily limit"),
             ai=("control-room",),
-            description="The AI explains the current problems on this page.",
+            description="The AI explains the current problems at the top of this page; the "
+            "LifeOS manager reads the explanation. The model is called only when the yellow "
+            "and red lights change (or once a day while they persist), at most daily_limit "
+            "times a day.",
         ),  # fmt: skip
     ]
+    processes = [replace(p, ref=ref_of(p.id, "process")) for p in processes]
     return Catalog(nodes, processes)

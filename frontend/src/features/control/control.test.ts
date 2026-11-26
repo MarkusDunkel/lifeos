@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FlowNode, ProcessHealth } from "./api";
 import { sortProcesses } from "./ControlPage";
 import { formatAgo } from "./format";
-import { buildGraph, checkLevel, trace } from "./layout";
+import { buildFlows, buildGraph, checkLevel, trace } from "./layout";
 import { compact, niceScale, stackBars } from "./tokens";
 
 const node = (id: string, kind: "source" | "dataset"): FlowNode => ({
@@ -11,7 +11,20 @@ const node = (id: string, kind: "source" | "dataset"): FlowNode => ({
 const proc = (id: string, inputs: string[], outputs: string[], extra: Partial<ProcessHealth> = {}): ProcessHealth => ({
   id, label: id, where: "server", trigger: "", enabled: true, level: "ok", reason: "", description: "",
   inputs, outputs, status: null, message: "", lastRun: null, lastSuccess: null, history: [], checks: [],
-  runPath: null, canRequest: true, hint: "", mirror: false, system: false, foundation: false, reactsTo: [], ai: [], ...extra,
+  runPath: null, canRequest: true, hint: "", mirror: false, ref: "", foundation: false, reactsTo: [], ai: [], ...extra,
+});
+
+describe("buildFlows", () => {
+  it("draws every process, also the helpers in the rows below", () => {
+    const nodes = [node("src", "source"), node("kb", "dataset"), node("room", "dataset"), node("note", "dataset")];
+    const processes = [
+      proc("sync", ["src"], ["kb"]),
+      proc("explain", ["room"], ["note"], { secondOrder: true }),
+      proc("usage", ["src"], ["kb"], { foundation: true }),
+    ];
+    const ids = new Set(buildFlows(nodes, processes).placed.map((p) => p.id));
+    for (const p of ["p:sync", "p:explain", "p:usage"]) expect(ids).toContain(p);
+  });
 });
 
 describe("buildGraph", () => {
@@ -20,7 +33,6 @@ describe("buildGraph", () => {
     const processes = [
       proc("sync", ["moodle"], ["kb"]),
       proc("git", ["kb"], ["remote"]),
-      proc("helper", [], [], { system: true }),
     ];
     const col = Object.fromEntries(buildGraph(nodes, processes).placed.map((p) => [p.id, p.column]));
     expect(col).toEqual({ moodle: 0, "p:sync": 1, kb: 2, "p:git": 3, remote: 4 });

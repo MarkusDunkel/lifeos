@@ -83,7 +83,7 @@ export function buildGraph(
   processes: ProcessHealth[],
   options: { actionableColumn?: number } = {},
 ): Graph {
-  const flow = processes.filter((p) => !p.system);
+  const flow = processes;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const pid = (p: ProcessHealth) => `p:${p.id}`;
 
@@ -360,7 +360,7 @@ const shift = (g: Graph, top: number): Graph => ({
  * Hover tracing follows the copies back to their originals.
  */
 export function buildFlows(nodes: FlowNode[], processes: ProcessHealth[]): Flows {
-  const visible = processes.filter((p) => !p.system);
+  const visible = processes;
   const mainProcs = visible.filter((p) => !p.foundation && !p.secondOrder);
   const secondProcs = visible.filter((p) => p.secondOrder);
   const baseProcs = visible.filter((p) => p.foundation);
