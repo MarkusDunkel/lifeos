@@ -5,7 +5,7 @@ import { formatAgo } from "./format";
 import { buildGraph, checkLevel, trace } from "./layout";
 import { compact, niceScale, stackBars } from "./tokens";
 
-const node = (id: string, kind: "source" | "target"): FlowNode => ({
+const node = (id: string, kind: "source" | "dataset"): FlowNode => ({
   id, label: id, kind, detail: "", folder: null, group: null, level: "ok", reason: "",
 });
 const proc = (id: string, inputs: string[], outputs: string[], extra: Partial<ProcessHealth> = {}): ProcessHealth => ({
@@ -16,7 +16,7 @@ const proc = (id: string, inputs: string[], outputs: string[], extra: Partial<Pr
 
 describe("buildGraph", () => {
   it("places sources, processes and targets in columns by longest path", () => {
-    const nodes = [node("moodle", "source"), node("kb", "target"), node("remote", "target")];
+    const nodes = [node("moodle", "source"), node("kb", "dataset"), node("remote", "dataset")];
     const processes = [
       proc("sync", ["moodle"], ["kb"]),
       proc("git", ["kb"], ["remote"]),
@@ -27,7 +27,7 @@ describe("buildGraph", () => {
   });
 
   it("orders columns so that edges run straight", () => {
-    const nodes = [node("a", "source"), node("b", "source"), node("ta", "target"), node("tb", "target")];
+    const nodes = [node("a", "source"), node("b", "source"), node("ta", "dataset"), node("tb", "dataset")];
     const processes = [proc("pb", ["b"], ["tb"]), proc("pa", ["a"], ["ta"])];
     const placed = buildGraph(nodes, processes).placed;
     const row = (id: string) => placed.find((p) => p.id === id)!.row;
@@ -36,8 +36,8 @@ describe("buildGraph", () => {
   });
 
   it("boxes a group and collapses its edges into one", () => {
-    const v = (id: string) => ({ ...node(id, "target"), group: "vault" });
-    const nodes = [node("s1", "source"), node("s2", "source"), node("s3", "source"), v("f1"), node("cal", "target"), v("f2"), node("remote", "target")];
+    const v = (id: string) => ({ ...node(id, "dataset"), group: "vault" });
+    const nodes = [node("s1", "source"), node("s2", "source"), node("s3", "source"), v("f1"), node("cal", "dataset"), v("f2"), node("remote", "dataset")];
     const processes = [
       proc("p1", ["s1"], ["f1"]),
       proc("p2", ["s2"], ["cal"]),
@@ -58,8 +58,8 @@ describe("buildGraph", () => {
   });
 
   it("traces a flow upstream and downstream", () => {
-    const v = (id: string) => ({ ...node(id, "target"), group: "vault" });
-    const nodes = [node("s1", "source"), node("s2", "source"), v("f1"), v("f2"), node("remote", "target")];
+    const v = (id: string) => ({ ...node(id, "dataset"), group: "vault" });
+    const nodes = [node("s1", "source"), node("s2", "source"), v("f1"), v("f2"), node("remote", "dataset")];
     const processes = [proc("p1", ["s1"], ["f1"]), proc("p2", ["s2"], ["f2"]), proc("git", ["f1", "f2"], ["remote"])];
     const lit = trace(buildGraph(nodes, processes).links, "s1");
     expect([...lit].sort()).toEqual(["f1", "group:vault", "p:git", "p:p1", "remote", "s1"]);
@@ -90,9 +90,9 @@ describe("mirrorFor", () => {
   it("finds the most specific mirror folder", async () => {
     const { mirrorFor } = await import("./MirrorBadge");
     const nodes: FlowNode[] = [
-      { ...node("teams", "target"), folder: "Teams" },
-      { ...node("chats", "target"), folder: "Teams/Chats" },
-      { ...node("plan", "target"), folder: "Planning" },
+      { ...node("teams", "dataset"), folder: "Teams" },
+      { ...node("chats", "dataset"), folder: "Teams/Chats" },
+      { ...node("plan", "dataset"), folder: "Planning" },
     ];
     const processes = [
       proc("files", [], ["teams"], { mirror: true }),
@@ -112,11 +112,11 @@ describe("buildFlows", () => {
     const { buildFlows, VAULT_STUB } = await import("./layout");
     const nodes: FlowNode[] = [
       node("moodle", "source"),
-      { ...node("kb", "target"), group: "vault" },
-      { ...node("act", "target"), kind: "actionable" },
+      { ...node("kb", "dataset"), group: "vault" },
+      { ...node("act", "dataset"), kind: "actionable" },
       node("cal", "source"),
-      { ...node("plan", "target"), kind: "actionable" },
-      node("remote", "target"),
+      { ...node("plan", "dataset"), kind: "actionable" },
+      node("remote", "dataset"),
     ];
     const processes = [
       proc("sync", ["moodle"], ["kb"]),
@@ -130,11 +130,48 @@ describe("buildFlows", () => {
     expect(at("p:day").column).toBe(at("p:planner").column); // makers share a column
     expect(at("p:day").column).toBe(at("act").column - 1);
     expect(at("p:git").y).toBeGreaterThan(at("p:day").y);
-    expect(g.band).not.toBeNull();
+    expect(g.bands).toHaveLength(1);
     expect(g.edges.find((e) => e.target === "p:git")?.source).toBe(VAULT_STUB);
     expect(trace(g.links, "moodle").has("p:git")).toBe(true); // tracing crosses into the band
     expect(g.feedback).toEqual([{ id: "plan~>day", source: "plan", target: "p:day", process: "day" }]);
     expect(g.edges.some((e) => e.source === "plan")).toBe(false); // the loop is no input edge
+  });
+
+  it("draws the second order between the main flow and the foundation", async () => {
+    const { buildFlows } = await import("./layout");
+    const nodes: FlowNode[] = [
+      node("moodle", "source"),
+      { ...node("kb", "dataset"), group: "vault" },
+      node("posts", "dataset"),
+      node("rated", "dataset"),
+      { ...node("uni", "dataset"), kind: "actionable" },
+      { ...node("tasks", "dataset"), kind: "actionable" },
+      { ...node("boards", "dataset"), derivedFrom: ["uni", "tasks"] },
+      { ...node("room", "dataset"), local: true },
+      node("remote", "dataset"),
+    ];
+    const processes = [
+      proc("sync", ["moodle"], ["kb"]),
+      proc("rate", ["kb"], ["posts"]),
+      proc("more", ["posts"], ["rated"]),
+      proc("planner", ["rated"], ["uni"]),
+      proc("agents", [], ["tasks"]),
+      proc("manager", ["boards", "room"], ["tasks"], { secondOrder: true, reactsTo: ["tasks"] }),
+      proc("git", ["kb"], ["remote"], { foundation: true }),
+    ];
+    const g = buildFlows(nodes, processes);
+    const at = (id: string) => g.placed.find((p) => p.id === id)!;
+    expect(g.bands.map((b) => b.label.split(" ·")[0])).toEqual(["Second order", "Technical foundation"]);
+    expect(at("s:boards").column).toBe(2); // starts under the vault box, left of the makers
+    expect(at("s:boards").column).toBeLessThan(at("p:planner").column);
+    expect(at("s:tasks").column).toBe(at("uni").column); // actionables stay in the last column
+    expect(at("s:tasks").y).toBeGreaterThan(at("tasks").y);
+    expect(at("p:git").y).toBeGreaterThan(at("p:manager").y); // foundation stays at the bottom
+    expect(at("boards")).toBeUndefined(); // only the copy is drawn
+    expect(trace(g.links, "uni").has("p:manager")).toBe(true); // boards are made of the actionables
+    const loop = g.feedback.find((e) => e.target === "p:manager")!;
+    expect(loop.source).toBe("s:tasks");
+    expect(loop.floor).toBeGreaterThan(at("s:tasks").y);
   });
 });
 
@@ -144,10 +181,10 @@ describe("lanes", () => {
     const nodes: FlowNode[] = [
       node("cal", "source"),
       node("moodle", "source"),
-      { ...node("kb", "target"), group: "vault" },
-      { ...node("plan", "target"), group: "vault" },
-      { ...node("act", "target"), kind: "actionable" },
-      { ...node("day", "target"), kind: "actionable" },
+      { ...node("kb", "dataset"), group: "vault" },
+      { ...node("plan", "dataset"), group: "vault" },
+      { ...node("act", "dataset"), kind: "actionable" },
+      { ...node("day", "dataset"), kind: "actionable" },
     ];
     const processes = [
       proc("sync", ["moodle"], ["kb"]),

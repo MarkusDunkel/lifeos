@@ -56,6 +56,7 @@ export type GraphEdge = {
   target: string;
   process: string;
   via?: { x: number; y: number }[]; // left edge of each crossed column, at the lane's height
+  floor?: number; // feedback loops: the height they run back along
 };
 export type Graph = {
   placed: Placed[];
@@ -70,14 +71,18 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 /**
  * The flow diagram's geometry.
  *
- * - Columns by longest path: sources first, each process right of its inputs, each target
- *   right of the processes writing it.
+ * - Columns by longest path: sources first, each process right of its inputs, each dataset
+ *   right of the processes writing it (a dataset nobody writes starts in column 2).
  * - Rows by barycenter sweeps (forward, backward, forward): every item moves towards the
  *   average row of its neighbours, so most edges run short and nearly straight.
- * - Targets of a group (the vault folders) stay together in one box; a process reading
+ * - Datasets of a group (the vault folders) stay together in one box; a process reading
  *   from the group (the vault sync) gets a single edge from the box instead of one per folder.
  */
-export function buildGraph(nodes: FlowNode[], processes: ProcessHealth[]): Graph {
+export function buildGraph(
+  nodes: FlowNode[],
+  processes: ProcessHealth[],
+  options: { actionableColumn?: number } = {},
+): Graph {
   const flow = processes.filter((p) => !p.system);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const pid = (p: ProcessHealth) => `p:${p.id}`;
@@ -118,6 +123,13 @@ export function buildGraph(nodes: FlowNode[], processes: ProcessHealth[]): Graph
     const makerColumn = Math.max(...makers.map((p) => column.get(pid(p)) ?? 0), Math.max(0, ...others) + 1);
     for (const p of makers) column.set(pid(p), makerColumn);
     for (const n of nodes) if (n.kind === "actionable") column.set(n.id, makerColumn + 1);
+  }
+  // a row below the main flow keeps its actionables in the main flow's last column
+  const { actionableColumn } = options;
+  if (actionableColumn !== undefined) {
+    for (const n of nodes) {
+      if (n.kind === "actionable") column.set(n.id, Math.max(actionableColumn, column.get(n.id) ?? 0));
+    }
   }
 
   // edges; inputs from a group member collapse into one edge from the group box
@@ -305,69 +317,128 @@ export function trace(links: [string, string][], focus: string): Set<string> {
 }
 
 export const FOUNDATION = "f:"; // id prefix of the nodes in the technical foundation band
+export const SECOND = "s:"; // id prefix of the nodes in the second-order row
 export const VAULT_STUB = `${FOUNDATION}vault`;
 const BAND_GAP = 120;
+const SECOND_LABEL = "Second order · actionables and the control room feed new actionables";
+const FOUNDATION_LABEL = "Technical foundation · carries everything, ends in no actionable";
 
-export type Flows = Graph & { band: { y: number; label: string } | null };
+/** The catalog id behind a copy in one of the rows below the main flow. */
+export const originalId = (id: string) =>
+  id.startsWith(FOUNDATION) ? id.slice(FOUNDATION.length) : id.startsWith(SECOND) ? id.slice(SECOND.length) : id;
+
+export type Band = { y: number; label: string };
+export type Flows = Graph & { bands: Band[] };
+
+const bottomOf = (g: Graph) =>
+  Math.max(
+    0,
+    ...g.placed.map((p) => p.y + ROW),
+    ...g.groups.map((b) => b.y + b.height),
+    ...g.edges.flatMap((e) => (e.via ?? []).map((v) => v.y + ROW / 2)),
+  );
+
+const shift = (g: Graph, top: number): Graph => ({
+  ...g,
+  placed: g.placed.map((p) => ({ ...p, y: p.y + top })),
+  groups: g.groups.map((b) => ({ ...b, y: b.y + top })),
+  edges: g.edges.map((e) => (e.via ? { ...e, via: e.via.map((v) => ({ ...v, y: v.y + top })) } : e)),
+});
 
 /**
- * The whole picture: the flow to the actionables on top, the technical foundation (vault
- * sync, deployer, ticket copy) as its own small flow below. Nodes that appear in both get a
- * copy in the band (id prefixed with ``f:``), the vault box becomes one "Vault" node there;
- * hover tracing still follows them across.
+ * The whole picture, in up to three rows:
+ *
+ * - the main flow from the sources to the actionables;
+ * - the **second order** (processes with ``secondOrder``): actionables and the control room
+ *   are data too, and feed processes that make new actionables. Its nodes are copies (id
+ *   prefixed with ``s:``); a dataset nobody writes starts in column 2 (under the vault box),
+ *   its actionables stay in the main flow's last column;
+ * - the technical foundation (vault sync, deployer, ticket copy) as its own small flow at the
+ *   bottom; nodes that appear above get a copy there (``f:``), the vault box becomes one
+ *   "Vault" node.
+ *
+ * Hover tracing follows the copies back to their originals.
  */
 export function buildFlows(nodes: FlowNode[], processes: ProcessHealth[]): Flows {
   const visible = processes.filter((p) => !p.system);
-  const mainProcs = visible.filter((p) => !p.foundation);
+  const mainProcs = visible.filter((p) => !p.foundation && !p.secondOrder);
+  const secondProcs = visible.filter((p) => p.secondOrder);
   const baseProcs = visible.filter((p) => p.foundation);
-  const used = new Set(mainProcs.flatMap((p) => [...p.inputs, ...p.outputs]));
-  const mainNodes = nodes.filter((n) => used.has(n.id) || n.kind === "actionable");
-  const main = buildGraph(mainNodes, mainProcs);
-  if (!baseProcs.length) return { ...main, band: null };
-
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  const copy = (id: string) => (byId.get(id)?.group ? VAULT_STUB : `${FOUNDATION}${id}`);
-  const baseNodes = new Map<string, FlowNode>();
-  const procs = baseProcs.map((p) => {
-    const inputs = [...new Set(p.inputs.map(copy))];
-    const outputs = p.outputs.map(copy);
-    for (const id of [...p.inputs, ...p.outputs]) {
-      const key = copy(id);
-      if (baseNodes.has(key)) continue;
-      const n = byId.get(id);
-      baseNodes.set(
-        key,
-        key === VAULT_STUB
-          ? { id: key, label: "Vault", kind: "source", detail: "ready/knowledge (all folders above)", folder: null, group: null, level: "ok", reason: "" }
-          : { ...(n as FlowNode), id: key, group: null, kind: p.inputs.includes(id) ? "source" : (n?.kind ?? "target") },
-      );
-    }
-    return { ...p, inputs, outputs };
-  });
-  const base = buildGraph([...baseNodes.values()], procs);
+  const used = new Set(mainProcs.flatMap((p) => [...p.inputs, ...p.outputs]));
+  // an actionable only a second-order process makes is drawn in that row alone
+  const secondOnly = (id: string) =>
+    !mainProcs.some((p) => p.outputs.includes(id)) && secondProcs.some((p) => p.outputs.includes(id));
+  const mainNodes = nodes.filter((n) => used.has(n.id) || (n.kind === "actionable" && !secondOnly(n.id)));
+  const mainIds = new Set(mainNodes.map((n) => n.id));
+  const main = buildGraph(mainNodes, mainProcs);
 
-  const bottom = Math.max(
-    0,
-    ...main.placed.map((p) => p.y + ROW),
-    ...main.groups.map((g) => g.y + g.height),
-    ...main.edges.flatMap((e) => (e.via ?? []).map((v) => v.y + ROW / 2)),
-  );
-  const top = bottom + BAND_GAP;
-  const links: [string, string][] = [...main.links, ...base.links];
-  for (const key of baseNodes.keys()) {
-    const original = key.slice(FOUNDATION.length);
-    if (key === VAULT_STUB) links.push([groupId("vault"), key]);
-    else if (mainNodes.some((n) => n.id === original)) links.push([original, key]);
-  }
-  return {
-    placed: [...main.placed, ...base.placed.map((p) => ({ ...p, y: p.y + top }))],
-    groups: [...main.groups, ...base.groups.map((g) => ({ ...g, y: g.y + top }))],
-    edges: [
-      ...main.edges,
-      ...base.edges.map((e) => (e.via ? { ...e, via: e.via.map((v) => ({ ...v, y: v.y + top })) } : e)),
-    ],
-    links,
-    feedback: main.feedback,
-    band: { y: top - 44, label: "Technical foundation · carries everything, ends in no actionable" },
+  const placed = [...main.placed];
+  const groups = [...main.groups];
+  const edges = [...main.edges];
+  const links: [string, string][] = [...main.links];
+  const feedback: GraphEdge[] = [...main.feedback];
+  const bands: Band[] = [];
+  let bottom = bottomOf(main);
+
+  const addRow = (graph: Graph, label: string) => {
+    const top = bottom + BAND_GAP;
+    const moved = shift(graph, top);
+    bottom = bottomOf(moved);
+    placed.push(...moved.placed);
+    groups.push(...moved.groups);
+    edges.push(...moved.edges);
+    links.push(...moved.links);
+    feedback.push(...moved.feedback.map((e) => ({ ...e, floor: bottom })));
+    bands.push({ y: top - 44, label });
   };
+
+  if (secondProcs.length) {
+    const copy = (id: string) => `${SECOND}${id}`;
+    const ids = [...new Set(secondProcs.flatMap((p) => [...p.inputs, ...p.outputs]))];
+    const rowNodes: FlowNode[] = ids.flatMap((id) => {
+      const n = byId.get(id);
+      return n ? [{ ...n, id: copy(id), group: null }] : [];
+    });
+    const procs = secondProcs.map((p) => ({
+      ...p,
+      inputs: p.inputs.map(copy),
+      outputs: p.outputs.map(copy),
+      reactsTo: (p.reactsTo ?? []).map(copy),
+    }));
+    const lastColumn = Math.max(0, ...main.placed.map((p) => p.column));
+    addRow(buildGraph(rowNodes, procs, { actionableColumn: lastColumn }), SECOND_LABEL);
+    for (const id of ids) {
+      if (mainIds.has(id)) links.push([id, copy(id)]);
+      for (const part of byId.get(id)?.derivedFrom ?? []) if (mainIds.has(part)) links.push([part, copy(id)]);
+    }
+  }
+
+  if (baseProcs.length) {
+    const copy = (id: string) => (byId.get(id)?.group ? VAULT_STUB : `${FOUNDATION}${id}`);
+    const baseNodes = new Map<string, FlowNode>();
+    const procs = baseProcs.map((p) => {
+      const inputs = [...new Set(p.inputs.map(copy))];
+      const outputs = p.outputs.map(copy);
+      for (const id of [...p.inputs, ...p.outputs]) {
+        const key = copy(id);
+        if (baseNodes.has(key)) continue;
+        const n = byId.get(id);
+        baseNodes.set(
+          key,
+          key === VAULT_STUB
+            ? { id: key, label: "Vault", kind: "source", detail: "ready/knowledge (all folders above)", folder: null, group: null, level: "ok", reason: "" }
+            : { ...(n as FlowNode), id: key, group: null, kind: p.inputs.includes(id) ? "source" : (n?.kind ?? "dataset") },
+        );
+      }
+      return { ...p, inputs, outputs };
+    });
+    addRow(buildGraph([...baseNodes.values()], procs), FOUNDATION_LABEL);
+    for (const key of baseNodes.keys()) {
+      if (key === VAULT_STUB) links.push([groupId("vault"), key]);
+      else if (mainIds.has(originalId(key))) links.push([originalId(key), key]);
+    }
+  }
+
+  return { placed, groups, edges, links, feedback, bands };
 }

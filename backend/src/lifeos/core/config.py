@@ -138,6 +138,16 @@ class Settings(BaseSettings):
             "University board. It calls the model only when there is something new. 0 = off."
         ),
     )
+    manager_interval: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Seconds between runs of the LifeOS manager in `lifeos worker` "
+            "(agents/lifeos-manager.md): reads the boards and the control room, fixes what it "
+            "can, opens tickets in LifeOS Tasks for the rest. Skips the model when nothing "
+            "changed (at most once a day). 0 = off."
+        ),
+    )
     control_report_interval: int = Field(
         default=0,
         ge=0,

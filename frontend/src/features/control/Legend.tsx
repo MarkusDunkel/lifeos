@@ -34,7 +34,7 @@ export function Legend() {
             Process: something that runs
           </Entry>
           <Entry sample={<span className="h-4 w-12 rounded-md border border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40" />}>
-            Target: takes the worst light of the processes writing it
+            Dataset: data LifeOS keeps; shows the worst light of the processes writing it (red: may be out of date)
           </Entry>
           <Entry sample={<span className="h-4 w-12 rounded-md border-2 border-dashed border-sky-300 dark:border-sky-800" />}>
             In the vault: synced to the vault repository as a whole
@@ -46,10 +46,13 @@ export function Legend() {
               </span>
             }
           >
-            Actionable: makes you act; its light says whether every process before it ran
+            Actionable: a dataset you act on; its light says whether every process before it ran
           </Entry>
           <Entry sample={<span className="h-0 w-12 border-t-2 border-dotted border-slate-300 dark:border-slate-700" />}>
-            Technical foundation (below): carries everything, ends in no actionable
+            Second order (below): actionables and the control room as data for new actionables
+          </Entry>
+          <Entry sample={<span className="h-0 w-12 border-t-2 border-dotted border-slate-300 dark:border-slate-700" />}>
+            Technical foundation (bottom): carries everything, ends in no actionable
           </Entry>
         </ul>
       </div>

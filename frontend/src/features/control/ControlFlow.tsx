@@ -15,7 +15,7 @@ import "@xyflow/react/dist/style.css";
 import { Flag, Hand, Monitor, Server, Sparkles, Wrench } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ControlStatus, Level, Where } from "./api";
-import { buildFlows, FOUNDATION, LEVEL_STYLE, trace, VAULT_STUB, WIDTH } from "./layout";
+import { buildFlows, FOUNDATION, LEVEL_STYLE, originalId, trace, VAULT_STUB, WIDTH } from "./layout";
 
 const WHERE_ICON: Record<Where, typeof Server> = { server: Server, pc: Monitor, manual: Hand, host: Wrench };
 export { WHERE_ICON };
@@ -30,7 +30,7 @@ type ItemData = {
   label: string;
   sub: string;
   level: Level;
-  kind: "source" | "process" | "target" | "actionable";
+  kind: "source" | "process" | "dataset" | "actionable";
   where?: Where;
   mirror?: boolean;
   ai?: boolean;
@@ -90,7 +90,7 @@ function Box({ data }: NodeProps<Node<BoxData>>) {
 
 type BandData = { label: string; width: number };
 
-/** Title and rule above the technical foundation. */
+/** Title and rule above a row below the main flow (second order, technical foundation). */
 function Band({ data }: NodeProps<Node<BandData>>) {
   return (
     <div style={{ width: data.width }} className="border-t-2 border-dotted border-slate-300 pt-1.5 dark:border-slate-700">
@@ -185,7 +185,7 @@ export function ControlFlow({
     const nodeOf = (id: string) =>
       id === VAULT_STUB
         ? { label: "Vault", detail: "ready/knowledge (all folders above)", level: "ok" as Level, kind: "source" as const }
-        : flowNodes.get(id.startsWith(FOUNDATION) ? id.slice(FOUNDATION.length) : id)!;
+        : flowNodes.get(originalId(id))!;
     const dim = (id: string) => lit !== null && !lit.has(id);
 
     // a group can span columns (e.g. a vault folder further right): one box per column, the
@@ -209,17 +209,17 @@ export function ControlFlow({
         };
       }
       const n = nodeOf(id);
-      const kind = id.startsWith(FOUNDATION) && n.kind !== "target" ? "source" : n.kind;
+      const kind = id.startsWith(FOUNDATION) && n.kind !== "dataset" ? "source" : n.kind;
       return {
         id, type: "item", position: { x, y },
         data: { label: n.label, sub: n.detail, level: n.level, kind, ...common },
       };
     });
     const width = Math.max(0, ...graph.placed.map((p) => p.x)) + WIDTH;
-    const band: Node<BandData>[] = graph.band
-      ? [{ id: "band", type: "band", position: { x: 0, y: graph.band.y }, data: { label: graph.band.label, width },
-           selectable: false, draggable: false }]
-      : [];
+    const band: Node<BandData>[] = graph.bands.map((b, i) => ({
+      id: `band:${i}`, type: "band", position: { x: 0, y: b.y }, data: { label: b.label, width },
+      selectable: false, draggable: false,
+    }));
 
     const edges: Edge[] = graph.edges.map((e) => {
       const level = processes.get(`p:${e.process}`)?.level ?? "off";
@@ -241,10 +241,11 @@ export function ControlFlow({
         zIndex: strong ? 1 : 0,
       };
     });
+    const firstBand = graph.bands[0]?.y ?? Infinity;
     const mainBottom = Math.max(
       0,
-      ...graph.placed.filter((p) => !graph.band || p.y < graph.band.y).map((p) => p.y + 52),
-      ...graph.edges.flatMap((e) => (e.via ?? []).filter((v) => !graph.band || v.y < graph.band.y).map((v) => v.y + 12)),
+      ...graph.placed.filter((p) => p.y < firstBand).map((p) => p.y + 52),
+      ...graph.edges.flatMap((e) => (e.via ?? []).filter((v) => v.y < firstBand).map((v) => v.y + 12)),
     );
     const loops: Edge<LoopData>[] = graph.feedback.map((e, i) => {
       const on = lit === null || (lit.has(e.source) && lit.has(e.target));
@@ -253,7 +254,7 @@ export function ControlFlow({
         source: e.source,
         target: e.target,
         type: "loop",
-        data: { floor: mainBottom + 24, lane: i, label: processes.get(e.target)?.reaction || "your reactions" },
+        data: { floor: e.floor ?? mainBottom + 24, lane: i, label: processes.get(e.target)?.reaction || "your reactions" },
         style: { stroke: "#a78bfa", strokeDasharray: "6 4", strokeWidth: lit && on ? 2 : 1.25, opacity: lit ? (on ? 1 : 0.08) : 0.55 },
       };
     });

@@ -1,9 +1,11 @@
 """The catalog of every LifeOS process: where it runs, how often it must succeed, and what
 flows from which source into which target.
 
-Every flow ends in an **actionable**: something that makes the owner act (a ticket board,
-the day plan, job assessments). The technical foundation (vault sync, deployer, ticket copy)
-is monitored too, but drawn apart: it carries everything and ends in no actionable.
+Every flow ends in an **actionable**: a dataset that makes the owner act (a ticket board,
+the day plan, job assessments). Actionables are data too: the **second order** row reads
+them (and the control room itself) to make new actionables, e.g. the LifeOS manager. The
+technical foundation (vault sync, deployer, ticket copy) is monitored too, but drawn apart:
+it carries everything and ends in no actionable.
 
 The catalog is generic: what is switched on comes from the settings, so a process that
 should run but is not set up shows as such instead of silently missing.
@@ -27,16 +29,19 @@ HOST = "host"  # outside Docker on the server (deployer timer)
 
 @dataclass(frozen=True)
 class Node:
-    """A source, an intermediate (target) or an actionable in the flow diagram."""
+    """A source, a dataset (what LifeOS keeps) or an actionable (a dataset that makes the
+    owner act) in the flow diagram."""
 
     id: str
     label: str
-    kind: str  # source | target | actionable
+    kind: str  # source | dataset | actionable
     detail: str = ""
     folder: str | None = None  # knowledge folder, for mirror badges
     group: str | None = None  # drawn inside a box, e.g. everything in the vault
     url: str | None = None  # where to act (actionables)
     local: bool = False  # kept by the owner, not written by a process
+    # a dataset made of other nodes (e.g. all boards): takes their worst light
+    derived_from: tuple[str, ...] = ()
 
 
 WORKFLOW_AGENTS = "@workflow"  # the board agents (`runner: workflow` in agents/)
@@ -67,6 +72,8 @@ class Process:
     mirror: bool = False  # its outputs are mirrors: hand edits are overwritten
     system: bool = False  # infrastructure, shown in the system strip, not the diagram
     foundation: bool = False  # technical foundation: own band below the flow
+    # reads actionables or the control room and makes a new actionable: own row below
+    second_order: bool = False
     # actionables whose changes by the owner it reacts to (moved tickets, comments): drawn
     # as a dashed loop back from the actionable, not as an input
     reacts_to: tuple[str, ...] = ()
@@ -148,27 +155,29 @@ def build_catalog(s: Settings) -> Catalog:
         Node("devjobs", "devjobs.at", "source", "job postings"),
         Node("github-boards", "GitHub boards", "source", "tickets and comments"),
         # what LifeOS keeps (vault and state)
-        Node("kb-moodle", s.moodle_dir, "target", f"{kb}/{s.moodle_dir}", s.moodle_dir),
-        Node("kb-teams-chats", f"{teams}/Chats", "target", f"{kb}/{teams}/Chats", f"{teams}/Chats"),
-        Node("kb-teams-files", f"{teams} files", "target", f"{kb}/{teams}/…", teams),
+        Node("kb-moodle", s.moodle_dir, "dataset", f"{kb}/{s.moodle_dir}", s.moodle_dir),
+        Node(
+            "kb-teams-chats", f"{teams}/Chats", "dataset", f"{kb}/{teams}/Chats", f"{teams}/Chats"
+        ),
+        Node("kb-teams-files", f"{teams} files", "dataset", f"{kb}/{teams}/…", teams),
         Node(
             "kb-presentations",
             s.presentations_dir,
-            "target",
+            "dataset",
             f"{kb}/{s.presentations_dir}",
             s.presentations_dir,
         ),  # fmt: skip
         Node(
             "kb-planning",
             s.planning_dir,
-            "target",
+            "dataset",
             "goals, wishes, journal",
             s.planning_dir,
             local=True,
         ),  # fmt: skip
-        Node("applications", "Applications", "target", "frozen PDFs, released postings"),
-        Node("job-postings", "Job postings", "target", "imported postings"),
-        Node("postings-commute", "Postings with commute", "target", "car and bike times added"),
+        Node("applications", "Applications", "dataset", "frozen PDFs, released postings"),
+        Node("job-postings", "Job postings", "dataset", "imported postings"),
+        Node("postings-commute", "Postings with commute", "dataset", "car and bike times added"),
         # actionables: what makes the owner act
         Node(
             "act-university",
@@ -205,11 +214,20 @@ def build_catalog(s: Settings) -> Catalog:
             "AI work to review",
             url=_project_url(tasks_board),
         ),  # fmt: skip
+        # second order: actionables and the control room as data for new actionables
+        Node(
+            "boards",
+            "Boards",
+            "dataset",
+            "University, Applications, LifeOS Tasks",
+            derived_from=("act-university", "act-applications", "act-tasks"),
+        ),  # fmt: skip
+        Node("control-room", "Control room", "dataset", "flows, lights, AI diagnosis", local=True),
         # technical foundation
         Node("pull-requests", "Pull requests", "source", "released by the assistant"),
-        Node("tickets", "Ticket copy", "target", "ready/tickets"),
-        Node("app-live", "Running app", "target", "deployed branch"),
-        Node("vault-remote", "Vault repository", "target", "private GitHub repo"),
+        Node("tickets", "Ticket copy", "dataset", "ready/tickets"),
+        Node("app-live", "Running app", "dataset", "deployed branch"),
+        Node("vault-remote", "Vault repository", "dataset", "private GitHub repo"),
     ]
     nodes = [replace(n, group=VAULT) if n.id in VAULT_TARGETS else n for n in nodes]
     agents_on = s.agents_interval > 0 and bool(s.github_token)
@@ -398,6 +416,25 @@ def build_catalog(s: Settings) -> Catalog:
             ai=(WORKFLOW_AGENTS,),
             description="Mirrors the board contracts and lets the agents (assistant, profile "
             "designer) take the tickets you approve.",
+        ),  # fmt: skip
+        # second order
+        _job(
+            "lifeos-manager",
+            "LifeOS manager",
+            s.manager_interval if s.github_token else 0,
+            inputs=("boards", "control-room"),
+            outputs=("act-tasks",),
+            reacts_to=("act-tasks",),
+            reaction="comments",
+            checks=("github",),
+            quiet_skips=("nothing changed",),
+            ai=("lifeos-manager",),
+            second_order=True,
+            warn_after=max(3 * s.manager_interval, 6 * HOUR),
+            fail_after=max(6 * s.manager_interval, 26 * HOUR),
+            description="The AI looks after the whole system: lifts blocks whose cause is "
+            "gone, fixes faults it can fix, and opens tickets in LifeOS Tasks for what needs "
+            "you and for improvement proposals.",
         ),  # fmt: skip
         # technical foundation
         _job(

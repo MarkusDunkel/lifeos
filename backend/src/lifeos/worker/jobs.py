@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from zoneinfo import ZoneInfo
 
@@ -15,6 +16,8 @@ from lifeos.modules.study.bank import STUDY_DIR
 from lifeos.modules.study.progress import PROGRESS_FILE
 from lifeos.modules.study.service import plural
 from lifeos.worker.scheduler import Daily, Every, Job, JobResult, parse_time
+
+log = logging.getLogger("lifeos.worker")
 
 
 def commit_study_leftovers(git: GitSync) -> list[str]:
@@ -417,6 +420,39 @@ def control_report_job(settings: Settings) -> Callable[[], JobResult]:
     return run
 
 
+def manager_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]:
+    """Let the LifeOS manager look after the boards and the control room."""
+    from lifeos.agents.workflows import llm_settings
+    from lifeos.connectors.github.client import GitHubClient
+    from lifeos.modules.control.service import Control
+    from lifeos.modules.manager.service import Manager
+
+    vault = Vault.open(settings.vault_root)
+    jobs_file = settings.state_dir / "jobs.json" if settings.state_dir else None
+    control = Control(settings, vault, jobs_file)
+    token = settings.github_token
+    projects = [*settings.github_project_list, settings.applications_project or "",
+                settings.university_project or ""]  # fmt: skip
+
+    def commit(paths: list[str], message: str) -> None:
+        try:
+            git.commit_paths(paths, message)
+        except GitError as exc:
+            log.warning("manager: commit failed: %s", exc)
+
+    manager = Manager(
+        vault, control.status, (lambda: GitHubClient(token)) if token else None, projects,
+        next(iter(settings.github_repo_list), None), control.requests.request, commit,
+        settings=llm_settings(settings), timezone=settings.timezone,
+    )  # fmt: skip
+
+    def run() -> JobResult:
+        status, message = manager.run()
+        return JobResult(status, message)
+
+    return run
+
+
 def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
     jobs: list[Job] = []
     if settings.moodle_sync_at:
@@ -468,6 +504,10 @@ def build_jobs(settings: Settings, git: GitSync) -> list[Job]:
     if settings.uni_planner_interval > 0:
         jobs.append(
             Job("uni-planner", Every(settings.uni_planner_interval), uni_planner_job(settings, git))
+        )
+    if settings.manager_interval > 0 and settings.github_token:
+        jobs.append(
+            Job("lifeos-manager", Every(settings.manager_interval), manager_job(settings, git))
         )
     if settings.control_report_interval > 0:
         jobs.append(

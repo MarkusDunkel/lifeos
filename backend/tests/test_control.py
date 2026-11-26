@@ -403,3 +403,20 @@ def test_application_cycle(tmp_path):
     assert [a["agent"] for a in writer["ai"]] == ["application-writer"]
     assert [a["agent"] for a in by_id["agents"]["ai"]] == ["assistant"]  # not listed twice
     assert by_id["applications-board"]["reaction"] == "Sent"
+
+
+def test_second_order_manager_and_derived_boards(tmp_path):
+    jobs = {"agents": {"lastRun": iso(timedelta(minutes=1)), "status": "error",
+                       "message": "boom"}}  # fmt: skip
+    result = run(tmp_path, jobs, github_token="t", github_projects="o/3", agents_interval=120,
+                 manager_interval=7200)  # fmt: skip
+    manager = next(p for p in result["processes"] if p["id"] == "lifeos-manager")
+    assert manager["enabled"] and manager["secondOrder"]
+    assert manager["inputs"] == ["boards", "control-room"] and manager["outputs"] == ["act-tasks"]
+    nodes = {n["id"]: n for n in result["nodes"]}
+    assert nodes["act-tasks"]["level"] == FAIL  # the AI teammates failed
+    assert nodes["boards"]["kind"] == "dataset"
+    assert nodes["boards"]["level"] == FAIL and "LifeOS Tasks" in nodes["boards"]["reason"]
+    assert nodes["control-room"]["level"] == "ok"
+    off = run(tmp_path, {}, github_token="t")
+    assert not next(p for p in off["processes"] if p["id"] == "lifeos-manager")["enabled"]

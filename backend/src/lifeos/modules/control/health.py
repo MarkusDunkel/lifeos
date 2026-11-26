@@ -2,8 +2,8 @@
 
 Fixed rules, no AI: a process is red when its last run failed, a precondition is missing
 or its last success is older than its deadline; yellow when it is getting late or was
-skipped for an unusual reason. Targets inherit the worst light of the processes that
-write them.
+skipped for an unusual reason. Datasets inherit the worst light of the processes that
+write them (or of the nodes they are derived from).
 """
 
 from __future__ import annotations
@@ -72,6 +72,7 @@ class ProcessHealth:
     mirror: bool = False
     system: bool = False
     foundation: bool = False
+    second_order: bool = False
     reacts_to: list[str] = field(default_factory=list)
     reaction: str = ""
     ai: list[dict] = field(default_factory=list)  # agents (model, billing, runs today)
@@ -110,17 +111,26 @@ def evaluate(catalog: Catalog, src: Sources, now: datetime, tz: ZoneInfo) -> dic
         if node.kind == "actionable":
             trust = actionable_trust(node, catalog, by_id, src.inputs, src.generators)
             entry |= {"level": trust["level"], "reason": trust["reason"], "trust": trust}
-        elif node.kind == "target" and writers:
+        elif node.kind == "dataset" and node.derived_from:
+            entry |= {"level": OK, "reason": ""}  # filled in below, from its parts
+        elif node.kind == "dataset" and writers:
             bad = [p.label for p in writers if p.level in (WARN, FAIL)]
             entry |= {"level": worst([p.level for p in writers]),
                       "reason": f"affected by: {', '.join(bad)}" if bad else ""}  # fmt: skip
-        elif node.kind == "target" and node.local:
+        elif node.kind == "dataset" and node.local:
             entry |= {"level": OK, "reason": "kept by you"}
-        elif node.kind == "target":
+        elif node.kind == "dataset":
             entry |= {"level": OFF, "reason": "no process writes it"}
         else:
             entry |= {"level": OK, "reason": ""}
         nodes.append(entry)
+    by_node = {n["id"]: n for n in nodes}
+    for entry in nodes:
+        parts = [by_node[d] for d in entry.get("derived_from") or () if d in by_node]
+        if parts:
+            bad = [p["label"] for p in parts if p["level"] in (WARN, FAIL)]
+            entry |= {"level": worst([p["level"] for p in parts]),
+                      "reason": f"affected by: {', '.join(bad)}" if bad else ""}  # fmt: skip
 
     system = [asdict(worker), *(asdict(c) for c in src.system_checks)]
     active = [p for p in processes if p.enabled]
@@ -181,7 +191,7 @@ def _one(p: Process, src: Sources, now: datetime, tz: ZoneInfo, worker: Check) -
         last_run=entry.get("lastRun"), last_success=entry.get("lastSuccess"),
         history=entry.get("history", []), checks=[asdict(c) for c in checks],
         run_path=p.run_path, can_request=p.where == SERVER and p.enabled, hint=p.hint,
-        mirror=p.mirror, system=p.system, foundation=p.foundation,
+        mirror=p.mirror, system=p.system, foundation=p.foundation, second_order=p.second_order,
         reacts_to=list(p.reacts_to), reaction=p.reaction, ai=src.ai.get(p.id, []),
     )  # fmt: skip
     if not p.enabled:

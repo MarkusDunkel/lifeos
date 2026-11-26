@@ -86,6 +86,7 @@ Future writers (OneDrive, tickets, study progress, agents) follow the same patte
 | `calendar-planner` | daily at a local time: re-plan the next 7 days | `LIFEOS_PLANNER_AT=17:30` |
 | `git-sync` | every N seconds | `LIFEOS_GIT_SYNC_INTERVAL` |
 | `control-report` | every N seconds: the AI supervisor explains yellow and red processes (calls the model only when the problems change) | `LIFEOS_CONTROL_REPORT_INTERVAL` |
+| `lifeos-manager` | every N seconds: the LifeOS manager reads all boards and the control room, fixes what it can, opens tickets for the rest (model only when something changed, at least daily) | `LIFEOS_MANAGER_INTERVAL=7200` |
 
 The last run of every job (plus its last 20 runs) is kept in `state/jobs.json`
 (`GET /api/jobs/status`), so a restart neither repeats nor forgets a daily job.
@@ -93,7 +94,7 @@ The last run of every job (plus its last 20 runs) is kept in `state/jobs.json`
 ### Control room
 
 `/control` shows every process that feeds LifeOS – worker jobs, the PC tasks, manual syncs
-and the host deployer – as a flow diagram (sources → processes → targets) and a table.
+and the host deployer – as a flow diagram (sources → processes → datasets → actionables) and a table.
 The catalog (`modules/control/catalog.py`) knows each process's place, trigger and
 deadlines; the traffic lights are fixed rules evaluated on request (`GET
 /api/control/status`): red for a failed run, a missing precondition (e.g. the Google token
@@ -117,6 +118,11 @@ jobs warn 1 h and fail 4 h after their slot. A stopped worker turns every worker
   the process making it, at least yellow when a process further upstream is late or failing
   (`modules/control/trust.py`). The panel lists what it is based on: when each input was
   last updated and how much new material its maker has not considered yet.
+- Actionables are datasets too. Processes with `second_order=True` read them (and the
+  control room itself) and make new actionables; they are drawn in a row below the main
+  flow that starts in column 2 (under the vault box) and ends in the actionable column. A
+  dataset with `derived_from` (e.g. `boards`, made of the board actionables) takes the worst
+  light of its parts.
 - Processes with `foundation=True` (vault sync, deployer, ticket copy) are drawn in a band
   below the flow: monitored like the rest, but they end in no actionable.
 - **Burned tokens** (second tab below the flow, `GET /api/control/tokens?range=24h|7d|30d`):
@@ -138,6 +144,22 @@ jobs warn 1 h and fail 4 h after their slot. A stopped worker turns every worker
   replaces the old one. Only numbers, the model and the project's folder name leave the PC.
   LifeOS's own headless calls (`--no-session-persistence`, `lifeos-claude-*` working dirs)
   are not counted twice.
+
+### LifeOS manager
+
+`lifeos-manager` (`modules/manager/service.py`, agent file `agents/lifeos-manager.md`, needs
+`billing: subscription`) looks after the whole system. The code builds the picture: the
+control room status and every item of every board (`LIFEOS_GITHUB_PROJECTS`, applications,
+University) with fields and recent comments, plus the manager's own earlier tickets. When
+that picture is unchanged and the last run is less than 20 h ago, no model is called.
+Otherwise Claude Code runs with every tool directly in the vault (like the assistant with
+`access: full`) and may fix vault files itself. It answers with board actions the code checks
+and applies: `unblock` (clears `AI = blocked`), `run_now` (a worker job, via
+`state/job-requests.json`), `comments`, `create_tickets` in the inbox (`needs_you` →
+Responsible = owner; `proposal` → the assistant, capped by `max_open_proposals`). It never
+moves, closes or deletes tickets and skips tickets with `AI = running`. Changed files, the
+run log `agents/lifeos-manager/runs.md` and the step log are committed as
+`agent(lifeos-manager): …`.
 
 ### Study planner
 

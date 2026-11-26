@@ -39,6 +39,7 @@ export type ProcessHealth = {
   mirror: boolean;
   system: boolean;
   foundation: boolean;
+  secondOrder?: boolean;
   reactsTo: string[];
   reaction?: string;
   ai: AiAgent[];
@@ -49,6 +50,7 @@ export type BasedOn = {
   label: string;
   kind: string;
   local?: boolean;
+  derivedFrom?: string[];
   level: Level;
   updated: string | null;
   by: string;
@@ -83,12 +85,13 @@ export type Trust = {
 export type FlowNode = {
   id: string;
   label: string;
-  kind: "source" | "target" | "actionable";
+  kind: "source" | "dataset" | "actionable";
   detail: string;
   folder: string | null;
   group: string | null;
   url?: string | null;
   local?: boolean;
+  derivedFrom?: string[];
   level: Level;
   reason: string;
   trust?: Trust;

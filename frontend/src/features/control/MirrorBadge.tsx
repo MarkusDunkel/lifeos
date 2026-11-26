@@ -13,7 +13,7 @@ export function mirrorFor(path: string, status: ControlStatus | undefined, exact
   let best: MirrorInfo | null = null;
   for (const node of status.nodes) {
     const folder = node.folder;
-    if (!folder || node.kind !== "target") continue;
+    if (!folder || node.kind !== "dataset") continue;
     const hit = exact ? path === folder : path === folder || path.startsWith(`${folder}/`);
     if (!hit || (best && (best.node.folder ?? "").length >= folder.length)) continue;
     const process = status.processes.find((p) => p.mirror && p.enabled && p.outputs.includes(node.id));

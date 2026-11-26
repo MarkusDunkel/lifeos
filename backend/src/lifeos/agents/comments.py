@@ -252,6 +252,16 @@ DEFAULT_TEXTS: dict[str, str] = {
     "report_profile_created": "new",
     "report_profile_updated": "sharpened",
     "report_overview": "Overview",
+    # the LifeOS manager
+    "manager_unblocked": (
+        "I cleared the **AI** field, so the work continues. Why the block is no longer "
+        "needed: {reason}"
+    ),
+    "manager_kind_needs_you": "🧭 **From the LifeOS manager – needs you**",
+    "manager_kind_proposal": (
+        "🧭 **Proposal of the LifeOS manager** – move it to Todo and the assistant implements "
+        "it; close it to reject."
+    ),
 }
 
 

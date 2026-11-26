@@ -7,7 +7,7 @@ import { ActionableDetails, ActionableStrip } from "./Actionable";
 import { formatAgo } from "./format";
 import { Legend } from "./Legend";
 import { TokenChart } from "./TokenChart";
-import { checkLevel, FOUNDATION, LEVEL_RANK, LEVEL_STYLE } from "./layout";
+import { checkLevel, LEVEL_RANK, LEVEL_STYLE, originalId } from "./layout";
 
 const btn =
   "inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800";
@@ -234,7 +234,7 @@ function ProcessTable({ s, onSelect }: { s: ControlStatus; onSelect: (id: string
 
 function Panel({ s, id, onClose }: { s: ControlStatus; id: string; onClose: () => void }) {
   const process = id.startsWith("p:") ? s.processes.find((p) => `p:${p.id}` === id) : undefined;
-  const nodeId = id.startsWith(FOUNDATION) ? id.slice(FOUNDATION.length) : id;
+  const nodeId = originalId(id);
   const node = s.nodes.find((n) => n.id === nodeId);
   return (
     <div className="fixed inset-y-0 right-0 z-20 w-full max-w-md overflow-y-auto border-l border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-950">
@@ -248,7 +248,7 @@ function Panel({ s, id, onClose }: { s: ControlStatus; id: string; onClose: () =
       ) : node ? (
         <div className="space-y-3">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
-            {node.kind === "target" && <Dot level={node.level} />} {node.label}
+            {node.kind === "dataset" && <Dot level={node.level} />} {node.label}
           </h2>
           <p className="text-sm text-slate-500">
             {node.kind === "source" ? "Source" : "Target"} · {node.detail}
@@ -288,7 +288,7 @@ function ProcessDetails({ s, p }: { s: ControlStatus; p: ProcessHealth }) {
         {p.ai.length > 0 && <AiChip />}
         <p className="text-sm text-slate-500">
           {WHERE_LABEL[p.where]} · {p.trigger}
-          {p.mirror ? " · mirror (hand edits in the target are overwritten)" : ""}
+          {p.mirror ? " · mirror (hand edits in the dataset are overwritten)" : ""}
         </p>
       </div>
       <p className="text-sm">{p.description}</p>
