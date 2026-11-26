@@ -42,7 +42,7 @@ export function PrintSubject({ subject }: { subject: string }) {
   const cardCount = banks.reduce((n, b) => n + b.cards.length, 0);
 
   return (
-    <div className="mx-auto max-w-3xl bg-white p-6 text-slate-900 print:max-w-none print:p-0">
+    <div className="print-compact mx-auto max-w-3xl bg-white p-6 text-slate-900 print:max-w-none print:p-0">
       <div className="mb-8 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm print:hidden">
         <span className="flex-1 text-slate-600">{ready ? "Ready – choose “Save as PDF” in the print dialog." : "Loading all files…"}</span>
         <button
@@ -58,7 +58,7 @@ export function PrintSubject({ subject }: { subject: string }) {
       </div>
 
       <header className="space-y-3">
-        <h1 className="text-3xl font-bold">{d.name}</h1>
+        <h1 className="text-2xl font-bold">{d.name}</h1>
         {d.exams.map((e) => (
           <div key={e.date} className="text-slate-700">
             <span className="font-medium">Exam {formatExamDate(e.date)}</span>
@@ -94,36 +94,36 @@ export function PrintSubject({ subject }: { subject: string }) {
       {docs.map((doc, i) => {
         const content = contents[i]?.data?.content;
         return (
-          <section key={doc.path} id={doc.anchor} className="mt-10 break-before-page print:mt-0">
-            <div className="mb-4 border-b border-slate-300 pb-1 text-xs font-semibold tracking-wide text-slate-500 uppercase">
+          <section key={doc.path} id={doc.anchor} className="mt-8 break-before-page print:mt-0">
+            <div className="mb-2 border-b border-slate-300 pb-0.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">
               {doc.heading}
             </div>
             {content === undefined ? (
               <p className="text-sm text-slate-500">{contents[i]?.isError ? "This file could not be loaded." : "Loading…"}</p>
             ) : (
-              <MarkdownView content={content} path={doc.path} files={files} hideFrontmatter />
+              <MarkdownView content={content} path={doc.path} files={files} hideFrontmatter compact />
             )}
           </section>
         );
       })}
 
       {banks.length > 0 && (
-        <section id="questions" className="mt-10 break-before-page print:mt-0">
-          <h1 className="mb-6 text-2xl font-bold">Questions</h1>
+        <section id="questions" className="mt-8 break-before-page print:mt-0">
+          <h1 className="mb-3 text-xl font-bold">Questions</h1>
           {banks.map((bank) => (
-            <div key={bank.file} className="mb-8">
-              <h2 className="mb-3 border-b border-slate-300 pb-1 text-lg font-semibold break-after-avoid">
+            <div key={bank.file} className="mb-5">
+              <h2 className="mb-2 border-b border-slate-300 pb-0.5 text-base font-semibold break-after-avoid">
                 {bank.topic}
                 {bank.exam && <span className="ml-2 text-sm font-normal text-slate-500">exam {formatExamDate(bank.exam)}</span>}
               </h2>
-              <ol className="space-y-4">
+              <ol className="space-y-2">
                 {bank.cards.map((card, n) => (
                   <li key={card.id} className="break-inside-avoid">
                     <div className="font-semibold">
                       {n + 1}. {card.title}
                     </div>
                     {Object.keys(card.fields).length > 0 && (
-                      <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pl-4 text-sm">
+                      <dl className="mt-0.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 pl-4 text-sm leading-snug">
                         {Object.entries(card.fields).map(([key, value]) => (
                           <div key={key} className="contents">
                             <dt className="text-slate-500">{key}</dt>

@@ -12,7 +12,43 @@
 }
 
 @page {
-  margin: 18mm 16mm;
+  margin: 12mm 12mm 14mm;
+}
+
+/* PDF export view: small type, tight spacing (rem scales from the root size). */
+html.force-light {
+  font-size: 13px;
+}
+.print-compact .prose {
+  line-height: 1.45;
+}
+.print-compact .prose :where(h1) {
+  font-size: 1.5em;
+  margin: 0 0 0.5em;
+}
+.print-compact .prose :where(h2) {
+  font-size: 1.25em;
+  margin: 1.1em 0 0.35em;
+}
+.print-compact .prose :where(h3, h4) {
+  font-size: 1.05em;
+  margin: 0.9em 0 0.25em;
+}
+.print-compact .prose :where(p, ul, ol, pre, table, figure) {
+  margin: 0.45em 0;
+}
+.print-compact .prose :where(li) {
+  margin: 0.1em 0;
+}
+.print-compact .prose :where(blockquote) {
+  margin: 0.6em 0;
+  padding-left: 0.8em;
+}
+.print-compact .prose :where(hr) {
+  margin: 1em 0;
+}
+.print-compact .prose :where(th, td) {
+  padding: 0.25em 0.5em;
 }
 
 @theme {
