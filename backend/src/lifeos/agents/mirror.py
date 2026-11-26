@@ -20,7 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from lifeos.agents.config import AgentConfig, BoardContract, FieldSpec
+from lifeos.agents.config import AgentConfig, BoardContract, FieldSpec, ViewSpec
 from lifeos.connectors.github.client import Project, item_values
 from lifeos.core.vault import write_atomic
 
@@ -58,6 +58,7 @@ def desired_state(contract: BoardContract, cfg: AgentConfig) -> dict[str, Any]:
             entry["options"] = field_options(spec, contract, cfg)
         fields[spec.name] = entry
     return {
+        "title": contract.title,
         "columns": [[c.name, c.description] for c in contract.columns],
         "fields": fields,
         "readme": contract.readme.strip(),
@@ -82,6 +83,7 @@ def current_state(project: Project, contract: BoardContract) -> dict[str, Any]:
             entry["options"] = list(f.options)
         fields[spec.name] = entry
     return {
+        "title": project.title,
         "columns": columns,
         "fields": fields,
         "readme": project.readme.strip(),
@@ -96,6 +98,8 @@ def digest(data: Any) -> str:
 
 def differences(current: dict[str, Any], desired: dict[str, Any]) -> list[str]:
     out = []
+    if current.get("title") != desired.get("title"):
+        out.append("title")
     if current["columns"] != desired["columns"]:
         if [c[0] for c in current["columns"]] != [c[0] for c in desired["columns"]]:
             out.append("columns (names or order)")
@@ -120,10 +124,12 @@ class BoardMirror:
         gh: Any,
         state_file: Path,
         on_drift: Callable[[BoardContract, list[str]], None] | None = None,
+        on_views: Callable[[BoardContract, list[ViewSpec]], None] | None = None,
     ) -> None:
         self.gh = gh
         self.state_file = state_file
         self.on_drift = on_drift
+        self.on_views = on_views  # views were created that need settings the API cannot make
 
     def _load(self) -> dict[str, Any]:
         try:
@@ -159,7 +165,48 @@ class BoardMirror:
                 events.append(f"{contract.board}: GitHub differs from the vault ({listed})")
                 if self.on_drift:
                     self.on_drift(contract, diff)
+        if contract.views:
+            project = self.gh.project(owner, number)  # fields may just have been created
+            events += self.sync_views(project, contract, entry)
         self._save(state)
+        return events
+
+    def sync_views(
+        self, project: Project, contract: BoardContract, entry: dict[str, Any]
+    ) -> list[str]:
+        """Create missing views and update those whose contract entry changed.
+
+        Views are matched by name; views that are not in the contract stay untouched, and so
+        does a view the owner adjusted on GitHub as long as its contract entry is unchanged
+        (grouping and sorting can only be set there).
+        """
+        events: list[str] = []
+        applied: dict[str, str] = entry.setdefault("views", {})
+        existing = {v["name"]: v for v in self.gh.views(project.id)}
+        created: list[ViewSpec] = []
+        for spec in contract.views:
+            wanted = digest([spec.layout, spec.filter, spec.fields])
+            # roadmaps have no visible fields on GitHub
+            fields = [] if spec.layout == "roadmap" else spec.fields
+            ids = [project.field_ids[f] for f in fields if f in project.field_ids]
+            missing = [f for f in fields if f not in project.field_ids]
+            if missing:
+                events.append(f"{contract.board}: view '{spec.name}': unknown field(s) {missing}")
+            view = existing.get(spec.name)
+            if view is None:
+                view_id = self.gh.create_view(project.id, spec.name, spec.github_layout, ids)
+                if spec.filter:
+                    self.gh.update_view(view_id, filter=spec.filter)
+                applied[spec.name] = wanted
+                events.append(f"{contract.board}: view '{spec.name}' created")
+                if spec.manual:
+                    created.append(spec)
+            elif applied.get(spec.name) != wanted:
+                self.gh.update_view(view["id"], spec.github_layout, spec.filter, ids or None)
+                applied[spec.name] = wanted
+                events.append(f"{contract.board}: view '{spec.name}' updated")
+        if created and self.on_views:
+            self.on_views(contract, created)
         return events
 
     def apply(
@@ -192,6 +239,9 @@ class BoardMirror:
                 self._replace_options(project, owner, number, name, want["options"], {})
                 events.append(f"{contract.board}: options of '{name}' mirrored")
             project = self.gh.project(owner, number)
+        if current.get("title") != desired["title"]:
+            self.gh.rename_project(project.id, desired["title"])
+            events.append(f"{contract.board}: title mirrored")
         if current["readme"] != desired["readme"] or current["short"] != desired["short"]:
             self.gh.set_readme(project.id, desired["readme"], desired["short"])
             events.append(f"{contract.board}: README mirrored")

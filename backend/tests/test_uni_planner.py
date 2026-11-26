@@ -210,3 +210,52 @@ def test_skips_without_agent_file(setup):
     vault, gh, planner = setup
     (vault.root / "agents" / "uni-planner.md").unlink()
     assert planner.run(lambda agent: FakeLlm({"summary": ""}))[0] == "skipped"
+
+
+def test_start_date_moves_to_in_progress_and_respects_moving_back(setup):
+    vault, gh, planner = setup
+    gh.fields["Start"] = ProjectField("F_St", "Start", "DATE", {}, {})
+    gh.add(30, "[SOL] Kurztest lernen", "x", due="2026-12-10")  # no start yet
+    llm = FakeLlm({"summary": "s", "update": [
+        {"number": 30, "start": "2026-11-20", "start_reason": "Test: zwei Wochen Lernen.",
+         "reason": "Start gesetzt."}]})  # fmt: skip
+    assert planner.run(lambda agent: llm)[0] == "ok"
+    assert 30 in llm.prompts[0]["needsStart"]
+    assert gh.values["IT30"]["Start"] == "2026-11-20"
+    assert gh.values["IT30"]["Status"] == "Todo"  # the code moves, not the model
+
+    # next run: start reached → In Progress with the reason, without a model call
+    status, message = planner.run(lambda agent: llm)
+    assert gh.values["IT30"]["Status"] == "In Progress", message
+    assert "zwei Wochen" in gh.comments["I30"][-1]["body"]
+    assert len(llm.prompts) == 1
+
+    # the owner moves it back: noticed, not moved forward again, the model is asked
+    gh.values["IT30"]["Status"] = "Todo"
+    llm.plan = {"summary": "s", "update": [
+        {"number": 30, "start": "2026-11-27", "start_reason": "Laut Kommentar erst ab 27.11.",
+         "reason": "Zurückgeschoben."}]}  # fmt: skip
+    planner.run(lambda agent: llm)
+    assert gh.values["IT30"]["Status"] == "Todo"
+    assert llm.prompts[-1]["movedBack"] == [30]
+    assert any(e["event"].startswith("owner moved back") for e in llm.prompts[-1]["experience"])
+    assert gh.values["IT30"]["Start"] == "2026-11-27"
+    planner.run(lambda agent: llm)
+    assert gh.values["IT30"]["Status"] == "Todo"  # 27.11. not reached yet
+    state = json.loads(vault.resolve(STATE_FILE).read_text())
+    assert state["held"] == {"30": "2026-11-20"} and state["movedBackOpen"] == {}
+
+
+def test_overdue_ticket_triggers_a_run(setup):
+    vault, gh, planner = setup
+    gh.fields["Start"] = ProjectField("F_St", "Start", "DATE", {}, {})
+    llm = FakeLlm({"summary": "s"})
+    planner.run(lambda agent: llm)
+    gh.add(31, "[BWL] Hochladen", "x", due="2026-11-15")
+    gh.values["IT31"]["Start"] = "2026-11-14"
+    gh.values["IT31"]["Status"] = "In Progress"
+    planner.run(lambda agent: llm)
+    assert llm.prompts[-1]["overdue"] == [31]
+    calls = len(llm.prompts)
+    planner.run(lambda agent: llm)  # asked once per day
+    assert len(llm.prompts) == calls

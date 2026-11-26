@@ -18,6 +18,7 @@ from lifeos.agents.llm import Llm
 from lifeos.agents.mirror import BoardMirror
 from lifeos.agents.releases import AppRepo, DeployQueue, Releases
 from lifeos.agents.team import Team, Workflow
+from lifeos.agents.turn import TurnMirror
 from lifeos.connectors.github.client import GitHubError
 from lifeos.core.vault import STATE, Vault
 
@@ -25,6 +26,7 @@ log = logging.getLogger("lifeos.agents")
 
 STATE_DIR = f"{STATE}/agents"
 BOARDS_STATE = f"{STATE_DIR}/boards.json"
+TURN_STATE = f"{STATE_DIR}/turn.json"
 
 
 def runs_state(board: str) -> str:
@@ -58,7 +60,14 @@ def run_round(
         body = t("drift_body", title=contract.title, path=contract.path, items=items)
         create_inbox_ticket(gh, cfg, repo, t("drift_title", title=contract.title), body)
 
-    mirror = BoardMirror(gh, vault.resolve(BOARDS_STATE), on_drift)
+    def on_views(contract: BoardContract, views: list[Any]) -> None:
+        items = "\n".join(f"- **{v.name}**: {v.manual}" for v in views)
+        owner, number = contract.project.split("/", 1)
+        url = f"https://github.com/users/{owner}/projects/{number}"
+        body = t("views_body", title=contract.title, url=url, items=items, path=contract.path)
+        create_inbox_ticket(gh, cfg, repo, t("views_title", title=contract.title), body)
+
+    mirror = BoardMirror(gh, vault.resolve(BOARDS_STATE), on_drift, on_views)
     # the inbox board first: drift tickets and proposals need its New column
     order = sorted(cfg.boards.values(), key=lambda c: not c.inbox)
     for contract in order:
@@ -80,6 +89,11 @@ def run_round(
         except (GitHubError, ValueError) as exc:
             events.append(f"{contract.board}: {exc}")
             failed = True
+    try:
+        events += TurnMirror(gh, vault.resolve(TURN_STATE)).sync(cfg)
+    except (GitHubError, ValueError) as exc:
+        events.append(f"turn: {exc}")
+        failed = True
     try:
         events += releases.poll()
     except (GitHubError, ValueError) as exc:

@@ -129,8 +129,9 @@ class FakeGitHub:
 
     def project(self, owner: str, number: int) -> Project:
         p = self.projects[number]
+        ids = {"Title": "F_Title"} | {n: f.id for n, f in p["fields"].items()}
         return Project(p["id"], p["title"], "https://example.org/p", dict(p["fields"]),
-                       p["readme"], p["short"])  # fmt: skip
+                       p["readme"], p["short"], ids)  # fmt: skip
 
     def create_field(self, project_id, name, data_type, options=None, descriptions=None) -> None:
         opts = {o: f"o-{o}" for o in options or []}
@@ -158,14 +159,77 @@ class FakeGitHub:
         p["readme"], p["short"] = readme, short_description
         self.calls.append("set_readme")
 
+    def rename_project(self, project_id: str, title: str) -> None:
+        self._by_id(project_id)["title"] = title
+        self.calls.append(f"rename:{title}")
+
+    # views: project id -> [{id, name, layout, filter, fields}]
+    views_: dict[str, list[dict[str, Any]]]
+
+    def views(self, project_id: str) -> list[dict[str, Any]]:
+        return [dict(v) for v in self.__dict__.setdefault("views_", {}).get(project_id, [])]
+
+    def create_view(self, project_id, name, layout, field_ids=None) -> str:
+        views = self.__dict__.setdefault("views_", {}).setdefault(project_id, [])
+        view = {"id": f"V{len(views) + 1}", "name": name, "layout": layout, "filter": "",
+                "fields": list(field_ids or [])}  # fmt: skip
+        views.append(view)
+        self.calls.append(f"create_view:{name}")
+        return view["id"]
+
+    def update_view(self, view_id, layout=None, filter=None, field_ids=None) -> None:
+        for views in self.__dict__.setdefault("views_", {}).values():
+            for v in views:
+                if v["id"] == view_id:
+                    v.update({k: val for k, val in (("layout", layout), ("filter", filter),
+                              ("fields", field_ids)) if val is not None})  # fmt: skip
+        self.calls.append(f"update_view:{view_id}")
+
+    # repository meta and issue labels/assignees
+    labels_: dict[str, str]
+
     def repo(self, repo: str) -> RepoMeta:
-        return RepoMeta("R1", {}, {})
+        return RepoMeta("R1", dict(self.__dict__.setdefault("labels_", {})), {"owner": "U1"})
+
+    def viewer_login(self) -> str:
+        return "owner"
+
+    def create_label(self, repo_id, name, color="0e8a16") -> str:
+        self.__dict__.setdefault("labels_", {})[name] = f"L_{name}"
+        return f"L_{name}"
+
+    def _issue(self, issue_id: str) -> dict[str, Any]:
+        return self.issues[issue_id]
+
+    def add_assignees(self, issue_id, user_ids) -> None:
+        self._issue(issue_id).setdefault("assignees", {"nodes": []})["nodes"].append(
+            {"login": "owner"}
+        )
+        self.calls.append(f"assign:{issue_id}")
+
+    def remove_assignees(self, issue_id, user_ids) -> None:
+        self._issue(issue_id)["assignees"] = {"nodes": []}
+        self.calls.append(f"unassign:{issue_id}")
+
+    def add_labels(self, issue_id, label_ids) -> None:
+        names = [n for n, i in self.labels_.items() if i in label_ids]
+        nodes = self._issue(issue_id).setdefault("labels", {"nodes": []})["nodes"]
+        nodes += [{"name": n} for n in names]
+        self.calls.append(f"label:{issue_id}")
+
+    def remove_labels(self, issue_id, label_ids) -> None:
+        names = {n for n, i in self.labels_.items() if i in label_ids}
+        issue = self._issue(issue_id)
+        issue["labels"] = {"nodes": [n for n in issue.get("labels", {}).get("nodes", [])
+                                     if n["name"] not in names]}  # fmt: skip
+        self.calls.append(f"unlabel:{issue_id}")
 
     def create_issue(self, repo_id: str, changes: dict[str, Any]) -> dict[str, Any]:
         number = len(self.issues) + 1
         issue = {"id": f"I{number}", "number": number,
                  "url": f"https://github.com/someone/board/issues/{number}"}  # fmt: skip
-        self.issues[issue["id"]] = issue | changes | {"state": "OPEN"}
+        self.issues[issue["id"]] = issue | changes | {
+            "state": "OPEN", "repository": {"nameWithOwner": "someone/board"}}  # fmt: skip
         return issue
 
     def add_to_project(self, project_id: str, content_id: str) -> str:

@@ -11,6 +11,12 @@ Rules (``boards/university.md``, decided by the owner):
   comment; it never deletes, it closes;
 - a comment of the owner on a ticket is a binding correction.
 
+Start dates: the model sets a ``Start`` date per task from its kind and size (a short
+submission a few days before, an exam weeks before), learning from how the owner corrected
+earlier ones. The code then moves a Todo ticket to In Progress when its start is reached –
+it becomes the owner's turn. If the owner moves it back to Todo, the code does not move it
+forward again until the start date changes, and the next run sets a new one.
+
 Large backlogs (the first run) are worked off over several runs: every run takes notes up
 to a character budget; the rest stays pending. ``.lifeos/agents/uni-planner.json`` keeps
 what was considered, for the control room.
@@ -30,6 +36,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field
 
 from lifeos.agents import comments
+from lifeos.agents.comments import Texts
 from lifeos.agents.config import AgentDef, load_config
 from lifeos.agents.llm import Llm
 from lifeos.agents.mirror import split_project
@@ -42,7 +49,12 @@ log = logging.getLogger("lifeos.uni-planner")
 AGENT = "uni-planner"
 STATE_FILE = f"{STATE}/agents/uni-planner.json"
 NEW = "New"
+TODO = "Todo"
+IN_PROGRESS = "In Progress"
+DONE = "Done"
 STATUS = "Status"
+START = "Start"
+EXPERIENCE_KEEP = 60  # remembered start-date outcomes the model learns from
 # note type → input category shown in the control room
 CATEGORIES = {
     "moodle-course": "moodle",
@@ -59,6 +71,8 @@ class NewTask(BaseModel):
     title: str = Field(description="'[<course short name>] <task>' in the course language")
     body: str = Field(description="Markdown: course, due, what to do, why, checklist, source")
     due: str | None = Field(default=None, description="YYYY-MM-DD local date, or null")
+    start: str | None = Field(default=None, description="YYYY-MM-DD: when to start working")
+    start_reason: str = Field(default="", description="why this start date, one sentence")
     course: str = ""
     source: str = Field(description="stable source key, e.g. moodle:assign:123 or note:<id>:<part>")
 
@@ -69,6 +83,8 @@ class Change(BaseModel):
     title: str | None = None
     body: str | None = None
     due: str | None = Field(default=None, description="YYYY-MM-DD; 'none' clears it")
+    start: str | None = Field(default=None, description="YYYY-MM-DD; 'none' clears it")
+    start_reason: str | None = Field(default=None, description="why this start date")
     course: str | None = None
     status: str | None = Field(default=None, description="New | Todo | In Progress | Done")
     close: bool = False
@@ -104,6 +120,22 @@ You may change any ticket of the board: title, text, due date, course, column. K
 correct and current (moved deadlines, new details, submitted work → Done, cancelled → close).
 Never delete. Give every change a reason with its source. Moodle facts are authoritative for
 due dates and submission status.
+
+Start dates: give every open ticket a start date (field "start"): the day the student should
+begin working on it so it is done in time without stress. Decide from the kind and size of
+the task, not from a fixed rule: a short submission or upload maybe 1-3 days before, a
+presentation about a week, studying for an exam often 2-3 weeks. Learn from "experience"
+(how the owner reacted to earlier start dates: moved back = too early, comments like "erst ab
+…") and from the owner's comments; a date the owner names wins. Always give a one-sentence
+start_reason. Tickets in "movedBack" were moved back to Todo by the owner: set a later start
+(from their comment if there is one; otherwise estimate and ask in a comment). Tickets in
+"needsStart" have none yet. When the start date is reached, the code moves the ticket to In
+Progress itself – do not move tickets to In Progress for that reason.
+
+Past and finished: move a ticket to Done when it is over – the deadline or exam date has
+passed, Moodle reports it submitted, or messages say it is done or cancelled (then close it).
+Say in the reason what showed it; if a submission is past due but not confirmed as
+submitted, say so plainly. Tickets in "overdue" are past their due date and still open.
 
 The owner's comments on a ticket are binding corrections, with the reliability the owner
 states. Follow them; question them only for very urgent reasons, and then only in a comment,
@@ -234,18 +266,29 @@ class UniPlanner:
         state = self.state()
         runs_today = (state.get("runs") or {}).get(today, 0)
         limit = int(agent.raw.get("daily_limit", 24))
-        if runs_today >= limit:
-            return "skipped", f"daily limit of {limit} runs reached"
 
-        todo, removed, facts, totals = self.pending()
         gh = self.gh_factory()
         owner, number = split_project(self.project_ref)
         project = gh.project(owner, number)
         tickets = self.tickets(gh, project)
+        kept, moved, signals = self.housekeep(gh, project, tickets, state, today)
+        if kept:  # our comments changed the tickets: do not count that as news
+            tickets = self.tickets(gh, project)
+            known = state.setdefault("updated", {})
+            for t in tickets:
+                if str(t.number) in kept:
+                    known[str(t.number)] = t.updated
+        done_note = f"; {'; '.join(moved)}" if moved else ""
+        if runs_today >= limit:
+            self._save(state)
+            return "skipped", f"daily limit of {limit} runs reached{done_note}"
+
+        todo, removed, facts, totals = self.pending()
         known = state.get("updated") or {}
         touched = [t for t in tickets if known.get(str(t.number)) != t.updated]
-        if not (todo or removed or facts or touched or force):
-            return "skipped", "nothing new"
+        if not (todo or removed or facts or touched or force or any(signals.values())):
+            self._save(state)
+            return ("ok" if moved else "skipped"), ("nothing new" + done_note)
 
         batch, used = [], 0
         for rel, kind in sorted(todo, key=lambda x: (x[1] != "moodle-course", x[0])):
@@ -260,6 +303,7 @@ class UniPlanner:
             entry = {
                 "number": t.number, "title": t.title, "state": t.state.lower(),
                 "status": t.values.get(STATUS), "due": t.values.get("Due"),
+                "start": t.values.get(START),
                 "course": t.values.get("Course"), "sources": t.markers,
                 "text": t.body[:2500],
             }  # fmt: skip
@@ -279,6 +323,10 @@ class UniPlanner:
             "removedNotes": removed,
             "notes": [{"path": rel, "type": kind, "text": text} for rel, kind, text in batch],
             "moreNotesPending": len(todo) - len(batch),
+            "needsStart": signals["needsStart"],
+            "movedBack": signals["movedBack"],
+            "overdue": signals["overdue"],
+            "experience": (state.get("experience") or [])[-EXPERIENCE_KEEP:],
             "rules": agent.section("Regeln") or "",
             "corrections": agent.section("Korrekturen") or "",
         }, ensure_ascii=False, indent=1)  # fmt: skip
@@ -290,7 +338,14 @@ class UniPlanner:
         except Exception as exc:  # recorded by the worker; the next run tries again
             return "error", f"planning failed: {type(exc).__name__}: {exc}"
 
-        events = self.apply(gh, project, tickets, plan)
+        events = moved + self.apply(gh, project, tickets, plan, state)
+        for key in ("needsStart", "movedBack", "overdue"):  # asked once per day per ticket
+            asked = state.setdefault("asked", {}).setdefault(key, {})
+            for n in signals[key]:
+                asked[str(n)] = today
+            if key == "movedBack":
+                for n in signals[key]:
+                    state.setdefault("movedBackOpen", {}).pop(str(n), None)
         self._record(state, today, now, batch, todo, facts, totals, plan, events, gh, project)
         failed = [e for e in events if e.startswith("failed")]
         message = (
@@ -298,6 +353,71 @@ class UniPlanner:
             f" read {len(batch)} note(s), {len(todo) - len(batch)} pending"
         )
         return ("error" if failed else "ok"), message + (f"; {'; '.join(failed)}" if failed else "")
+
+    # -- start dates (code only) --------------------------------------------------------
+
+    def housekeep(
+        self, gh: Any, project: Any, tickets: list[Ticket], state: dict[str, Any], today: str
+    ) -> tuple[set[str], list[str], dict[str, list[int]]]:
+        """Move Todo tickets whose start is reached to In Progress, notice tickets the owner
+        moved back, remember outcomes. Returns the tickets we commented on, what was done
+        and the signals for the model (``needsStart``, ``movedBack``, ``overdue``)."""
+        signals: dict[str, list[int]] = {"needsStart": [], "movedBack": [], "overdue": []}
+        kept: set[str] = set()
+        moved: list[str] = []
+        if START not in project.fields:
+            return kept, moved, signals
+        t = Texts.load(self.vault)
+        promoted: dict[str, str] = state.setdefault("promoted", {})  # number -> start
+        held: dict[str, str | None] = state.setdefault("held", {})  # number -> start then
+        reasons: dict[str, str] = state.setdefault("startReasons", {})
+        finished: dict[str, str] = state.setdefault("finished", {})
+        moved_back: dict[str, str] = state.setdefault("movedBackOpen", {})
+        asked: dict[str, dict[str, str]] = state.setdefault("asked", {})
+        experience: list[dict[str, Any]] = state.setdefault("experience", [])
+        for tk in tickets:
+            n = str(tk.number)
+            status, start, due = tk.values.get(STATUS), tk.values.get(START), tk.values.get("Due")
+            if tk.state != "OPEN" or status == DONE:
+                if n not in finished:
+                    finished[n] = today
+                    experience.append({"ticket": tk.title, "start": start, "due": due,
+                                       "event": "done", "date": today})  # fmt: skip
+                promoted.pop(n, None)
+                held.pop(n, None)
+                continue
+            finished.pop(n, None)
+            if n in promoted and status == TODO:  # the owner moved it back
+                promoted.pop(n)
+                held[n] = start
+                moved_back[n] = today
+                experience.append({"ticket": tk.title, "start": start, "due": due,
+                                   "event": "owner moved back to Todo", "date": today})  # fmt: skip
+                self._comment(gh, tk.issue_id, t("uni_held"))
+                kept.add(n)
+                moved.append(f"#{tk.number} moved back by the owner")
+                continue
+            if status == TODO and start and start <= today and (n not in held or held[n] != start):
+                if tk.item_id:
+                    self._set(gh, project, tk.item_id, STATUS, IN_PROGRESS)
+                    reason = reasons.get(n, "")
+                    self._comment(gh, tk.issue_id, t("uni_started", start=start, reason=reason))
+                    promoted[n] = start
+                    held.pop(n, None)
+                    kept.add(n)
+                    moved.append(f"#{tk.number} → In Progress (start {start})")
+                continue
+            if (
+                status in (NEW, TODO)
+                and not start
+                and (asked.get("needsStart") or {}).get(n) != today
+            ):
+                signals["needsStart"].append(tk.number)
+            if due and due < today and (asked.get("overdue") or {}).get(n) != today:
+                signals["overdue"].append(tk.number)
+        signals["movedBack"] = sorted(int(n) for n in moved_back)
+        del experience[:-EXPERIENCE_KEEP]
+        return kept, moved, signals
 
     # -- apply ----------------------------------------------------------------------------
 
@@ -309,8 +429,12 @@ class UniPlanner:
         if f is not None:
             gh.set_field(project.id, item_id, f, value)
 
-    def apply(self, gh: Any, project: Any, tickets: list[Ticket], plan: Plan) -> list[str]:
+    def apply(
+        self, gh: Any, project: Any, tickets: list[Ticket], plan: Plan,
+        state: dict[str, Any] | None = None,
+    ) -> list[str]:  # fmt: skip
         events: list[str] = []
+        reasons = (state if state is not None else {}).setdefault("startReasons", {})
         by_number = {t.number: t for t in tickets}
         used = {m for t in tickets for m in t.markers}
         columns = list(project.fields[STATUS].options)
@@ -329,6 +453,9 @@ class UniPlanner:
                 self._set(gh, project, item, STATUS, NEW if NEW in columns else None)
                 if task.due and _is_date(task.due):
                     self._set(gh, project, item, "Due", task.due)
+                if task.start and _is_date(task.start):
+                    self._set(gh, project, item, START, task.start)
+                    reasons[str(issue["number"])] = task.start_reason
                 if task.course:
                     self._set(gh, project, item, "Course", task.course)
                 used.add(task.source)
@@ -342,6 +469,8 @@ class UniPlanner:
                 continue
             try:
                 events += self._change(gh, project, t, change, columns)
+                if change.start and change.start_reason:
+                    reasons[str(t.number)] = change.start_reason
             except GitHubError as exc:
                 events.append(f"failed to change #{t.number}: {exc}")
         for remark in plan.comment:
@@ -381,6 +510,13 @@ class UniPlanner:
             elif _is_date(c.due):
                 self._set(gh, project, item, "Due", c.due)
                 done.append(f"due {c.due}")
+        if c.start is not None and c.start != t.values.get(START) and START in project.fields:
+            if c.start == "none":
+                self._set(gh, project, item, START, None)
+                done.append("start cleared")
+            elif _is_date(c.start):
+                self._set(gh, project, item, START, c.start)
+                done.append(f"start {c.start}")
         if c.course is not None and c.course != t.values.get("Course"):
             self._set(gh, project, item, "Course", c.course)
             done.append("course")
@@ -389,7 +525,10 @@ class UniPlanner:
             done.append(f"→ {c.status}")
         if not done:
             return []
-        self._comment(gh, t.issue_id, f"{', '.join(done)}. {c.reason}")
+        why = c.reason
+        if c.start_reason and c.start_reason not in why:
+            why = f"{why} {c.start_reason}".strip()
+        self._comment(gh, t.issue_id, f"{', '.join(done)}. {why}")
         return [f"changed #{t.number} ({', '.join(done)})"]
 
     # -- record ---------------------------------------------------------------------------
@@ -434,6 +573,8 @@ class UniPlanner:
             "summary": plan.summary,
             "uncertain": plan.uncertain,
             "events": events,
+            **{k: state[k] for k in ("promoted", "held", "startReasons", "finished",
+                                     "movedBackOpen", "asked", "experience") if k in state},
         })  # fmt: skip
 
 

@@ -128,7 +128,12 @@ files (incrementally, by note revision, up to a character budget per run) plus e
 of the University board with the owner's comments, and lets the model create, change, close
 or comment tickets (`modules/tasks/planner.py`). It never deletes. New tickets go to `New`;
 each change gets a comment with its reason; comments of the owner are binding corrections.
-It only calls the model when something is new, at most `daily_limit` times a day. Moodle syncs from the web app and the
+It only calls the model when something is new, at most `daily_limit` times a day.
+The model also sets a `Start` date per task (by kind and size, learning from an
+`experience` list of earlier outcomes); the code, without a model call, moves a Todo ticket
+to In Progress when its start is reached, and does not move it forward again after the
+owner moved it back (the next run sets a new start). Tickets past their due date and
+tickets without a start trigger a run once a day. Moodle syncs from the web app and the
 worker exclude each other through a file lock. Only one machine should sync Moodle (the
 server): the mirror's state (`.lifeos/moodle/state.json`) is not versioned.
 
@@ -278,10 +283,22 @@ vault, the code only executes it:
   an optional `inbox:` column and a `## README` section. The worker mirrors it to GitHub
   (status option descriptions, fields, project README and short description) – vault →
   GitHub only. If GitHub was edited by hand and the contract did not change, nothing is
-  overwritten: the drift becomes one ticket in the inbox.
+  overwritten: the drift becomes one ticket in the inbox. The contract also names the
+  project title and its **views** (`views:` – name, layout, filter, visible fields); views
+  are matched by name, created when missing and updated only when their contract entry
+  changes, so grouping and sorting set by hand on GitHub survive. The API cannot set
+  grouping, sorting or roadmap dates: a view with a `manual:` hint creates one inbox ticket
+  with that instruction when it is created.
 - `agents/<name>.md` – the **agent definition**: front matter (`title`, `runner`,
   `workflow`, `board`, `model`, `billing`, …) and a human-readable body (summary, workflow, rules with
   origin, review checklist, history, rejected proposals).
+- **Whose turn** (`agents/turn.py`): every column has `turn: owner | ai | responsible |
+  responsible-ai | none`. After each round the turn is mirrored to the issue itself, because
+  project views cannot span projects: the owner's turn = the owner is an assignee, the AI's
+  turn = the label `🤖 KI dran`. `AI = blocked` always makes it the owner's turn; closed
+  tickets are nobody's. Only assignees and labels set by LifeOS are removed again
+  (`.lifeos/agents/turn.json`). Across boards, GitHub's issue dashboard ("Assigned to me",
+  a saved search for the label) is the overview.
 - `agents/texts.yaml` – the wording of agent comments and run logs (defaults in English).
 - `agents/<name>/runs.md` – the run log, appended by every run.
 

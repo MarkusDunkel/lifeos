@@ -32,6 +32,9 @@ class Project:
     fields: dict[str, ProjectField]
     readme: str = ""
     short_description: str = ""
+    field_ids: dict[str, str] = field(
+        default_factory=dict
+    )  # every field (also built-in): name -> id
 
 
 @dataclass
@@ -152,6 +155,7 @@ class GitHubClient:
         if not node:
             raise GitHubError(f"project {owner}/{number} not found (token needs the project scope)")
         fields = {}
+        field_ids = {f["name"]: f["id"] for f in node["fields"]["nodes"] if f.get("id")}
         for f in node["fields"]["nodes"]:
             if f.get("dataType") in EDITABLE_FIELD_TYPES:
                 raw = f.get("options") or []
@@ -167,6 +171,7 @@ class GitHubClient:
             fields=fields,
             readme=node.get("readme") or "",
             short_description=node.get("shortDescription") or "",
+            field_ids=field_ids,
         )
 
     def repo(self, repo: str) -> RepoMeta:
@@ -308,7 +313,8 @@ class GitHubClient:
           items(first: 100, after: $cursor) {{ pageInfo {{ hasNextPage endCursor }}
             nodes {{ id updatedAt {FIELD_VALUES}
               content {{ __typename ... on Issue {{ id number title url state body updatedAt
-                repository {{ nameWithOwner }} labels(first: 30) {{ nodes {{ name }} }} }} }}
+                repository {{ nameWithOwner }} labels(first: 30) {{ nodes {{ name }} }}
+                assignees(first: 10) {{ nodes {{ login }} }} }} }}
             }} }} }} }} }}"""
         out: list[dict[str, Any]] = []
         cursor = None
@@ -321,6 +327,71 @@ class GitHubClient:
             if not page["pageInfo"]["hasNextPage"]:
                 return out
             cursor = page["pageInfo"]["endCursor"]
+
+    def views(self, project_id: str) -> list[dict[str, Any]]:
+        """The views of a board: ``id, number, name, layout, filter`` and the names of the
+        visible ``fields``."""
+        q = """query($id: ID!) { node(id: $id) { ... on ProjectV2 {
+          views(first: 50) { nodes { id number name layout filter
+            fields(first: 50) { nodes { ... on ProjectV2FieldCommon { name } } } } } } } }"""
+        node = self.graphql(q, {"id": project_id})["node"]
+        if node is None:
+            raise GitHubError("project not found")
+        return [
+            {**v, "fields": [f["name"] for f in (v.get("fields") or {}).get("nodes", []) if f]}
+            for v in node["views"]["nodes"]
+        ]
+
+    def create_view(
+        self, project_id: str, name: str, layout: str, field_ids: list[str] | None = None
+    ) -> str:
+        q = """mutation($input: CreateProjectV2ViewInput!) {
+          createProjectV2View(input: $input) { projectV2View { id } } }"""
+        payload: dict[str, Any] = {"projectId": project_id, "name": name, "layout": layout}
+        if field_ids:
+            payload["configuration"] = {"visibleFieldIds": field_ids}
+        return self.graphql(q, {"input": payload})["createProjectV2View"]["projectV2View"]["id"]
+
+    def update_view(
+        self,
+        view_id: str,
+        layout: str | None = None,
+        filter: str | None = None,
+        field_ids: list[str] | None = None,
+    ) -> None:
+        q = """mutation($input: UpdateProjectV2ViewInput!) {
+          updateProjectV2View(input: $input) { projectV2View { id } } }"""
+        payload: dict[str, Any] = {"viewId": view_id}
+        if layout is not None:
+            payload["layout"] = layout
+        if filter is not None:
+            payload["filter"] = filter
+        if field_ids:
+            payload["configuration"] = {"visibleFieldIds": field_ids}
+        self.graphql(q, {"input": payload})
+
+    def add_assignees(self, assignable_id: str, user_ids: list[str]) -> None:
+        q = """mutation($a: ID!, $u: [ID!]!) {
+          addAssigneesToAssignable(input: {assignableId: $a, assigneeIds: $u}) {
+            clientMutationId } }"""
+        self.graphql(q, {"a": assignable_id, "u": user_ids})
+
+    def remove_assignees(self, assignable_id: str, user_ids: list[str]) -> None:
+        q = """mutation($a: ID!, $u: [ID!]!) {
+          removeAssigneesFromAssignable(input: {assignableId: $a, assigneeIds: $u}) {
+            clientMutationId } }"""
+        self.graphql(q, {"a": assignable_id, "u": user_ids})
+
+    def add_labels(self, labelable_id: str, label_ids: list[str]) -> None:
+        q = """mutation($l: ID!, $ids: [ID!]!) {
+          addLabelsToLabelable(input: {labelableId: $l, labelIds: $ids}) { clientMutationId } }"""
+        self.graphql(q, {"l": labelable_id, "ids": label_ids})
+
+    def remove_labels(self, labelable_id: str, label_ids: list[str]) -> None:
+        q = """mutation($l: ID!, $ids: [ID!]!) {
+          removeLabelsFromLabelable(input: {labelableId: $l, labelIds: $ids}) {
+            clientMutationId } }"""
+        self.graphql(q, {"l": labelable_id, "ids": label_ids})
 
     def issue_comments(self, issue_id: str) -> list[dict[str, Any]]:
         """The last 100 comments of an issue, oldest first: ``id, body, createdAt, url`` and

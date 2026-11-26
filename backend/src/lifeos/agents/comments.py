@@ -73,6 +73,17 @@ DEFAULT_TEXTS: dict[str, str] = {
         "- It was a mistake → change anything in `{path}` and commit; LifeOS then mirrors "
         "the contract to GitHub again."
     ),
+    "views_title": "Board “{title}”: finish the new views",
+    "views_body": (
+        "LifeOS created these views on **{title}** ({url}). GitHub does not let it set "
+        "grouping, sorting or roadmap dates, so please do that once by hand and click "
+        "**Save** in each view:\n\n{items}\n\nThe views are defined in `{path}`."
+    ),
+    "uni_started": "Start {start} reached → **In Progress**. {reason}",
+    "uni_held": (
+        "You moved this back to Todo, so I will not move it forward again on my own. "
+        "I will set a new start date."
+    ),
     "runlog_title": "# Runs: {agent}",
     "runlog_intro": "Every run of the agent, newest last. Written by LifeOS.",
     "runlog_ticket": "Ticket",
