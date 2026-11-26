@@ -113,14 +113,17 @@ def url(gh: GitHub, item_id: str) -> str:
 def test_unblocks_a_blocked_ticket_and_reports(gh, vault) -> None:
     item = gh.ticket(3, "Guide: never name the grade", Status="Todo", AI="blocked",
                      Responsible="AI: KI-Assistent")  # fmt: skip
-    claude = FakeClaude(answer(unblock=[{"url": url(gh, item), "reason": "billing is set"}]))
+    unblock = [{"url": url(gh, item), "reason": "billing is set"}]
+    claude = FakeClaude(answer(unblock=unblock, comments=[{"url": url(gh, item), "text": "again"}]))
     commits: list = []
     status_, message = manager(gh, vault, claude, commits=commits).run()
     assert status_ == "ok", message
     assert "AI" not in gh.values(item)  # cleared: the assistant takes it again
     assert gh.values(item)["Status"] == "Todo"  # the column stays
+    assert len(gh.comments) == 1  # no second comment next to the unblock comment
     body = gh.comments[-1][1]
     assert comments.agent_of(body) == AGENT and "billing is set" in body
+    assert body.count("LifeOS manager") == 1
     call = claude.calls[0]
     assert call["unrestricted"] and call["workdir"] == vault.root
     picture = json.loads(call["prompt"])

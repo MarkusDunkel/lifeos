@@ -253,6 +253,7 @@ DEFAULT_TEXTS: dict[str, str] = {
     "report_profile_updated": "sharpened",
     "report_overview": "Overview",
     # the LifeOS manager
+    "manager_prefix": "🧭 **LifeOS manager:**",
     "manager_unblocked": (
         "I cleared the **AI** field, so the work continues. Why the block is no longer "
         "needed: {reason}"
