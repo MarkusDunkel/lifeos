@@ -81,7 +81,10 @@ def vault(tmp_path: Path) -> Vault:
 
 @pytest.fixture
 def gh() -> GitHub:
-    fake = GitHub()
+    return boards(GitHub())
+
+
+def boards(fake: GitHub) -> GitHub:
     fake.add_project(3, ["New", "Todo", "In Progress", "Review", "Done"])
     fake.add_project(4, ["New", "Active", "In Review"])
     for number in (3, 4):
@@ -202,15 +205,18 @@ def test_watch_repair_runs_with_cooldown_and_ideas_once_a_day(gh, vault) -> None
     assert status_ == "skipped" and message.startswith("waiting: 1 event(s)"), message
     clock[0] += timedelta(minutes=11)
     assert m.run()[1].startswith("repair run")
-    assert json.loads(claude.calls[2]["prompt"])["events"] == ["control room: moodle-sync is fail"]
-    # still red, still blocked: no news
+    assert json.loads(claude.calls[2]["prompt"])["events"] == [
+        "control room: moodle-sync is fail – not explained yet (attempt 1)"
+    ]
+    # it gave no explanation: still red is still work, the next run counts on
     clock[0] += timedelta(minutes=20)
-    assert m.run() == ("skipped", "nothing new")
-    assert gh.values(blocked)["AI"] == "blocked"
+    assert m.run()[1].startswith("repair run")
+    assert "(attempt 2)" in json.loads(claude.calls[3]["prompt"])["events"][0]
+    assert gh.values(blocked)["AI"] == "blocked"  # the same block is no news
     # the next morning: the ideas run again
     clock[0] = NOW + timedelta(days=1)
     assert m.run()[1].startswith("ideas run")
-    assert len(claude.calls) == 4
+    assert len(claude.calls) == 5
 
 
 def test_owner_comments_on_its_tickets_are_events_others_are_not(gh, vault) -> None:
@@ -230,7 +236,7 @@ def test_owner_comments_on_its_tickets_are_events_others_are_not(gh, vault) -> N
     assert json.loads(claude.calls[-1]["prompt"])["events"] == ["your comment on #1 Fix"]
 
 
-def test_first_check_remembers_lights_but_looks_at_existing_blocks(gh, vault) -> None:
+def test_first_check_then_existing_blocks_and_red_lights_are_work(gh, vault) -> None:
     gh.ticket(3, "Old block", Status="Todo", AI="blocked")
     clock = [NOW]
     claude = FakeClaude(answer())
@@ -242,7 +248,10 @@ def test_first_check_remembers_lights_but_looks_at_existing_blocks(gh, vault) ->
     assert claude.calls == []
     clock[0] += timedelta(minutes=2)
     assert m.run()[1].startswith("repair run")  # not the ideas run: that ran today
-    assert json.loads(claude.calls[0]["prompt"])["events"] == ["blocked: #1 Old block"]
+    assert json.loads(claude.calls[0]["prompt"])["events"] == [
+        "blocked: #1 Old block",
+        "control room: moodle-sync is fail – not explained yet (attempt 1)",
+    ]
 
 
 def test_files_it_changes_are_committed(gh, vault) -> None:
@@ -275,14 +284,22 @@ def test_schema_is_complete() -> None:
     assert {"unblock", "run_now", "comments", "create_tickets"} <= set(schema["properties"])
 
 
-def test_release_live_and_long_red_are_events_once(gh, vault) -> None:
+def saved(vault: Vault) -> dict[str, Any]:
+    return json.loads(vault.resolve(STATE_FILE).read_text("utf-8"))["watch"]
+
+
+def explain(minutes: int = 60, expect: str = "green", ticket: str = "") -> dict[str, Any]:
+    return {"process": "moodle-sync", "cause": "Moodle is down until 11:00",
+            "expect": expect, "check_after_minutes": minutes, "ticket": ticket}  # fmt: skip
+
+
+def test_release_live_is_an_event_once(gh, vault) -> None:
     item = gh.ticket(3, "Fix the PC task", Status="Review")
     issue_id = gh.items[item]["issue"]
     clock = [NOW]
     claude = FakeClaude(answer())
     m = manager(gh, vault, claude, clock=lambda: clock[0])
     assert m.run()[1].startswith("ideas run")  # 10:00: today's ideas run first
-    # the pull request of the ticket goes live: a repair run looks at the follow-ups
     releases = vault.resolve(".lifeos/agents/releases.json")
     releases.write_text(json.dumps({issue_id: {"prs": [{"number": 4, "stage": "live"}]}}), "utf-8")
     clock[0] += timedelta(minutes=16)
@@ -291,23 +308,137 @@ def test_release_live_and_long_red_are_events_once(gh, vault) -> None:
     assert events == ["release live: PR #4 for #1 Fix the PC task – check its follow-ups"]
     clock[0] += timedelta(minutes=16)
     assert m.run() == ("skipped", "nothing new")  # the same release is no news
-    # a light turns red: news once; red for 6 h: looked at once more, then quiet
-    m.status = lambda: status("fail")
-    assert m.run()[1].startswith("repair run")
-    clock[0] += timedelta(hours=3)
-    assert m.run() == ("skipped", "nothing new")
-    clock[0] += timedelta(hours=3, minutes=1)
-    assert m.run()[1].startswith("repair run")
-    assert json.loads(claude.calls[-1]["prompt"])["events"] == [
-        "control room: moodle-sync red for 6 h"
-    ]
-    clock[0] += timedelta(hours=2)
-    assert m.run() == ("skipped", "nothing new")
-    # better, then red again: a new red period
+
+
+def test_an_explanation_holds_until_its_time_then_it_is_work_again(gh, vault) -> None:
+    clock = [NOW]
+    claude = FakeClaude(answer(explanations=[explain(60)]))
+    m = manager(gh, vault, claude, st=status("fail"), clock=lambda: clock[0])
+    assert m.run()[1].startswith("ideas run")
+    note = saved(vault)["explained"]["moodle-sync"]
+    assert note["until"] == (NOW + timedelta(minutes=60)).isoformat(timespec="seconds")
+    assert note["level"] == "fail" and note["expect"] == "green"
+    clock[0] += timedelta(minutes=30)
+    assert m.run() == ("skipped", "nothing new")  # explained: quiet
+    clock[0] += timedelta(minutes=31)
+    assert m.run()[1].startswith("repair run")  # its time is up and it is still red
+    picture = json.loads(claude.calls[-1]["prompt"])
+    event = picture["events"][0]
+    assert "after the time you gave" in event and "Moodle is down" in event, event
+    assert "(attempt 2)" in event
+    assert picture["yourExplanations"]["moodle-sync"]["cause"] == "Moodle is down until 11:00"
+    # green: explanation and attempts are forgotten
     m.status = lambda: status("ok")
     clock[0] += timedelta(minutes=2)
     assert m.run() == ("skipped", "nothing new")
-    m.status = lambda: status("fail")
+    assert saved(vault)["explained"] == {} and saved(vault)["attempts"] == {}
+
+
+def test_worse_than_explained_is_work(gh, vault) -> None:
+    clock = [NOW]
+    claude = FakeClaude(answer(explanations=[explain(240)]))
+    m = manager(gh, vault, claude, st=status("warn"), clock=lambda: clock[0])
+    m.run()
     clock[0] += timedelta(minutes=16)
+    assert m.run() == ("skipped", "nothing new")
+    m.status = lambda: status("fail")
     assert m.run()[1].startswith("repair run")
-    assert len(claude.calls) == 5
+    event = json.loads(claude.calls[-1]["prompt"])["events"][0]
+    assert "worse than when you explained it (warn → fail)" in event
+
+
+def test_a_light_that_stays_red_gets_one_ticket_on_the_third_attempt(gh, vault) -> None:
+    clock = [NOW]
+    claude = FakeClaude(answer(summary="Keine Ursache gefunden"))
+    m = manager(gh, vault, claude, st=status("fail"), clock=lambda: clock[0])
+    assert m.run()[1].startswith("ideas run")  # attempt 1
+    clock[0] += timedelta(minutes=16)
+    assert m.run()[1].startswith("repair run")  # attempt 2
+    clock[0] += timedelta(minutes=16)
+    status_, message = m.run()  # attempt 3: the code opens the ticket
+    assert "open a needs_you ticket" in json.loads(claude.calls[-1]["prompt"])["events"][0]
+    assert "escalated moodle-sync" in message, message
+    ticket = next(i for i in gh.issues.values() if "moodle-sync" in i["title"])
+    assert ticket["title"] == "Control room: moodle-sync stays red"
+    assert "needs you" in ticket["body"] and comments.agent_of(ticket["body"]) == AGENT
+    note = saved(vault)["explained"]["moodle-sync"]
+    assert note["expect"] == "stays" and note["ticket"] == ticket["url"]
+    # covered while the ticket is open: quiet, no second ticket
+    clock[0] += timedelta(hours=3)
+    assert m.run() == ("skipped", "nothing new")
+    # the owner closes it, the light is still red: fresh attempts
+    ticket["state"] = "CLOSED"
+    clock[0] += timedelta(minutes=2)
+    assert m.run()[1].startswith("repair run")
+    event = json.loads(claude.calls[-1]["prompt"])["events"][0]
+    assert "ticket that covered it is closed" in event and "(attempt 1)" in event, event
+    assert sum("moodle-sync" in i["title"] for i in gh.issues.values()) == 1
+
+
+def test_its_needs_you_ticket_covers_the_processes_it_names(gh, vault) -> None:
+    clock = [NOW]
+    tickets = [{"kind": "needs_you", "title": "Moodle-Passwort erneuern", "body": "…",
+                "processes": ["moodle-sync"]}]  # fmt: skip
+    claude = FakeClaude(answer(create_tickets=tickets))
+    m = manager(gh, vault, claude, st=status("fail"), clock=lambda: clock[0])
+    m.run()
+    note = saved(vault)["explained"]["moodle-sync"]
+    created = next(i for i in gh.issues.values() if i["title"] == "Moodle-Passwort erneuern")
+    assert note["expect"] == "stays" and note["ticket"] == created["url"]
+    assert note["cause"] == "Moodle-Passwort erneuern"
+    clock[0] += timedelta(hours=5)
+    assert m.run() == ("skipped", "nothing new")
+
+
+def test_a_pull_request_gets_a_receipt_in_review_and_goes_to_the_release(vault, tmp_path) -> None:
+    from test_releases import APP_REPO, PR_URL, ReleaseGitHub
+
+    from lifeos.agents.releases import AppRepo, DeployQueue, Releases
+
+    gh = boards(ReleaseGitHub())
+    queue = DeployQueue(tmp_path / "deploy")
+    fix = {"url": PR_URL, "title": "Releases: gelöschtes Ticket legt alles lahm",
+           "problem": "Ticket #58 wurde gelöscht.", "fix": "poll überspringt es."}  # fmt: skip
+    claude = FakeClaude(answer(pull_requests=[fix]))
+    m = manager(gh, vault, claude)
+    assert "refused pull request" in m.run()[1]  # no release pipeline: nothing happens
+    assert gh.issues == {}
+
+    vault.resolve(STATE_FILE).unlink()
+    m = manager(gh, vault, claude)
+    app = AppRepo(APP_REPO, "main", "t")
+    m.releases = lambda g, cfg: Releases(g, vault, cfg, None, queue, app)
+    status_, message = m.run()
+    assert status_ == "ok" and "receipt" in message, message
+    receipt = next(i for i in gh.issues.values() if i["title"].startswith("Releases"))
+    values = next(i["values"] for i in gh.items.values() if i["issue"] == receipt["id"])
+    assert values == {"Status": "Review", "Responsible": "Owner"}
+    assert "Fixed by the LifeOS manager" in receipt["body"] and PR_URL in receipt["body"]
+    assert comments.agent_of(receipt["body"]) == AGENT
+    state = json.loads(vault.resolve(".lifeos/agents/releases.json").read_text("utf-8"))
+    entry = state[receipt["id"]]
+    assert entry["agent"] == AGENT and entry["prs"][0]["stage"] == "test"
+    assert len(list((tmp_path / "deploy" / "requests").glob("*.json"))) == 1
+    assert any(s == receipt["id"] and "#7" in b for s, b in gh.comments)
+
+
+def test_state_is_backed_up_and_the_run_is_marked(gh, vault) -> None:
+    seen: dict[str, Any] = {}
+    marker = vault.resolve(".lifeos/agents/runs-lifeos-manager.json")
+
+    def edit(root: Path) -> None:
+        seen["marker"] = json.loads(marker.read_text("utf-8"))
+
+    claude = FakeClaude(answer(), edit=edit)
+    m = manager(gh, vault, claude)
+    vault.resolve(".lifeos/agents/releases.json").write_text('{"x": 1}', "utf-8")
+    assert m.run()[0] == "ok"
+    assert AGENT in seen["marker"]  # while Claude Code ran
+    assert json.loads(marker.read_text("utf-8")) == {}  # cleared afterwards
+    backups = list(vault.resolve(".lifeos/backups/lifeos-manager").iterdir())
+    assert len(backups) == 1
+    assert json.loads((backups[0] / "releases.json").read_text("utf-8")) == {"x": 1}
+    assert not (backups[0] / "runs-lifeos-manager.json").exists()
+    system = claude.calls[0]["system"]
+    assert ".lifeos/backups/lifeos-manager/" in system
+    assert "agents/lifeos-manager/notes.md" in system

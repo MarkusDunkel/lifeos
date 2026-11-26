@@ -268,6 +268,18 @@ DEFAULT_TEXTS: dict[str, str] = {
         "🧭 **Proposal of the LifeOS manager** – move it to Todo and the assistant implements "
         "it; close it to reject."
     ),
+    "manager_kind_receipt": (
+        "🧭 **Fixed by the LifeOS manager** – the change goes live by itself (tests, merge, "
+        "deployment). Done = keep it; move it to New = undo it."
+    ),
+    "manager_receipt": "**Fault:** {problem}\n\n**Fix:** {fix}\n\n**Pull request:** {url}",
+    "manager_escalation_title": "Control room: {process} stays red",
+    "manager_escalation": (
+        "**{process}** is `{level}`, and {attempts} runs of mine did not make it green.\n\n"
+        "**Message:** {message}\n\n**What I found last:** {cause}\n\n"
+        "Please have a look. While this ticket is open I leave the light alone; close it "
+        "when it is solved."
+    ),
 }
 
 

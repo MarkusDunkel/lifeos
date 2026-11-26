@@ -422,6 +422,23 @@ def test_second_order_manager_and_derived_boards(tmp_path):
     assert not next(p for p in off["processes"] if p["id"] == "lifeos-manager")["enabled"]
 
 
+def test_status_shows_the_managers_explanations(tmp_path):
+    s = settings(tmp_path)
+    state = s.vault_root / ".lifeos" / "agents" / "lifeos-manager.json"
+    state.parent.mkdir(parents=True)
+    note = {"cause": "Ticket gelöscht", "expect": "green", "ticket": "", "level": "fail",
+            "at": iso(timedelta(minutes=5)), "until": iso(timedelta(minutes=-25))}  # fmt: skip
+    watch = {"explained": {"agents": note}, "attempts": {"agents": 1, "git-sync": 2}}
+    state.write_text(json.dumps({"watch": watch}), "utf-8")
+    from lifeos.core.vault import Vault
+    from lifeos.modules.control.service import Control
+
+    notes = Control(s, Vault.open(s.vault_root), None).status(NOW)["manager"]
+    keys = ("cause", "expect", "ticket", "at", "until")
+    assert notes["agents"] == {k: note[k] for k in keys} | {"attempts": 1}
+    assert notes["git-sync"]["cause"] is None and notes["git-sync"]["attempts"] == 2
+
+
 def test_teams_mail_interval_overrides_daily_slot(tmp_path):
     cat = build_catalog(settings(tmp_path, teams_mail_interval=3600))
     proc = next(p for p in cat.processes if p.id == "teams-mail")

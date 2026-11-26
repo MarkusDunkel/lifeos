@@ -22,6 +22,7 @@ from lifeos.modules.control.tokens import InteractiveUsage
 DEPLOYER_HEARTBEAT = "deploy/heartbeat.json"
 APPLICATIONS_INDEX = APPLICATIONS_STATE + "/index.json"
 PLANNER_STATE = ".lifeos/agents/uni-planner.json"
+MANAGER_STATE = ".lifeos/agents/lifeos-manager.json"  # lifeos.modules.manager.service
 # input category of the study planner → its node in the diagram
 PLANNER_INPUTS = {
     "moodle": "kb-moodle",
@@ -74,7 +75,24 @@ class Control:
         result = evaluate(self.catalog, src, now, self.tz)
         result["report"] = report
         result["requests"] = self.requests.all()
+        result["manager"] = self.manager_notes()
         return result
+
+    def manager_notes(self) -> dict[str, dict[str, Any]]:
+        """What the LifeOS manager says about each yellow or red light: its explanation,
+        until when it holds, and how many runs it already spent on it."""
+        watch = (self._vault_json(MANAGER_STATE) or {}).get("watch") or {}
+        attempts = watch.get("attempts") or {}
+        notes = {
+            pid: {k: note.get(k) for k in ("cause", "expect", "ticket", "at", "until")}
+            | {"attempts": attempts.get(pid, 0)}
+            for pid, note in (watch.get("explained") or {}).items()
+            if isinstance(note, dict)
+        }  # fmt: skip
+        for pid, count in attempts.items():  # started for it, but not explained yet
+            notes.setdefault(pid, {"cause": None, "expect": None, "ticket": None, "at": None,
+                                   "until": None, "attempts": count})  # fmt: skip
+        return notes
 
     def actionable_inputs(self, src: Sources) -> tuple[dict[str, dict], dict[str, dict]]:
         """For every process that makes an actionable: how much of each input folder changed

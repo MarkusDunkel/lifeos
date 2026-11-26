@@ -86,7 +86,7 @@ Future writers (OneDrive, tickets, study progress, agents) follow the same patte
 | `calendar-planner` | daily at a local time: re-plan the next 7 days | `LIFEOS_PLANNER_AT=17:30` |
 | `git-sync` | every N seconds | `LIFEOS_GIT_SYNC_INTERVAL` |
 | `control-report` | every N seconds: the AI supervisor explains yellow and red processes (calls the model only when the problems change) | `LIFEOS_CONTROL_REPORT_INTERVAL` |
-| `lifeos-manager` | every N seconds: the watch of the LifeOS manager (code only); a repair run for new events (cooldown), a daily ideas run | `LIFEOS_MANAGER_INTERVAL=120` |
+| `lifeos-manager` | every N seconds: the watch of the LifeOS manager (code only); a repair run for unexplained lights and other events (cooldown), a daily ideas run | `LIFEOS_MANAGER_INTERVAL=120` |
 
 The last run of every job (plus its last 20 runs) is kept in `state/jobs.json`
 (`GET /api/jobs/status`), so a restart neither repeats nor forgets a daily job.
@@ -158,25 +158,43 @@ jobs warn 1 h and fail 4 h after their slot. A stopped worker turns every worker
 ### LifeOS manager
 
 `lifeos-manager` (`modules/manager/service.py`, agent file `agents/lifeos-manager.md`, needs
-`billing: subscription`) looks after the whole system. The code builds the picture: the
-control room status and every item of every board (`LIFEOS_GITHUB_PROJECTS`, applications,
-University) with fields and recent comments, plus the manager's own earlier tickets. Two beats decide whether the model runs:
+`billing: subscription`) looks after the whole system. It has a goal instead of a list of
+cases: every yellow or red light in the control room is fixed, or explained by the manager
+(verified cause plus a time by which it is green again), or covered by an open ticket for the
+owner. The code builds the picture: the control room status, every item of every board
+(`LIFEOS_GITHUB_PROJECTS`, applications, University) with fields and recent comments, the
+manager's own earlier tickets and its earlier explanations. Two beats decide whether the
+model runs:
 
-- The **watch** (every check, code only) compares with the last check: a ticket that became
-  `AI = blocked`, a process whose light got worse, a process red for 6 h (once per red
-  period), a pull request that went live for an unfinished ticket (`.lifeos/agents/
-  releases.json`; the run checks its follow-ups, e.g. the PC's own copy of the app), an
-  owner's comment on one of the manager's tickets. Any of these starts a **repair run**, at most one model run per
-  `repair_cooldown_minutes` (agent file, default 15); it may not create proposals.
+- The **watch** (every check, code only) looks for work: a light that is yellow or red
+  without a valid explanation (none yet, its time is up, it is worse than explained, or the
+  ticket that covered it was closed), a ticket that became `AI = blocked`, a pull request
+  that went live for an unfinished ticket (`.lifeos/agents/releases.json`; the run checks
+  its follow-ups), an owner's comment on one of the manager's tickets. Any of these starts a
+  **repair run**, at most one model run per `repair_cooldown_minutes` (agent file, default
+  15); it may not create proposals.
 - The **ideas run**, once a day from `ideas_at` (agent file, default 07:00 local time),
   looks at everything and may add proposals.
 
-The first check after a deploy remembers the lights and comments it finds; tickets blocked
-at that moment count as new, so the next repair run looks at them once. Then Claude Code runs with every tool directly in the vault (like the assistant with
-`access: full`) and may fix vault files itself. It answers with board actions the code checks
-and applies: `unblock` (clears `AI = blocked`), `run_now` (a worker job, via
-`state/job-requests.json`), `comments`, `create_tickets` in the inbox (`needs_you` →
-Responsible = owner; `proposal` → the assistant, capped by `max_open_proposals`). It never
+State in `.lifeos/agents/lifeos-manager.json` (`watch.explained`, `watch.attempts`); the
+control room shows each explanation next to its process. Every run on a light that stays
+yellow or red counts as an attempt; on the third (`MAX_ATTEMPTS`) the manager is told to open
+a `needs_you` ticket, and the code opens one itself if it does not. A `needs_you` ticket lists
+the processes it covers; while it is open they count as explained (for a day, then looked at
+again), and closing it starts the attempts anew.
+
+Before Claude Code runs, the code copies `.lifeos/agents/*.json` to
+`.lifeos/backups/lifeos-manager/<time>/` (the last 20) and writes the run marker
+`.lifeos/agents/runs-lifeos-manager.json`, so the host deployer does not restart the worker
+under it. Claude Code runs with every tool directly in the vault (`access: full`), keeps its
+cases in `agents/lifeos-manager/notes.md` and may fix vault files and state itself. It answers
+with `explanations` and actions the code checks and applies: `unblock` (clears
+`AI = blocked`), `run_now` (a worker job, via `state/job-requests.json`), `comments`,
+`create_tickets` in the inbox (`needs_you` → Responsible = owner; `proposal` → the assistant,
+capped by `max_open_proposals`), and `pull_requests` against the deploy branch: for each the
+code adds a receipt ticket directly in the review column of the inbox board and hands it to
+the release pipeline (`Releases.record`): tests, merge, deployment, rollback when the
+deployment fails, undo when the owner moves the receipt to the discard column. It never
 moves, closes or deletes tickets and skips tickets with `AI = running`. Changed files, the
 run log `agents/lifeos-manager/runs.md` and the step log are committed as
 `agent(lifeos-manager): …`.
@@ -472,10 +490,14 @@ it (`agents/releases.py`):
 **Host deployer.** The worker has no Docker, so `ops/deployer.py` (standard library only)
 runs on the host as the user that owns the checkout, every 20 seconds via systemd. It reads
 `<state>/deploy/requests/*.json` and writes `results/*.json`. `test` checks the commit out in
-a separate clone, builds the Dockerfile's `test` stage and runs the suite in a container
-without network, volumes or secrets. `deploy` accepts only the deploy branch, waits while an
-agent run is in progress, updates the checkout, runs `docker compose build && up -d`, waits
-for `/api/health` and restores the previous commit if the app does not come up. Install:
+a separate clone, refuses a change whose added lines contain one of the host's private
+patterns (`LIFEOS_PRIVATE_PATTERNS`, one text per line; the file stays on the host, the result
+names only file and pattern number), builds the Dockerfile's `test` stage and runs the suite
+in a container without network, volumes or secrets. `deploy` accepts only the deploy branch,
+waits while an agent run is in progress (a non-empty `runs-*.json` younger than an hour),
+updates the checkout, runs `docker compose build && up -d`, waits for `/api/health` and – when
+the worker ran before – for the worker to log its jobs and stay up
+(`LIFEOS_WORKER_SECONDS`), and restores the previous commit if either fails. Install:
 
 ```bash
 cp ops/deployer.env.example /srv/lifeos/deploy/deployer.env   # set LIFEOS_DEPLOY_BRANCH

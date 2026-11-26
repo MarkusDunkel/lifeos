@@ -422,7 +422,10 @@ def control_report_job(settings: Settings) -> Callable[[], JobResult]:
 
 def manager_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]:
     """Let the LifeOS manager look after the boards and the control room."""
-    from lifeos.agents.workflows import llm_settings
+    from typing import Any
+
+    from lifeos.agents.releases import Releases
+    from lifeos.agents.workflows import build_release, llm_settings
     from lifeos.connectors.github.client import GitHubClient
     from lifeos.modules.control.service import Control
     from lifeos.modules.manager.service import Manager
@@ -440,10 +443,17 @@ def manager_job(settings: Settings, git: GitSync) -> Callable[[], JobResult]:
         except GitError as exc:
             log.warning("manager: commit failed: %s", exc)
 
+    queue, app = build_release(settings)
+
+    def releases(gh: Any, cfg: Any) -> Releases:
+        return Releases(gh, vault, cfg, git, queue, app)
+
     manager = Manager(
         vault, control.status, (lambda: GitHubClient(token)) if token else None, projects,
         next(iter(settings.github_repo_list), None), control.requests.request, commit,
         settings=llm_settings(settings), timezone=settings.timezone,
+        releases=releases if queue and app else None, app_repo=settings.app_repo,
+        branch=settings.deploy_branch,
     )  # fmt: skip
 
     def run() -> JobResult:

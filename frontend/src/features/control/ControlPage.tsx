@@ -1,7 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, Bot, Play, RefreshCw, Sparkles, X } from "lucide-react";
 import { useState } from "react";
-import { type AiAgent, type ControlStatus, controlQuery, type Level, type ProcessHealth, runNow } from "./api";
+import {
+  type AiAgent,
+  type ControlStatus,
+  controlQuery,
+  type Level,
+  type ManagerNote,
+  type ProcessHealth,
+  runNow,
+} from "./api";
 import { ControlFlow, WHERE_LABEL } from "./ControlFlow";
 import { ActionableDetails, ActionableStrip } from "./Actionable";
 import { formatAgo } from "./format";
@@ -278,6 +286,7 @@ function ProcessDetails({ s, p }: { s: ControlStatus; p: ProcessHealth }) {
   });
   const requested = s.requests[p.id];
   const finding = s.report?.findings.find((f) => f.process === p.id);
+  const managerNote = p.level === "ok" ? undefined : s.manager?.[p.id];
   const style = LEVEL_STYLE[p.level];
   return (
     <div className="space-y-4">
@@ -303,6 +312,7 @@ function ProcessDetails({ s, p }: { s: ControlStatus; p: ProcessHealth }) {
         <div>{p.reason}</div>
       </div>
       {p.ai.length > 0 && <AiDetails agents={p.ai} />}
+      {managerNote && <ManagerNoteBox note={managerNote} />}
       {finding && (
         <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm dark:border-sky-900 dark:bg-sky-950/40">
           <div className="mb-1 flex items-center gap-1.5 font-medium">
@@ -380,6 +390,33 @@ function ProcessDetails({ s, p }: { s: ControlStatus; p: ProcessHealth }) {
         </div>
       )}
       {p.hint && <p className="rounded-lg bg-slate-100 p-3 text-sm dark:bg-slate-900">{p.hint}</p>}
+    </div>
+  );
+}
+
+function ManagerNoteBox({ note }: { note: ManagerNote }) {
+  const tries = note.attempts > 0 ? ` · attempt ${note.attempts}` : "";
+  let next = "not explained yet – the manager looks at it";
+  if (note.expect === "stays") next = "waits for the open ticket";
+  else if (note.until) next = `checks again ${when(note.until)}`;
+  return (
+    <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm dark:border-violet-900 dark:bg-violet-950/40">
+      <div className="mb-1 flex items-center gap-1.5 font-medium">
+        <Bot className="size-4 text-violet-600" /> LifeOS manager
+      </div>
+      {note.cause && <div>{note.cause}</div>}
+      <div className="mt-1 text-slate-600 dark:text-slate-300">
+        → {next}
+        {tries}
+        {note.ticket && (
+          <>
+            {" · "}
+            <a href={note.ticket} target="_blank" rel="noreferrer" className="underline">
+              ticket
+            </a>
+          </>
+        )}
+      </div>
     </div>
   );
 }

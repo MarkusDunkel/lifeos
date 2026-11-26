@@ -110,6 +110,18 @@ export type FlowNode = {
 export type Finding = { process: string; cause: string; action: string; affected: string };
 export type Report = { at: string; level: Level; summary: string; findings: Finding[]; signature?: string };
 
+/** What the LifeOS manager says about a yellow or red light. */
+export type ManagerNote = {
+  cause: string | null;
+  /** green: should be green by `until`; stays: an open ticket for the owner covers it. */
+  expect: "green" | "stays" | null;
+  ticket: string | null;
+  at: string | null;
+  until: string | null;
+  /** runs the manager already spent on this light */
+  attempts: number;
+};
+
 export type ControlStatus = {
   level: Level;
   counts: Record<"ok" | "warn" | "fail", number>;
@@ -119,6 +131,7 @@ export type ControlStatus = {
   system: Check[];
   report: Report | null;
   requests: Record<string, string>;
+  manager?: Record<string, ManagerNote>;
 };
 
 export const controlQuery = queryOptions({
