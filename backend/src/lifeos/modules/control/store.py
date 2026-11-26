@@ -58,7 +58,15 @@ class PcJobs:
     def all(self) -> dict[str, dict]:
         return read_json(self.path, {}) or {}
 
-    def record(self, process: str, status: str, message: str, duration: float | None) -> dict:
+    def record(
+        self,
+        process: str,
+        status: str,
+        message: str,
+        duration: float | None,
+        app: dict | None = None,
+    ) -> dict:
+        """``app``: ``{version, update, ok}`` of the PC's copy of the app (newer PCs)."""
         if self.path is None:
             raise RuntimeError("LIFEOS_STATE_DIR is not set")
         with _lock:
@@ -68,6 +76,10 @@ class PcJobs:
             entry.update(lastRun=at, status=status, message=message)
             if duration is not None:
                 entry["duration"] = round(duration, 1)
+            if app is not None:
+                entry["app"] = app
+            else:
+                entry.pop("app", None)  # an older PC copy: no stale commit from before
             if status == "ok":
                 entry["lastSuccess"] = at
             add_history(entry, at, status, message)

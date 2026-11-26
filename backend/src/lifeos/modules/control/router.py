@@ -28,6 +28,10 @@ class PcReport(BaseModel):
     status: Literal["ok", "skipped", "error"]
     message: str = Field(default="", max_length=2000)
     duration: float | None = Field(default=None, ge=0)
+    # the app commit the task ran on and how its self-update went (lifeos.core.self_update)
+    version: str | None = Field(default=None, pattern=r"^[0-9a-f]{4,40}$")
+    update: str = Field(default="", max_length=300)
+    update_ok: bool | None = Field(default=None, alias="updateOk")
 
 
 def build_router(control: Control) -> APIRouter:
@@ -65,6 +69,9 @@ def build_router(control: Control) -> APIRouter:
         process = control.catalog.process(process_id)
         if process is None or process.where != PC:
             raise HTTPException(404, "no such PC process")
-        return control.pc.record(process_id, body.status, body.message, body.duration)
+        app = None
+        if body.version or body.update or body.update_ok is not None:
+            app = {"version": body.version, "update": body.update, "ok": body.update_ok}
+        return control.pc.record(process_id, body.status, body.message, body.duration, app)
 
     return router

@@ -43,6 +43,16 @@ export type ProcessHealth = {
   reactsTo: string[];
   reaction?: string;
   ai: AiAgent[];
+  /** PC tasks: the app commit they ran on, the server's, and how the self-update went. */
+  app?: PcApp | null;
+};
+
+export type PcApp = {
+  version: string | null;
+  serverVersion: string | null;
+  update: string;
+  ok: boolean | null;
+  behind: boolean;
 };
 
 export type BasedOn = {

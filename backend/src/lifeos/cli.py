@@ -95,6 +95,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+    if _scheduled(args):
+        restarted = _self_update(args, sys.argv[1:] if argv is None else argv)
+        if restarted is not None:
+            return restarted
     if args.cmd == "claude-usage":
         return _claude_usage(args)
     if args.cmd == "worker":
@@ -180,6 +184,50 @@ def main(argv: list[str] | None = None) -> int:
         for line in init_vault(args.path):
             print(line)
     return 0
+
+
+# the PC tasks that run on their own (scheduled task or deploy/teams-files-sync.cmd)
+SCHEDULED = {("teams-files", "sync"), ("jobsearch", "autorun"), ("claude-usage", "report")}
+
+
+def _scheduled(args: argparse.Namespace) -> bool:
+    return (args.cmd, getattr(args, "action", None)) in SCHEDULED
+
+
+def _self_update(args: argparse.Namespace, argv: list[str]) -> int | None:
+    """Update the PC's copy of the app to the deploy branch before the task runs.
+
+    Returns the exit code of the restarted task when the code changed, else ``None`` (the
+    task runs here). The result goes with the task's report to the control room.
+    """
+    import os
+    import subprocess
+
+    from lifeos.core import self_update
+    from lifeos.modules.control.reporter import load_settings, set_app_update
+
+    passed = os.environ.get(self_update.ENV_RESULT)
+    if passed is not None:  # the restarted task: the update already ran
+        set_app_update(self_update.UpdateResult.from_env(passed))
+        return None
+    root = self_update.app_root()
+    settings = load_settings(args.env_file)
+    if not settings.pc_self_update:
+        version = self_update.current_version(root)
+        result = self_update.UpdateResult("off", "self-update off (LIFEOS_PC_SELF_UPDATE)", version)
+    else:
+        if sys.prefix != sys.base_prefix:  # uv sync must update the env this task runs in
+            os.environ.setdefault("UV_PROJECT_ENVIRONMENT", sys.prefix)
+        result = self_update.update_app(root, settings.deploy_branch)
+    set_app_update(result)
+    if not result.changed:
+        return None
+    env = os.environ | {self_update.ENV_RESULT: result.to_env()}
+    try:
+        return subprocess.run([sys.executable, "-m", "lifeos.cli", *argv], env=env).returncode
+    except OSError as exc:  # run on the old code rather than not at all
+        set_app_update(self_update.UpdateResult("failed", f"restart failed: {exc}", None))
+        return None
 
 
 def _claude_usage(args: argparse.Namespace) -> int:

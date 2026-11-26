@@ -60,6 +60,7 @@ class Control:
                 ),  # fmt: skip
             },
             deployer=(heartbeat or {}).get("at"),
+            server_version=(heartbeat or {}).get("version"),
             checks=run_checks(self.settings),
             system_checks=[disk_check(self.vault.root)],
         )

@@ -144,7 +144,10 @@ def main() -> int:
     (QUEUE / "results").mkdir(parents=True, exist_ok=True)
     heartbeat = QUEUE / "heartbeat.json"  # the control room checks that the timer runs
     beat = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
-    heartbeat.with_suffix(".tmp").write_text(json.dumps({"at": beat}) + "\n", encoding="utf-8")
+    # the commit the server runs: the control room compares the PC tasks' commit with it
+    code, version = run(["git", "rev-parse", "--short", "HEAD"], cwd=APP, timeout=30)
+    data = {"at": beat} | ({"version": version.strip()} if code == 0 else {})
+    heartbeat.with_suffix(".tmp").write_text(json.dumps(data) + "\n", encoding="utf-8")
     heartbeat.with_suffix(".tmp").replace(heartbeat)
     with open(QUEUE / ".lock", "w") as lock:
         try:

@@ -105,9 +105,19 @@ jobs warn 1 h and fail 4 h after their slot. A stopped worker turns every worker
 - PC tasks (`jobsearch autorun`, `teams-files sync`) report each run to
   `POST /api/control/report/<process>` with `LIFEOS_CONTROL_REPORT_TOKEN` (stored in
   `state/pc-jobs.json`); without the token they show as not set up.
+- PC tasks update their own copy of the app first (`lifeos.core.self_update`, for
+  `teams-files sync`, `jobsearch autorun`, `claude-usage report`): `git fetch` of
+  `LIFEOS_DEPLOY_BRANCH` from their env file (default `main`) and a fast-forward, only when
+  the checkout is on that branch without uncommitted changes or local commits; `uv sync
+  --frozen --extra pc --inexact` first when `pyproject.toml`/`uv.lock` changed (on failure back to the old
+  commit). After an update the task restarts itself on the new code. Otherwise it runs
+  unchanged. Each report carries the commit and the update result; the control room shows
+  it next to the server's commit (from the deployer heartbeat) and turns a task yellow when
+  its update was skipped or failed. `LIFEOS_PC_SELF_UPDATE=false` switches it off.
 - "Run now" on a worker job writes `state/job-requests.json`; the worker runs it at its next
   tick. Manual syncs call their own endpoints.
-- The host deployer writes `state/deploy/heartbeat.json` on every run.
+- The host deployer writes `state/deploy/heartbeat.json` on every run (time and the
+  commit the server runs).
 - The AI supervisor (`agents/control-room.md` in the vault: `model`, `billing`,
   `daily_limit`, `language`) only explains; it writes `state/control-report.json` and
   creates no tickets or notifications.
