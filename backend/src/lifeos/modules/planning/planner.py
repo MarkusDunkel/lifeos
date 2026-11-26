@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from lifeos.agents.config import AgentDef, load_config
 from lifeos.agents.llm import Llm, LlmSettings, Usage, default_llm
 from lifeos.connectors.google.sync import CalendarSync
+from lifeos.core import tokens
 from lifeos.core.vault import INBOX, KNOWLEDGE, Vault, write_atomic
 from lifeos.modules.planning import goals as goals_mod
 from lifeos.modules.planning.journal import Journal
@@ -62,6 +63,15 @@ DAY_NOTE = "note in the calendar"
 KEEP_HISTORY_DAYS = 60
 MOODLE_TASKS = f"{INBOX}/moodle/tasks.json"
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+# reasons that come from the planner itself or the calendar; every other one (a wish, "plan
+# again", changed goals, the owner moving a block) was the owner's doing
+AUTOMATIC_REASONS = {"daily", "restart", CALENDAR_CHANGED, DAY_NOTE}
+
+
+def token_mode(reason: str) -> str:
+    """How the tokens of a run with this (comma-joined) reason count in the ledger."""
+    reasons = {r.strip() for r in reason.split(",") if r.strip()}
+    return tokens.AUTO if reasons <= AUTOMATIC_REASONS else tokens.SEMI
 
 
 # -- structured output ---------------------------------------------------------------------
@@ -380,7 +390,8 @@ class Planner:
         write_atomic(running, json.dumps({"since": now.isoformat(timespec="seconds"),
                                           "reason": reason}))  # fmt: skip
         try:
-            return self._plan(agent, llm_for, now, today, reason, queued)
+            with tokens.context(mode=token_mode(reason)):
+                return self._plan(agent, llm_for, now, today, reason, queued)
         finally:
             running.unlink(missing_ok=True)
 

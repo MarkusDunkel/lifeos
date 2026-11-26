@@ -119,6 +119,25 @@ jobs warn 1 h and fail 4 h after their slot. A stopped worker turns every worker
   last updated and how much new material its maker has not considered yet.
 - Processes with `foundation=True` (vault sync, deployer, ticket copy) are drawn in a band
   below the flow: monitored like the rest, but they end in no actionable.
+- **Burned tokens** (second tab below the flow, `GET /api/control/tokens?range=24h|7d|30d`):
+  stacked bars of the tokens processed (input, cache reads and writes, output) in three modes.
+  - `auto`: runs on the server on its own. These are scheduled worker jobs, including board
+    agents that react to tickets.
+  - `semi`: needs the owner. This covers "Run now", anything the web app starts, planner
+    re-plans after a wish or changed goals, and PC tasks.
+  - `interactive`: Claude Code sessions on the PC.
+
+  Every model call (`AnthropicLlm` and `ClaudeCode.call`) appends one line to
+  `state/tokens.jsonl` (`core/tokens.py`). Process and mode come from a context variable: the
+  scheduler sets it per job, the web app defaults to `semi`, and the board agents add their
+  name as detail. The PC task `claude-usage` (`lifeos claude-usage report`, registered with
+  `install-autostart --env-file …`, every 15 min) reads `~/.claude/projects/**/*.jsonl` and
+  counts each message id once. It only reads files that changed since its last run, and posts
+  hourly totals per transcript to `POST /api/control/report/claude-usage/tokens` (report
+  token). The server stores them in `state/tokens-interactive.json`, where a resent bucket
+  replaces the old one. Only numbers, the model and the project's folder name leave the PC.
+  LifeOS's own headless calls (`--no-session-persistence`, `lifeos-claude-*` working dirs)
+  are not counted twice.
 
 ### Study planner
 

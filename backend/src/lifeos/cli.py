@@ -86,8 +86,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub.add_parser("worker", help="run background jobs (vault git sync)")
     sub.add_parser("git-sync", help="sync the vault with its git remote once")
+    usage = sub.add_parser(
+        "claude-usage", help="report the tokens of Claude Code sessions on the PC"
+    )
+    usage.add_argument("action", choices=["report", "install-autostart", "uninstall-autostart"])
+    usage.add_argument(
+        "--env-file", type=Path, default=None, help="file with LIFEOS_CONTROL_* settings"
+    )
 
     args = parser.parse_args(argv)
+    if args.cmd == "claude-usage":
+        return _claude_usage(args)
     if args.cmd == "worker":
         import logging
 
@@ -171,6 +180,25 @@ def main(argv: list[str] | None = None) -> int:
         for line in init_vault(args.path):
             print(line)
     return 0
+
+
+def _claude_usage(args: argparse.Namespace) -> int:
+    from lifeos.modules.control import claude_usage
+
+    try:
+        if args.action == "uninstall-autostart":
+            print(f"removed scheduled task {claude_usage.uninstall()}")
+            return 0
+        if args.action == "install-autostart":
+            if args.env_file is None:
+                print("pass --env-file with LIFEOS_CONTROL_* settings", file=sys.stderr)
+                return 2
+            print(f"installed scheduled task {claude_usage.install(args.env_file)}")
+            return 0
+    except claude_usage.AutostartError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    return claude_usage.run(args.env_file)
 
 
 def _print(data) -> None:

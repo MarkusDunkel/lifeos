@@ -42,6 +42,7 @@ from lifeos.agents.mirror import STATUS, split_project
 from lifeos.agents.runlog import RunRecord, append_run
 from lifeos.agents.spend import Spend
 from lifeos.connectors.github.client import Project, item_values
+from lifeos.core import tokens
 from lifeos.core.vault import Vault, write_atomic
 from lifeos.modules.reviews import handoff
 
@@ -349,7 +350,8 @@ class Team:
         try:
             if workflow is None:
                 raise AgentBlocked(self.t("no_workflow", workflow=agent.workflow or agent.runner))
-            result = workflow(ctx)
+            with tokens.context(detail=agent.name):
+                result = workflow(ctx)
         except AgentBlocked as exc:
             outcome, message = "blocked", exc.question
         except Exception as exc:  # report on the ticket, never stop the worker

@@ -6,6 +6,7 @@ import { ControlFlow, WHERE_LABEL } from "./ControlFlow";
 import { ActionableDetails, ActionableStrip } from "./Actionable";
 import { formatAgo } from "./format";
 import { Legend } from "./Legend";
+import { TokenChart } from "./TokenChart";
 import { checkLevel, FOUNDATION, LEVEL_RANK, LEVEL_STYLE } from "./layout";
 
 const btn =
@@ -54,7 +55,7 @@ export function ControlPage() {
             <ControlFlow status={s} selected={selected} onSelect={setSelected} />
           </div>
           <Legend />
-          <ProcessTable s={s} onSelect={(id) => setSelected(`p:${id}`)} />
+          <BottomTabs s={s} onSelect={(id) => setSelected(`p:${id}`)} />
           {selected && <Panel s={s} id={selected} onClose={() => setSelected(null)} />}
         </>
       )}
@@ -140,6 +141,55 @@ function SystemStrip({ s, onSelect }: { s: ControlStatus; onSelect: (id: string)
 
 export function sortProcesses(list: ProcessHealth[]): ProcessHealth[] {
   return [...list].sort((a, b) => LEVEL_RANK[b.level] - LEVEL_RANK[a.level] || a.label.localeCompare(b.label));
+}
+
+type Tab = "processes" | "tokens";
+const TAB_KEY = "lifeos.control.tab";
+
+function savedTab(): Tab {
+  try {
+    return localStorage.getItem(TAB_KEY) === "tokens" ? "tokens" : "processes";
+  } catch {
+    return "processes";
+  }
+}
+
+function BottomTabs({ s, onSelect }: { s: ControlStatus; onSelect: (id: string) => void }) {
+  const [tab, setTab] = useState<Tab>(savedTab);
+  const choose = (next: Tab) => {
+    setTab(next);
+    try {
+      localStorage.setItem(TAB_KEY, next);
+    } catch {
+      // private window: the choice only lasts for this visit
+    }
+  };
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "processes", label: "Processes" },
+    { id: "tokens", label: "Burned tokens" },
+  ];
+  return (
+    <div className="space-y-3">
+      <div role="tablist" className="flex gap-1 border-b border-slate-200 dark:border-slate-800">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => choose(t.id)}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${
+              tab === t.id
+                ? "border-sky-600 text-sky-700 dark:text-sky-400"
+                : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === "processes" ? <ProcessTable s={s} onSelect={onSelect} /> : <TokenChart />}
+    </div>
+  );
 }
 
 function ProcessTable({ s, onSelect }: { s: ControlStatus; onSelect: (id: string) => void }) {

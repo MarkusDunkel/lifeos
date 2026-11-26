@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from lifeos.core import tokens
+
 # Variables passed on to Claude Code; all other ANTHROPIC_* / CLAUDE* ones are removed.
 KEEP_ENV = ("CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR")
 SUBSCRIPTION_SOURCE = "none"  # init event `apiKeySource` when no API key is in use
@@ -137,9 +139,11 @@ class ClaudeCode:
                 args += ["--json-schema", json.dumps(schema)]
             if max_turns is not None:
                 args += ["--max-turns", str(max_turns)]
-            return self._run(args, prompt, workdir, Path(tmp) / "stderr.txt")
+            return self._run(args, prompt, workdir, Path(tmp) / "stderr.txt", model)
 
-    def _run(self, args: list[str], prompt: str, workdir: Path, stderr_path: Path) -> CallResult:
+    def _run(
+        self, args: list[str], prompt: str, workdir: Path, stderr_path: Path, model: str = ""
+    ) -> CallResult:
         with stderr_path.open("w", encoding="utf-8") as stderr:
             try:
                 proc = subprocess.Popen(
@@ -165,7 +169,7 @@ class ClaudeCode:
             writer = threading.Thread(target=_feed, args=(proc, prompt), daemon=True)
             writer.start()
             try:
-                result = self._read(proc)
+                result = self._read(proc, model)
             finally:
                 timer.cancel()
                 if proc.poll() is None:
@@ -181,7 +185,7 @@ class ClaudeCode:
             )
         return result
 
-    def _read(self, proc: subprocess.Popen[str]) -> CallResult | None:
+    def _read(self, proc: subprocess.Popen[str], model: str = "") -> CallResult | None:
         assert proc.stdout is not None
         out = CallResult()
         seen_init = False
@@ -216,7 +220,7 @@ class ClaudeCode:
                     if block.get("name") == "WebSearch":
                         out.searches += 1
             elif kind == "result":
-                return _finish(out, event)
+                return _finish(out, event, model)
         return None
 
 
@@ -242,7 +246,7 @@ def _rate_limit(info: dict[str, Any]) -> RateLimit:
     )
 
 
-def _finish(out: CallResult, event: dict[str, Any]) -> CallResult:
+def _finish(out: CallResult, event: dict[str, Any], model: str = "") -> CallResult:
     for usage in (event.get("modelUsage") or {}).values():
         out.tokens += sum(
             int(usage.get(k) or 0)
@@ -250,6 +254,7 @@ def _finish(out: CallResult, event: dict[str, Any]) -> CallResult:
                       "cacheCreationInputTokens")
         )  # fmt: skip
         out.list_usd += float(usage.get("costUSD") or 0.0)
+    tokens.record(out.tokens, model, "subscription")  # also when the call failed below
     out.credential_expires_at = event.get("credential_expires_at")
     out.text = str(event.get("result") or "")
     out.structured = event.get("structured_output")

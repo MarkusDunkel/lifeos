@@ -15,6 +15,7 @@ import signal
 import threading
 from pathlib import Path
 
+from lifeos.core import tokens
 from lifeos.core.config import Settings, get_settings
 from lifeos.core.git_sync import git_sync_for
 from lifeos.worker.jobs import build_jobs
@@ -45,6 +46,7 @@ def run_worker(
         signal.signal(signal.SIGTERM, _stop)
         signal.signal(signal.SIGINT, _stop)
 
+    tokens.configure(settings.state_dir, "worker", tokens.AUTO)
     jobs = build_jobs(settings, git_sync_for(settings))
     if not jobs:
         log.info("no jobs configured (LIFEOS_MOODLE_SYNC_AT, LIFEOS_GIT_SYNC_INTERVAL); idle")

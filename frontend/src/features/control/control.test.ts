@@ -3,6 +3,7 @@ import type { FlowNode, ProcessHealth } from "./api";
 import { sortProcesses } from "./ControlPage";
 import { formatAgo } from "./format";
 import { buildGraph, checkLevel, trace } from "./layout";
+import { compact, niceScale, stackBars } from "./tokens";
 
 const node = (id: string, kind: "source" | "target"): FlowNode => ({
   id, label: id, kind, detail: "", folder: null, group: null, level: "ok", reason: "",
@@ -169,5 +170,28 @@ describe("lanes", () => {
         }
       }
     }
+  });
+});
+
+describe("token chart", () => {
+  const bucket = (auto: number, semi: number, interactive: number) => ({ start: "2026-03-10T10:00:00Z", auto, semi, interactive });
+
+  it("rounds the axis up to a nice maximum", () => {
+    expect(niceScale(0)).toEqual({ top: 1, step: 0.25 });
+    expect(niceScale(870)).toEqual({ top: 1000, step: 250 });
+    expect(niceScale(1_300_000)).toEqual({ top: 1_500_000, step: 500_000 });
+  });
+
+  it("stacks auto, semi, interactive from the base with a gap and rounds only the top", () => {
+    const segs = stackBars([bucket(50, 0, 50), bucket(0, 0, 0)], 100, 100, 100, 2);
+    expect(segs.map((s) => s.mode)).toEqual(["auto", "interactive"]);
+    expect(segs[0]).toMatchObject({ x: 1, width: 48, y: 52, height: 48, top: false });
+    expect(segs[1]).toMatchObject({ y: 0, height: 50, top: true });
+  });
+
+  it("formats compact numbers", () => {
+    expect(compact(950)).toBe("950");
+    expect(compact(12_400)).toBe("12k");
+    expect(compact(1_400_000)).toBe("1.4M");
   });
 });

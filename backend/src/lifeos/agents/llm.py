@@ -26,6 +26,7 @@ from lifeos.agents.claude_code import (
 )
 from lifeos.agents.config import AgentDef
 from lifeos.agents.team import AgentBlocked
+from lifeos.core import tokens
 
 log = logging.getLogger("lifeos.agents.llm")
 
@@ -47,7 +48,7 @@ WEB_SEARCH_USD = 0.01  # per search
 class Usage:
     usd: float = 0.0  # billed API cost; 0 on the subscription
     searches: int = 0
-    tokens: int = 0  # subscription only: tokens processed
+    tokens: int = 0  # tokens processed (input, cache reads and writes, output)
     list_usd: float = 0.0  # subscription only: the API list price of the same calls
     limits: dict[str, float] = field(default_factory=dict)  # subscription utilisation, latest
     credential_expires_at: str | None = None  # subscription token, latest
@@ -89,7 +90,14 @@ def usage_usd(model: str, usage: Any) -> Usage:
         tokens_in * price_in + written * price_in * 1.25 + read * price_in * 0.05
         + tokens_out * price_out
     ) / 1_000_000 + searches * WEB_SEARCH_USD  # fmt: skip
-    return Usage(usd, searches)
+    return Usage(usd, searches, tokens_in + written + read + tokens_out)
+
+
+def _booked(model: str, usage: Any) -> Usage:
+    """Cost of one API response, also written to the token ledger."""
+    used = usage_usd(model, usage)
+    tokens.record(used.tokens, model, "api", used.usd)
+    return used
 
 
 class ModelRefused(RuntimeError):
@@ -127,7 +135,7 @@ class AnthropicLlm:
                 betas=self.BETAS,
                 fallbacks="default",
             )
-            total += usage_usd(self.model, response.usage)
+            total += _booked(self.model, response.usage)
             if response.stop_reason == "refusal":
                 raise ModelRefused("the model declined the research request")
             if response.stop_reason != "pause_turn":
@@ -170,7 +178,7 @@ class AnthropicLlm:
             raise RuntimeError("the answer was cut off (max_tokens)")
         if response.parsed_output is None:
             raise RuntimeError("the answer did not match the expected format")
-        return response.parsed_output, usage_usd(self.model, response.usage)
+        return response.parsed_output, _booked(self.model, response.usage)
 
 
 class ClaudeCodeLlm:

@@ -17,6 +17,7 @@ from lifeos.modules.control.catalog import PC, Catalog, build_catalog
 from lifeos.modules.control.checks import disk_check, run_checks
 from lifeos.modules.control.health import Sources, evaluate
 from lifeos.modules.control.store import REPORT_FILE, PcJobs, RunRequests, read_json
+from lifeos.modules.control.tokens import InteractiveUsage
 
 DEPLOYER_HEARTBEAT = "deploy/heartbeat.json"
 APPLICATIONS_INDEX = APPLICATIONS_STATE + "/index.json"
@@ -39,6 +40,7 @@ class Control:
         self.pc = PcJobs(self.state_dir)
         self.requests = RunRequests(self.state_dir)
         self.tz = ZoneInfo(settings.timezone)
+        self.interactive = InteractiveUsage(self.state_dir)
 
     def sources(self) -> Sources:
         heartbeat = read_json(self.state_dir / DEPLOYER_HEARTBEAT) if self.state_dir else None

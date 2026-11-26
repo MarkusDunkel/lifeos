@@ -439,6 +439,20 @@ def build_catalog(s: Settings) -> Catalog:
             foundation=True,
             description="Copies the GitHub issues into ready/tickets for context and search.",
         ),  # fmt: skip
+        Process(
+            "claude-usage",
+            "Claude Code usage",
+            PC,
+            "every 15 min and at logon",
+            enabled=pc_on,
+            system=True,
+            warn_after=26 * HOUR,
+            fail_after=4 * DAY,
+            hint="On the PC: `lifeos claude-usage install-autostart --env-file <env>` registers "
+            "the task; `lifeos claude-usage report` sends now. The PC must be on.",
+            description="Sends the tokens of your Claude Code sessions for the Burned tokens "
+            "chart (numbers, model and project folder only).",
+        ),  # fmt: skip
         _job(
             "control-report",
             "AI diagnosis",

@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
+from lifeos.core import tokens
+
 log = logging.getLogger("lifeos.worker")
 
 OK_STATES = ("ok", "skipped")
@@ -106,7 +108,7 @@ class Scheduler:
             on_request = asked is not None and asked > (_parse(entry.get("lastRun")) or _NEVER)
             if not on_request and not job.schedule.due(now, entry):
                 continue
-            result = self._run(job)
+            result = self._run(job, on_request)
             self._record(job, entry, now, result)
             if job.name in requested and self.requests:
                 self.requests.done(job.name)
@@ -115,9 +117,12 @@ class Scheduler:
             self._save()
         return ran
 
-    def _run(self, job: Job) -> JobResult:
+    def _run(self, job: Job, on_request: bool = False) -> JobResult:
+        # tokens of a "run now" count as the owner's doing, scheduled runs as autonomous
+        mode = tokens.SEMI if on_request else tokens.AUTO
         try:
-            result = job.run()
+            with tokens.context(job.name, mode, detail=""):
+                result = job.run()
         except Exception as exc:  # a job must never stop the worker
             log.exception("job %s failed", job.name)
             result = JobResult("error", f"{type(exc).__name__}: {exc}")

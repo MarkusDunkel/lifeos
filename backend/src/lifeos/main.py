@@ -23,7 +23,7 @@ from lifeos.connectors.moodle.setup import build_moodle
 from lifeos.connectors.onedrive.auth import MicrosoftAuth, OneDriveError
 from lifeos.connectors.onedrive.client import GraphClient
 from lifeos.connectors.onedrive.sync import PresentationsSync
-from lifeos.core import auth
+from lifeos.core import auth, tokens
 from lifeos.core.config import Settings, get_settings
 from lifeos.core.git_sync import background_committer, git_sync_for
 from lifeos.core.vault import RevisionConflict, Vault, VaultPathError
@@ -89,6 +89,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             closer.cancel()
 
+    # model calls the web app makes were started by the owner (a click, a chat message)
+    tokens.configure(settings.state_dir, "web", tokens.SEMI)
     app = FastAPI(title="LifeOS", version=__version__, lifespan=lifespan)
     app.add_middleware(auth.AuthMiddleware, settings=settings)
 
