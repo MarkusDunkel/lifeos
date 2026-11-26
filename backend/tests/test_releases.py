@@ -167,6 +167,20 @@ def test_failed_tests_stop_the_release(gh, vault, queue) -> None:
     events = releases(gh, vault, git, queue, app).poll()
     assert events == ["someone/board#1: tests failed for PR #7"]
     assert gh.merged == [] and "1 failed: test_letter" in gh.comments[-1][1]
+    # nothing is live: not ready for review, but blocked in the working column
+    item = next(iter(gh.items))
+    assert gh.values(item)["Status"] == "In Progress" and gh.values(item)["AI"] == "blocked"
+    assert "moved the ticket back to **In Progress**" in gh.comments[-1][1]
+
+
+def test_failed_release_leaves_a_ticket_the_owner_moved_alone(gh, vault, queue) -> None:
+    git, app = ReleaseGit(), FakeApp()
+    item = work(gh, vault, git, queue, app)
+    gh.values(item)["Status"] = "Done"  # the owner was faster
+    answer(queue, "failed", message="1 failed")
+    releases(gh, vault, git, queue, app).poll()
+    assert gh.values(item)["Status"] == "Done" and "AI" not in gh.values(item)
+    assert "moved the ticket back" not in gh.comments[-1][1]
 
 
 def test_failed_deployment_undoes_the_merge_on_the_branch(gh, vault, queue) -> None:
@@ -181,6 +195,7 @@ def test_failed_deployment_undoes_the_merge_on_the_branch(gh, vault, queue) -> N
     assert (
         "Deployment failed" in gh.comments[-1][1] and "undone on the branch" in gh.comments[-1][1]
     )
+    assert gh.values(next(iter(gh.items)))["AI"] == "blocked"
 
 
 def test_moving_to_new_undoes_vault_and_app_once(gh, vault, queue) -> None:

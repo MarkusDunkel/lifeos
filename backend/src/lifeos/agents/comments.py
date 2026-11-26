@@ -252,6 +252,11 @@ DEFAULT_TEXTS: dict[str, str] = {
     "report_profile_created": "new",
     "report_profile_updated": "sharpened",
     "report_overview": "Overview",
+    "release_back_to_work": (
+        "Nothing went live, so there is nothing to review yet: I moved the ticket back to "
+        "**{column}** and set **AI** to `blocked`. Once the cause is fixed (the LifeOS manager "
+        "looks at it, or you), clear the **AI** field and the work continues."
+    ),
     # the LifeOS manager
     "manager_prefix": "🧭 **LifeOS manager:**",
     "manager_unblocked": (

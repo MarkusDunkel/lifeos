@@ -15,6 +15,11 @@ undone: every vault commit with ``git revert``, every merged pull request with a
 commit on the deploy branch that is then deployed. The undo runs once; what cannot be
 undone automatically is reported on the ticket. Every commit names the ticket
 (``Refs owner/repo#N``), so all of them show up in its timeline.
+
+When the tests, the merge or the deployment of a pull request fail, nothing went live: the
+ticket is not ready for review. If it still sits in the review column, it goes back to the
+working column with ``AI = blocked`` and the failure as the reason – a block like any other,
+which the LifeOS manager can look at and lift, or the owner.
 """
 
 from __future__ import annotations
@@ -34,9 +39,10 @@ from typing import Any
 
 from lifeos.agents import comments
 from lifeos.agents.comments import Texts
-from lifeos.agents.config import AgentConfig, AgentDef, BoardContract
-from lifeos.agents.mirror import split_project
+from lifeos.agents.config import AI_FIELD, BLOCKED, AgentConfig, AgentDef, BoardContract
+from lifeos.agents.mirror import STATUS, split_project
 from lifeos.agents.team import Ticket, tickets
+from lifeos.connectors.github.client import GitHubError, item_values
 from lifeos.core.vault import STATE, Vault, write_atomic
 
 log = logging.getLogger("lifeos.agents.releases")
@@ -229,6 +235,28 @@ class Releases:
         body = "\n".join([comments.marker(entry.get("agent") or "lifeos"), text])
         self.gh.add_comment(issue_id, body)
 
+    def _back_to_work(self, issue_id: str, entry: dict[str, Any]) -> str:
+        """A failed release: back from review to the working column, blocked. Returns the
+        line for the comment (empty when the owner already moved the ticket)."""
+        contract = self.cfg.boards.get(entry.get("board") or "")
+        if contract is None:
+            return ""
+        try:
+            owner, number = split_project(contract.project)
+            project = self.gh.project(owner, number)
+            item = next((n for n in self.gh.project_items(project.id)
+                         if (n.get("content") or {}).get("id") == issue_id), None)  # fmt: skip
+            if item is None or AI_FIELD not in project.fields:
+                return ""
+            if item_values(item, project.fields).get(STATUS) != contract.ai.review:
+                return ""  # the owner moved it meanwhile: leave it there
+            self.gh.set_field(project.id, item["id"], project.fields[STATUS], contract.ai.working)
+            self.gh.set_field(project.id, item["id"], project.fields[AI_FIELD], BLOCKED)
+        except (GitHubError, KeyError, ValueError) as exc:
+            log.warning("could not move %s back to work: %s", entry.get("ref"), exc)
+            return ""
+        return "\n\n" + self.t("release_back_to_work", column=contract.ai.working)
+
     def _advance(self, issue_id: str, entry: dict[str, Any], pr: dict[str, Any]) -> str | None:
         if pr.get("stage") not in ("test", "deploy") or not pr.get("request"):
             return None
@@ -244,7 +272,8 @@ class Releases:
             if not ok:
                 pr["stage"] = "failed"
                 self._say(entry, issue_id, self.t("release_test_failed", link=link,
-                                                  message=message))  # fmt: skip
+                                                  message=message)
+                          + self._back_to_work(issue_id, entry))  # fmt: skip
                 return f"{ref}: tests failed for PR #{pr['number']}"
             if entry.get("status") != "live":  # discarded while the tests ran
                 pr["stage"] = "cancelled"
@@ -258,7 +287,8 @@ class Releases:
                 )
             except Exception as exc:
                 pr["stage"] = "failed"
-                self._say(entry, issue_id, self.t("release_merge_failed", link=link, error=exc))
+                self._say(entry, issue_id, self.t("release_merge_failed", link=link, error=exc)
+                          + self._back_to_work(issue_id, entry))  # fmt: skip
                 return f"{ref}: merge of PR #{pr['number']} failed"
             assert self.app is not None
             pr.update(merge=merge, stage="deploy",
@@ -284,7 +314,7 @@ class Releases:
             except Exception as exc:
                 undone = self.t("release_branch_not_reset", error=exc)
         self._say(entry, issue_id, self.t("release_deploy_failed", link=link, message=message)
-                  + undone)  # fmt: skip
+                  + undone + self._back_to_work(issue_id, entry))  # fmt: skip
         return f"{ref}: deployment of PR #{pr['number']} failed"
 
     # -- discarded tickets -------------------------------------------------------------------

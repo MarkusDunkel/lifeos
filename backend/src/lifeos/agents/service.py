@@ -98,11 +98,6 @@ def run_round(
             events.append(f"{contract.board}: {exc}")
             failed = True
     try:
-        events += turns.sync(cfg)
-    except (GitHubError, ValueError) as exc:
-        events.append(f"turn: {exc}")
-        failed = True
-    try:
         events += releases.poll()
     except (GitHubError, ValueError) as exc:
         events.append(f"releases: {exc}")
@@ -115,4 +110,10 @@ def run_round(
         except (GitHubError, ValueError) as exc:
             events.append(f"assistant: {exc}")
             failed = True
+    # last: releases (a failed one blocks its ticket) and new inbox tickets change the turn
+    try:
+        events += turns.sync(cfg)
+    except (GitHubError, ValueError) as exc:
+        events.append(f"turn: {exc}")
+        failed = True
     return events, failed

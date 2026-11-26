@@ -474,6 +474,11 @@ sudo systemctl daemon-reload && sudo systemctl enable --now lifeos-deployer.time
 
 The app needs `LIFEOS_APP_REPO` and `LIFEOS_DEPLOY_BRANCH` (same branch as the deployer).
 
+When the tests, the merge or the deployment fail, nothing went live: a ticket still in the
+review column goes back to the working column with `AI = blocked` and the failure as the
+reason (`Releases._back_to_work`). The LifeOS manager's watch sees the new block; its repair
+run checks whether the change caused the failure and lifts the block so the agent tries again.
+
 ## Career: job profiles and the target curriculum
 
 Job profiles are living documents in the vault (`Career/Profiles/<slug>/Profile.md`, each a

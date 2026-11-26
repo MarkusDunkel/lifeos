@@ -84,6 +84,11 @@ Your job, in this order:
    (AI = blocked) with a question whose answer is already in place (a setting was changed,
    a file exists now). Check the cause yourself (read the files, the state), then lift the
    block (`unblock`) and say why. Only lift a block when you verified the cause is gone.
+   A block after a failed release (tests, merge or deployment of a pull request failed)
+   counts too: check whether the change itself caused it. If not (the base branch moved, a
+   test unrelated to the change, a flaky run), lift the block so the agent tries again,
+   and say what you found. If the change is wrong, lift it too and tell the agent in the
+   reason what to fix. Only when it needs the owner: a `needs_you` ticket.
 2. Faults in the control room (yellow or red processes): find the cause and fix what you
    can on your own – a vault file, a job to run again (`run_now`). Say what you did.
 3. What you cannot solve without the owner: one ticket (`create_ticket`, kind `needs_you`)
