@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
@@ -19,11 +20,14 @@ from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from lifeos.core import tokens
+from lifeos.core.times import parse_iso as _parse
 
 log = logging.getLogger("lifeos.worker")
 
 OK_STATES = ("ok", "skipped")
 HISTORY = 20  # runs kept per job for the control room's timeline
+WORKER_FILE = "worker.json"  # the heartbeat, next to ``jobs.json``
+PULSE_SECONDS = 30  # while a job runs, the heartbeat is renewed this often
 _NEVER = datetime.min.replace(tzinfo=UTC)
 
 
@@ -96,6 +100,7 @@ class Scheduler:
         self.state_file = state_file
         self.clock = clock
         self.state: dict[str, dict] = self._load()
+        self._beat(None)  # a run a restart cut off is not running any more
 
     def tick(self) -> list[str]:
         """Run every job that is due now; returns the names of the jobs that ran."""
@@ -108,14 +113,49 @@ class Scheduler:
             on_request = asked is not None and asked > (_parse(entry.get("lastRun")) or _NEVER)
             if not on_request and not job.schedule.due(now, entry):
                 continue
-            result = self._run(job, on_request)
+            result = self._run_alive(job, now, on_request)
             self._record(job, entry, now, result)
+            # right away: a restart in the middle of a tick must not forget (and repeat) it
+            self._save()
             if job.name in requested and self.requests:
                 self.requests.done(job.name)
             ran.append(job.name)
-        if ran:
-            self._save()
+        self._beat(None)
         return ran
+
+    def _run_alive(self, job: Job, now: datetime, on_request: bool) -> JobResult:
+        """Run the job while a side thread renews the heartbeat: the control room tells a
+        long run (an AI agent working for half an hour) from a worker that is down."""
+        self._beat(job.name, now)
+        done = threading.Event()
+
+        def pulse() -> None:
+            while not done.wait(PULSE_SECONDS):
+                self._beat(job.name, now)
+
+        thread = threading.Thread(target=pulse, name="worker-pulse", daemon=True)
+        thread.start()
+        try:
+            return self._run(job, on_request)
+        finally:
+            done.set()
+            thread.join(timeout=5)
+
+    def _beat(self, running: str | None, since: datetime | None = None) -> None:
+        """``state/worker.json``: when the worker was last alive and what it runs now."""
+        if not self.state_file:
+            return
+        beat: dict = {"at": self.clock().isoformat(timespec="seconds"), "running": None}
+        if running and since:
+            beat["running"] = {"job": running, "since": since.isoformat(timespec="seconds")}
+        path = self.state_file.with_name(WORKER_FILE)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(beat), encoding="utf-8")
+            tmp.replace(path)
+        except OSError as exc:  # the heartbeat must never stop a job
+            log.warning("worker heartbeat not written: %s", exc)
 
     def _run(self, job: Job, on_request: bool = False) -> JobResult:
         # tokens of a "run now" count as the owner's doing, scheduled runs as autonomous
@@ -152,9 +192,13 @@ class Scheduler:
     def _load(self) -> dict[str, dict]:
         if self.state_file and self.state_file.exists():
             try:
-                return json.loads(self.state_file.read_text(encoding="utf-8"))
+                data = json.loads(self.state_file.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 log.warning("ignoring unreadable %s", self.state_file)
+            else:
+                if isinstance(data, dict):
+                    return {k: v for k, v in data.items() if isinstance(v, dict)}
+                log.warning("ignoring %s: not a table of jobs", self.state_file)
         return {}
 
     def _save(self) -> None:
@@ -164,10 +208,6 @@ class Scheduler:
         tmp = self.state_file.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.state, indent=2), encoding="utf-8")
         tmp.replace(self.state_file)
-
-
-def _parse(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value) if value else None
 
 
 def parse_time(value: str) -> time:

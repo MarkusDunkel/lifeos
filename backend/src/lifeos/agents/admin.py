@@ -10,8 +10,9 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
-from datetime import date
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from lifeos.agents.comments import Texts
 from lifeos.agents.config import (
@@ -66,8 +67,10 @@ def with_history(text: str, heading: str, entry: str) -> str:
 
 class AgentAdmin:
     def __init__(
-        self, vault: Vault, committer: Committer | None = None, quotas: Quotas | None = None
-    ) -> None:
+        self, vault: Vault, committer: Committer | None = None, quotas: Quotas | None = None,
+        timezone: str = "UTC",
+    ) -> None:  # fmt: skip
+        self.tz = ZoneInfo(timezone)
         self.vault = vault
         self.committer = committer
         self.quotas = quotas
@@ -123,7 +126,7 @@ class AgentAdmin:
         t = Texts.load(self.vault)
         entry = t(
             "history_billing",
-            date=date.today().isoformat(),
+            date=datetime.now(self.tz).date().isoformat(),  # the owner's day, not the server's
             way=t(f"billing_{billing}"),
             previous=t(f"billing_{agent.billing}"),
         )

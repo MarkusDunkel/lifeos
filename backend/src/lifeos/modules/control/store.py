@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from lifeos.core.locks import FileLock
 from lifeos.core.vault import write_atomic
 
 HISTORY = 20
@@ -20,7 +23,16 @@ PC_JOBS_FILE = "pc-jobs.json"
 REQUESTS_FILE = "job-requests.json"
 REPORT_FILE = "control-report.json"
 
+WORKER_FILE = "worker.json"  # the worker's heartbeat, see lifeos.worker.scheduler
+
 _lock = threading.Lock()
+
+
+@contextmanager
+def _exclusive(path: Path) -> Iterator[None]:
+    """Read-change-write of a state file: the web app and the worker are two processes."""
+    with _lock, FileLock(path.with_suffix(".lock")):
+        yield
 
 
 def now_iso() -> str:
@@ -34,6 +46,14 @@ def read_json(path: Path | None, default: Any = None) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return default
+
+
+def read_table(path: Path | None, kind: type) -> dict[str, Any]:
+    """A ``{key: value}`` state file; anything that is not a ``kind`` value is left out."""
+    data = read_json(path, {})
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, kind)}
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -56,7 +76,7 @@ class PcJobs:
         self.path = state_dir / PC_JOBS_FILE if state_dir else None
 
     def all(self) -> dict[str, dict]:
-        return read_json(self.path, {}) or {}
+        return read_table(self.path, dict)
 
     def record(
         self,
@@ -69,7 +89,7 @@ class PcJobs:
         """``app``: ``{version, update, ok}`` of the PC's copy of the app (newer PCs)."""
         if self.path is None:
             raise RuntimeError("LIFEOS_STATE_DIR is not set")
-        with _lock:
+        with _exclusive(self.path):
             data = self.all()
             entry = data.setdefault(process, {})
             at = now_iso()
@@ -94,12 +114,12 @@ class RunRequests:
         self.path = state_dir / REQUESTS_FILE if state_dir else None
 
     def all(self) -> dict[str, str]:
-        return read_json(self.path, {}) or {}
+        return read_table(self.path, str)
 
     def request(self, job: str) -> str:
         if self.path is None:
             raise RuntimeError("LIFEOS_STATE_DIR is not set")
-        with _lock:
+        with _exclusive(self.path):
             data = self.all()
             data[job] = now_iso()
             write_json(self.path, data)
@@ -108,7 +128,7 @@ class RunRequests:
     def done(self, job: str) -> None:
         if self.path is None:
             return
-        with _lock:
+        with _exclusive(self.path):
             data = self.all()
             if data.pop(job, None) is not None:
                 write_json(self.path, data)

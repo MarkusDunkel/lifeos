@@ -231,3 +231,37 @@ def test_commit_message_for_overview_only_changes() -> None:
     subject, body = message.split("\n\n", 1)
     assert subject == "moodle: course overviews updated"
     assert "- ready/knowledge/Moodle/A/A.md" in body
+
+
+def test_every_job_is_saved_right_away_with_a_heartbeat(tmp_path: Path) -> None:
+    import json
+
+    clock = Clock(at(16, 12, 0))
+    state = tmp_path / "jobs.json"
+    seen: dict = {}
+
+    def second() -> JobResult:
+        # a restart here must not forget the first job, and the control room sees this run
+        seen["jobs"] = json.loads(state.read_text(encoding="utf-8"))
+        seen["beat"] = json.loads((tmp_path / "worker.json").read_text(encoding="utf-8"))
+        return JobResult("ok")
+
+    sched = Scheduler(
+        [Job("first", Every(60), Counter()), Job("second", Every(60), second)], state, clock=clock
+    )
+    assert json.loads((tmp_path / "worker.json").read_text())["running"] is None
+    assert sched.tick() == ["first", "second"]
+    assert seen["jobs"]["first"]["status"] == "ok" and "second" not in seen["jobs"]
+    assert seen["beat"]["running"]["job"] == "second"
+    assert json.loads((tmp_path / "worker.json").read_text())["running"] is None
+
+
+def test_unreadable_state_does_not_stop_the_worker(tmp_path: Path) -> None:
+    state = tmp_path / "jobs.json"
+    state.write_text('{"x": {"lastRun": "soon", "lastSuccess": 7}, "y": "oops"}', encoding="utf-8")
+    run = Counter()
+    sched = Scheduler(
+        [Job("x", Every(60), run), Job("y", Every(60), run)], state, clock=Clock(at(16, 12, 0))
+    )
+    assert sched.tick() == ["x", "y"]
+    assert run.calls == 2

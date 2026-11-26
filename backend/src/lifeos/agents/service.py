@@ -55,6 +55,15 @@ def run_round(
     failed = bool(cfg.errors)
     t = comments.Texts.load(vault)
 
+    def broke(section: str, exc: Exception) -> str:
+        """A section failed. Expected errors (GitHub, a bad value) read as before; anything
+        else is a bug in that section: logged with its traceback, named with its type, and
+        the round goes on with the next section instead of stopping every board."""
+        if isinstance(exc, (GitHubError, ValueError)):
+            return f"{section}: {exc}"
+        log.exception("agents: %s crashed", section)
+        return f"{section}: failed: {type(exc).__name__}: {exc}"
+
     def on_drift(contract: BoardContract, diff: list[str]) -> None:
         items = "\n".join(f"- {d}" for d in diff)
         body = t("drift_body", title=contract.title, path=contract.path, items=items)
@@ -73,8 +82,8 @@ def run_round(
     for contract in order:
         try:
             events += mirror.sync(contract, cfg)
-        except (GitHubError, ValueError) as exc:
-            events.append(f"{contract.board}: mirroring failed: {exc}")
+        except Exception as exc:  # see broke()
+            events.append(broke(f"{contract.board}: mirroring failed", exc))
             failed = True
     if mirror_only:
         return events, failed
@@ -84,8 +93,8 @@ def run_round(
     def sync_turns() -> None:
         try:
             events.extend(turns.sync(cfg))
-        except (GitHubError, ValueError) as exc:
-            events.append(f"turn: {exc}")
+        except Exception as exc:  # see broke()
+            events.append(broke("turn", exc))
 
     for contract in order:
         team = Team(
@@ -94,26 +103,26 @@ def run_round(
         )  # fmt: skip
         try:
             events += team.poll()
-        except (GitHubError, ValueError) as exc:
-            events.append(f"{contract.board}: {exc}")
+        except Exception as exc:  # see broke()
+            events.append(broke(contract.board, exc))
             failed = True
     try:
         events += releases.poll()
-    except (GitHubError, ValueError) as exc:
-        events.append(f"releases: {exc}")
+    except Exception as exc:  # see broke()
+        events.append(broke("releases", exc))
         failed = True
     if llm_factory is not None:
         assistant = Assistant(gh, vault, cfg, repo, llm_factory, git=git, timezone=timezone,
                               eur_per_usd=eur_per_usd)  # fmt: skip
         try:
             events += assistant.poll()
-        except (GitHubError, ValueError) as exc:
-            events.append(f"assistant: {exc}")
+        except Exception as exc:  # see broke()
+            events.append(broke("assistant", exc))
             failed = True
     # last: releases (a failed one blocks its ticket) and new inbox tickets change the turn
     try:
         events += turns.sync(cfg)
-    except (GitHubError, ValueError) as exc:
-        events.append(f"turn: {exc}")
+    except Exception as exc:  # see broke()
+        events.append(broke("turn", exc))
         failed = True
     return events, failed

@@ -9,17 +9,19 @@ write them (or of the nodes they are derived from).
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime, time, timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from lifeos.core.times import parse_iso as _parse
 from lifeos.modules.control.catalog import HOST, MANUAL, PC, SERVER, Catalog, Process
 from lifeos.modules.control.checks import Check
 from lifeos.modules.control.trust import actionable_trust
 
 OFF, OK, WARN, FAIL = "off", "ok", "warn", "fail"
 RANK = {OFF: 0, OK: 1, WARN: 2, FAIL: 3}
-WORKER_STALE = 10 * 60  # no job ran for this long: the worker is down
+WORKER_STALE = 10 * 60  # no sign of life for this long: the worker is down
+LONG_RUN = 3 * 3600  # a job running longer than this is worth a look
 FAILED = ("error", "conflict")
 
 
@@ -36,16 +38,6 @@ def ago(seconds: float) -> str:
     if seconds < 36 * 3600:
         return f"{round(seconds / 3600)} h"
     return f"{round(seconds / 86400)} days"
-
-
-def _parse(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 @dataclass
@@ -76,6 +68,7 @@ class ProcessHealth:
     reaction: str = ""
     ai: list[dict] = field(default_factory=list)  # agents (model, billing, runs today)
     app: dict | None = None  # PC tasks: the app commit they ran on vs. the server's
+    running_since: str | None = None  # worker jobs: the run going on right now
     ref: str = ""  # the global id, e.g. ``P-30``
 
 
@@ -86,6 +79,7 @@ class Sources:
     jobs: dict[str, dict] = field(default_factory=dict)  # state/jobs.json
     pc: dict[str, dict] = field(default_factory=dict)  # state/pc-jobs.json
     manual: dict[str, str | None] = field(default_factory=dict)  # process → last run
+    worker: dict | None = None  # state/worker.json: the worker's heartbeat, what it runs
     deployer: str | None = None  # last heartbeat of the host deployer
     server_version: str | None = None  # app commit the server runs (from that heartbeat)
     checks: dict[str, Check] = field(default_factory=dict)
@@ -99,11 +93,14 @@ def evaluate(catalog: Catalog, src: Sources, now: datetime, tz: ZoneInfo) -> dic
     worker_last = max(
         (d for d in (_parse(e.get("lastRun")) for e in src.jobs.values()) if d), default=None
     )
-    worker_age = (now - worker_last).total_seconds() if worker_last else None
+    beat = src.worker if isinstance(src.worker, dict) else {}
+    alive = max((d for d in (worker_last, _parse(beat.get("at"))) if d), default=None)
+    worker_age = (now - alive).total_seconds() if alive else None
+    running = _running(beat, catalog, now)
     server_jobs = [p for p in catalog.processes if p.where == SERVER and p.enabled]
-    worker = _worker_check(worker_age, bool(server_jobs))
+    worker = _worker_check(worker_age, bool(server_jobs), running)
 
-    processes = [_one(p, src, now, tz, worker) for p in catalog.processes]
+    processes = [_one(p, src, now, tz, worker, running) for p in catalog.processes]
 
     by_id = {p.id: p for p in processes}
     nodes = []
@@ -145,7 +142,11 @@ def evaluate(catalog: Catalog, src: Sources, now: datetime, tz: ZoneInfo) -> dic
         "processes": [_camel(asdict(p)) for p in processes],
         "nodes": nodes,
         "system": system,
-    }
+        "worker": {
+            "running": running and {"job": running["job"], "label": running["label"],
+                                    "since": running["since"].isoformat(timespec="seconds")},
+        },
+    }  # fmt: skip
 
 
 def _camel(d: dict) -> dict:
@@ -160,24 +161,47 @@ def _check_level(check: Check) -> str:
     return OK if check.ok else (WARN if check.ok is None else FAIL)
 
 
-def _worker_check(age: float | None, needed: bool) -> Check:
+def _running(beat: dict, catalog: Catalog, now: datetime) -> dict[str, Any] | None:
+    """The job the worker runs right now, from its heartbeat: ``{job, label, since, for}``."""
+    run = beat.get("running")
+    since = _parse(run.get("since")) if isinstance(run, dict) else None
+    if since is None or not run.get("job"):
+        return None
+    job = str(run["job"])
+    named = catalog.process(job) or next((p for p in catalog.processes if p.job == job), None)
+    return {"job": job, "label": named.label if named else job, "since": since,
+            "for": (now - since).total_seconds()}  # fmt: skip
+
+
+def _worker_check(age: float | None, needed: bool, running: dict | None = None) -> Check:
     if not needed:
         return Check("worker", "Worker", True, "no worker jobs set up")
     if age is None:
         return Check("worker", "Worker", False, "the worker has not run any job yet",
                      fix="COMPOSE_PROFILES=worker docker compose up -d")  # fmt: skip
     if age > WORKER_STALE:
-        return Check("worker", "Worker", False, f"no job ran for {ago(age)}",
+        what = f" (it was running {running['label']})" if running else ""
+        return Check("worker", "Worker", False, f"no sign of life for {ago(age)}{what}",
                      fix="docker compose logs worker; docker compose up -d worker")  # fmt: skip
-    return Check("worker", "Worker", True, f"last job {ago(age)} ago")
+    if running and running["for"] > LONG_RUN:
+        return Check("worker", "Worker", None,
+                     f"running {running['label']} for {ago(running['for'])}, longer than usual",
+                     fix="docker compose logs worker")  # fmt: skip
+    if running:
+        return Check("worker", "Worker", True,
+                     f"running {running['label']} for {ago(running['for'])}")  # fmt: skip
+    return Check("worker", "Worker", True, f"alive {ago(age)} ago")
 
 
-def _one(p: Process, src: Sources, now: datetime, tz: ZoneInfo, worker: Check) -> ProcessHealth:
+def _one(
+    p: Process, src: Sources, now: datetime, tz: ZoneInfo, worker: Check,
+    running: dict | None = None,
+) -> ProcessHealth:  # fmt: skip
     entry: dict[str, Any] = {}
     if p.where == SERVER:
-        entry = src.jobs.get(p.job or p.id, {})
+        entry = src.jobs.get(p.job or p.id) or {}
     elif p.where == PC:
-        entry = src.pc.get(p.id, {})
+        entry = src.pc.get(p.id) or {}
     elif p.where == MANUAL:
         last = src.manual.get(p.id)
         entry = {"lastRun": last, "lastSuccess": last, "status": "ok" if last else None}
@@ -200,7 +224,9 @@ def _one(p: Process, src: Sources, now: datetime, tz: ZoneInfo, worker: Check) -
         health.app = _pc_app(entry.get("app"), src.server_version)
     if not p.enabled:
         return health
-    health.level, health.reason = _light(p, entry, checks, now, tz, worker)
+    if p.where == SERVER and running and running["job"] == (p.job or p.id):
+        health.running_since = running["since"].isoformat(timespec="seconds")
+    health.level, health.reason = _light(p, entry, checks, now, tz, worker, running)
     app = health.app
     if app and app["ok"] is False and health.level == OK:
         health.level = WARN
@@ -224,8 +250,9 @@ def _pc_app(app: dict | None, server: str | None) -> dict | None:
 
 
 def _light(
-    p: Process, entry: dict, checks: list[Check], now: datetime, tz: ZoneInfo, worker: Check
-) -> tuple[str, str]:
+    p: Process, entry: dict, checks: list[Check], now: datetime, tz: ZoneInfo, worker: Check,
+    running: dict | None = None,
+) -> tuple[str, str]:  # fmt: skip
     missing = [c for c in checks if c.ok is False]
     if missing:
         c = missing[0]
@@ -238,6 +265,22 @@ def _light(
     if status in FAILED:
         return FAIL, f"last run failed: {message}" if message else "last run failed"
 
+    level, reason = _timed(p, entry, now, tz)
+    # The worker runs one job at a time. A process that was fine when the current run began
+    # is only waiting for it (or is that run): no alarm for that.
+    waits = p.where == SERVER and running and level in (WARN, FAIL)
+    if waits and _timed(p, entry, running["since"], tz)[0] == OK:
+        lasting = ago(running["for"])
+        if running["job"] == (p.job or p.id):
+            return OK, f"running for {lasting}"
+        return WARN, f"waiting behind {running['label']} (running for {lasting})"
+    return level, reason
+
+
+def _timed(p: Process, entry: dict, now: datetime, tz: ZoneInfo) -> tuple[str, str]:
+    """The light by time alone: is the last success recent enough at ``now``?"""
+    status = entry.get("status")
+    message = entry.get("message", "")
     success = _parse(entry.get("lastSuccess"))
     last_run = _parse(entry.get("lastRun"))
 

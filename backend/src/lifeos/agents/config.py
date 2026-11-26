@@ -26,6 +26,12 @@ OWNER_AI = "ai"
 # whose turn a ticket in a column is (mirrored to the issue: owner = assignee, ai = label)
 TURNS = ("owner", "ai", "responsible", "responsible-ai", "none")
 VIEW_LAYOUTS = {"table": "TABLE_LAYOUT", "board": "BOARD_LAYOUT", "roadmap": "ROADMAP_LAYOUT"}
+# limits the jobs read from an agent's front matter with ``int()`` / ``float()``
+WHOLE_NUMBERS = (
+    "daily_limit", "manual_limit", "repair_cooldown_minutes", "max_open_proposals",
+    "max_revisions", "max_searches", "timeout_minutes", "max_turns", "propose_after",
+)  # fmt: skip
+NUMBERS = ("budget_eur",)
 README_HEADING = re.compile(r"^##\s+README\b.*$", re.M)
 
 
@@ -257,6 +263,15 @@ def parse_agent(text: str, path: str) -> AgentDef:
     billing = str(front.get("billing", "api"))
     if billing not in BILLING:
         raise ConfigError(f"{path}: billing must be one of {', '.join(BILLING)}")
+    # a typo here would otherwise fail every job that reads the limit, round after round
+    for key, kind in [(k, int) for k in WHOLE_NUMBERS] + [(k, float) for k in NUMBERS]:
+        if key not in front:
+            continue
+        try:
+            if isinstance(front[key], bool) or kind(front[key]) < 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ConfigError(f"{path}: {key} must be a number, not {front[key]!r}") from None
     return AgentDef(
         name=name,
         title=str(front.get("title") or name),

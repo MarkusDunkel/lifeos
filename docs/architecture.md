@@ -89,7 +89,10 @@ Future writers (OneDrive, tickets, study progress, agents) follow the same patte
 | `lifeos-manager` | every N seconds: the watch of the LifeOS manager (code only); a repair run for unexplained lights and other events (cooldown), a daily ideas run | `LIFEOS_MANAGER_INTERVAL=120` |
 
 The last run of every job (plus its last 20 runs) is kept in `state/jobs.json`
-(`GET /api/jobs/status`), so a restart neither repeats nor forgets a daily job.
+(`GET /api/jobs/status`) and saved after each job, so a restart – also in the middle of a
+tick – neither repeats nor forgets a daily job. The worker runs one job at a time and writes
+a heartbeat to `state/worker.json` (`{at, running: {job, since}}`), renewed every 30 s while
+a job runs.
 
 ### Control room
 
@@ -100,7 +103,15 @@ deadlines; the traffic lights are fixed rules evaluated on request (`GET
 /api/control/status`): red for a failed run, a missing precondition (e.g. the Google token
 lacks the Gmail permission) or a last success older than the deadline; yellow when late or
 skipped. Interval jobs warn after 3 and fail after 6 intervals (at least 5/15 min), daily
-jobs warn 1 h and fail 4 h after their slot. A stopped worker turns every worker job red.
+jobs warn 1 h and fail 4 h after their slot. A stopped worker (no heartbeat for 10 min) turns
+every worker job red. A long run does not: the job shows as running, and a job that was fine
+when that run began is yellow ("waiting behind …") instead of overdue.
+
+The status has to load when something else is broken: state files are read tolerantly, and a
+part that cannot be read (agent settings, actionable inputs, manager notes) becomes a yellow
+system check instead of an error. Numbers in an agent's front matter (`daily_limit`, …) are
+checked when the file is read; a file with a bad one is reported on the agents page and left
+out. The web app keeps a status for 15 s.
 
 - PC tasks (`jobsearch autorun`, `teams-files sync`) report each run to
   `POST /api/control/report/<process>` with `LIFEOS_CONTROL_REPORT_TOKEN` (stored in
@@ -115,7 +126,8 @@ jobs warn 1 h and fail 4 h after their slot. A stopped worker turns every worker
   it next to the server's commit (from the deployer heartbeat) and turns a task yellow when
   its update was skipped or failed. `LIFEOS_PC_SELF_UPDATE=false` switches it off.
 - "Run now" on a worker job writes `state/job-requests.json`; the worker runs it at its next
-  tick. Manual syncs call their own endpoints.
+  tick (after the job it is running). The status reports the open requests per process.
+  Manual syncs call their own endpoints.
 - The host deployer writes `state/deploy/heartbeat.json` on every run (time and the
   commit the server runs).
 - The AI supervisor (`agents/control-room.md` in the vault: `model`, `billing`,

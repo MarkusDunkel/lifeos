@@ -515,3 +515,134 @@ def test_agent_quotas_mark_a_used_up_daily_limit(tmp_path):
     matcher = quotas["job-matcher"]
     assert not matcher["exhausted"] and "automatic runs used up" in matcher["note"]
     assert "up to 3 web searches per run" in matcher["limits"]
+
+
+# -- the worker's heartbeat ---------------------------------------------------------------
+
+
+def beat(running: str | None, since: timedelta = timedelta(0), at: timedelta = timedelta(0)):
+    run = {"job": running, "since": iso(since)} if running else None
+    return {"at": iso(at), "running": run}
+
+
+def test_a_long_run_is_not_a_dead_worker(tmp_path):
+    cat = build_catalog(settings(tmp_path))
+    # the vault sync last ran 26 min ago: one minute before a Moodle sync that still runs
+    then = iso(timedelta(minutes=26))
+    jobs = {"git-sync": {"lastRun": then, "lastSuccess": then, "status": "ok"}}
+    worker = beat("moodle-sync", since=timedelta(minutes=25), at=timedelta(seconds=20))
+    result = evaluate(cat, Sources(jobs=jobs, worker=worker), NOW, TZ)
+    check = next(c for c in result["system"] if c["id"] == "worker")
+    assert check["ok"] is True and check["message"].startswith("running Mirror Moodle courses")
+    assert light(result, "git-sync") == (
+        WARN, "waiting behind Mirror Moodle courses (running for 25 min)",
+    )  # fmt: skip
+    moodle = next(p for p in result["processes"] if p["id"] == "moodle-sync")
+    assert moodle["runningSince"] == iso(timedelta(minutes=25))
+    assert result["worker"]["running"]["label"] == "Mirror Moodle courses"
+    # without the run the same age is past the deadline, as before
+    idle = evaluate(cat, Sources(jobs=jobs, worker=beat(None, at=timedelta(seconds=20))), NOW, TZ)
+    assert light(idle, "git-sync")[0] == WARN and "waiting" not in light(idle, "git-sync")[1]
+    assert idle["worker"]["running"] is None
+
+
+def test_a_silent_heartbeat_is_a_dead_worker_even_mid_run(tmp_path):
+    cat = build_catalog(settings(tmp_path))
+    then = iso(timedelta(minutes=26))
+    jobs = {"git-sync": {"lastRun": then, "lastSuccess": then, "status": "ok"}}
+    worker = beat("moodle-sync", since=timedelta(minutes=25), at=timedelta(minutes=12))
+    result = evaluate(cat, Sources(jobs=jobs, worker=worker), NOW, TZ)
+    check = next(c for c in result["system"] if c["id"] == "worker")
+    assert check["ok"] is False and "no sign of life" in check["message"]
+    assert light(result, "git-sync")[0] == FAIL
+
+
+def test_a_run_longer_than_usual_is_worth_a_look(tmp_path):
+    cat = build_catalog(settings(tmp_path))
+    worker = beat("moodle-sync", since=timedelta(hours=4), at=timedelta(seconds=5))
+    result = evaluate(cat, Sources(worker=worker), NOW, TZ)
+    check = next(c for c in result["system"] if c["id"] == "worker")
+    assert check["ok"] is None and "longer than usual" in check["message"]
+
+
+# -- the page loads when something else is broken -------------------------------------------
+
+
+def control_for(tmp_path, **kw):
+    from lifeos.core.vault import Vault
+    from lifeos.modules.control.service import Control
+
+    s = settings(tmp_path, **kw)
+    return s, Control(s, Vault.open(s.vault_root), s.state_dir / "jobs.json")
+
+
+def test_status_survives_an_unreadable_part(tmp_path, monkeypatch):
+    import lifeos.modules.control.service as service
+
+    s, control = control_for(tmp_path)
+
+    def boom(*_a, **_kw):
+        raise KeyError("daily_limit")
+
+    monkeypatch.setattr(service, "ai_usage", boom)
+    status = control.status(NOW)
+    check = next(c for c in status["system"] if c["id"] == "control-agent-settings")
+    assert check["ok"] is None and "KeyError" in check["message"]
+    assert status["level"] in (WARN, FAIL)  # visible, not swallowed
+    assert all(p["ai"] == [] for p in status["processes"])
+
+
+def test_status_survives_broken_state_files(tmp_path):
+    s, control = control_for(tmp_path)
+    (s.state_dir / "jobs.json").write_text('{"git-sync": "oops", "moodle-sync": []}', "utf-8")
+    (s.state_dir / "pc-jobs.json").write_text("[1, 2]", "utf-8")
+    (s.state_dir / "job-requests.json").write_text('{"git-sync": 5}', "utf-8")
+    (s.state_dir / "worker.json").write_text('"nope"', "utf-8")
+    (s.state_dir / "control-report.json").write_text('{"findings": "x"}', "utf-8")
+    lifeos = s.vault_root / ".lifeos" / "agents"
+    lifeos.mkdir(parents=True)
+    (lifeos / "lifeos-manager.json").write_text('{"watch": ["a"]}', "utf-8")
+    status = control.status(NOW)
+    assert status["report"] is None and status["requests"] == {} and status["manager"] == {}
+    assert light(status, "git-sync")[0] == FAIL  # no job on record: the worker is down
+
+
+def test_a_number_that_is_no_number_is_reported_with_the_agent_file(tmp_path):
+    from lifeos.agents.config import load_config
+    from lifeos.core.vault import Vault
+
+    s, control = control_for(tmp_path)
+    agents = s.vault_root / "agents"
+    agents.mkdir()
+    (agents / "control-room.md").write_text(
+        "---\nname: control-room\ntitle: Control room\nrunner: job\ndaily_limit: abc\n---\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(Vault.open(s.vault_root))
+    assert cfg.agents == {}
+    assert cfg.errors == ["agents/control-room.md: daily_limit must be a number, not 'abc'"]
+    assert control.status(NOW)["level"]  # and the control room still loads
+
+
+def test_requests_are_reported_per_process(tmp_path):
+    s, control = control_for(
+        tmp_path, github_token="t", github_repos="someone/repo", agents_interval=120,
+        applications_project="someone/4",
+    )  # fmt: skip
+    asked = control.requests.request("agents")
+    requests = control.status(NOW)["requests"]
+    # two processes share the worker job "agents": both are queued
+    assert requests == {"application-writer": asked, "agents": asked}
+
+
+def test_web_status_is_kept_for_a_moment(tmp_path):
+    from lifeos.core.vault import Vault
+    from lifeos.modules.control.service import Control
+
+    s = settings(tmp_path)
+    control = Control(s, Vault.open(s.vault_root), s.state_dir / "jobs.json", cache_seconds=60)
+    first = control.status()
+    assert control.status() is first
+    control.invalidate()
+    assert control.status() is not first
+    assert control.status(NOW) is not control.status(NOW)  # jobs asking with a time: fresh

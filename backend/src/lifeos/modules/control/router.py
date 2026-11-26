@@ -51,7 +51,9 @@ def build_router(control: Control) -> APIRouter:
         if not process.enabled:
             raise HTTPException(400, f"{process.label} is not set up")
         job = process.job or process_id
-        return {"process": process_id, "requestedAt": control.requests.request(job)}
+        asked = control.requests.request(job)
+        control.invalidate()
+        return {"process": process_id, "requestedAt": asked}
 
     @router.get("/tokens")
     def burned_tokens(range: Literal["24h", "7d", "30d"] = "24h") -> dict:  # noqa: A002
@@ -72,6 +74,8 @@ def build_router(control: Control) -> APIRouter:
         app = None
         if body.version or body.update or body.update_ok is not None:
             app = {"version": body.version, "update": body.update, "ok": body.update_ok}
-        return control.pc.record(process_id, body.status, body.message, body.duration, app)
+        entry = control.pc.record(process_id, body.status, body.message, body.duration, app)
+        control.invalidate()
+        return entry
 
     return router

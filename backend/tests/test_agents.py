@@ -613,3 +613,21 @@ def test_api_footer_keeps_the_cost() -> None:
     sub = comments.footer(comments.Texts(), "abc", 5, far, "subscription",
                           datetime(2026, 12, 1, tzinfo=UTC))  # fmt: skip
     assert "1k tokens" in sub and "expires" not in sub and "usage" not in sub
+
+
+def test_a_crashing_section_does_not_stop_the_round(gh, vault, monkeypatch) -> None:
+    from lifeos.agents import service
+    from lifeos.agents.releases import Releases
+
+    def boom(self) -> list[str]:
+        raise KeyError("issue")  # e.g. state that names a ticket that is gone
+
+    monkeypatch.setattr(Releases, "poll", boom)
+    synced: list[str] = []
+    turn = service.TurnMirror.sync
+    monkeypatch.setattr(
+        service.TurnMirror, "sync", lambda self, cfg: synced.append("turn") or turn(self, cfg)
+    )
+    events, failed = service.run_round(gh, vault, {}, "someone/board")
+    assert failed and "releases: failed: KeyError: 'issue'" in events
+    assert synced  # the sections after the crash still ran

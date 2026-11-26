@@ -13,6 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from lifeos.core import tokens as ledger
+from lifeos.core.times import parse_iso
 from lifeos.core.tokens import AUTO, INTERACTIVE, MODES, SEMI
 from lifeos.modules.control.catalog import Catalog
 from lifeos.modules.control.store import now_iso, read_json, write_json
@@ -25,6 +26,7 @@ RANGES = {
     "30d": (timedelta(days=1), 30),
 }
 TOP = 12
+KEEP_DAYS = 45  # hours the PC reported longer ago than the longest range are dropped
 OWN_LABELS = {
     "web": "Started in the app",
     "worker": "Worker (other)",
@@ -41,14 +43,24 @@ class InteractiveUsage:
         self.path = state_dir / INTERACTIVE_FILE if state_dir else None
 
     def all(self) -> dict[str, dict]:
-        return (read_json(self.path, {}) or {}).get("buckets", {})
+        data = read_json(self.path, {})
+        buckets = data.get("buckets") if isinstance(data, dict) else None
+        if not isinstance(buckets, dict):
+            return {}
+        return {k: v for k, v in buckets.items() if isinstance(v, dict)}
 
     def upsert(self, buckets: list[dict]) -> dict:
         if self.path is None:
             raise RuntimeError("LIFEOS_STATE_DIR is not set")
         with _lock:
-            data = read_json(self.path, {}) or {}
-            stored = data.setdefault("buckets", {})
+            data = read_json(self.path, {})
+            if not isinstance(data, dict) or not isinstance(data.get("buckets"), dict):
+                data = {"buckets": {}}
+            cutoff = (datetime.now(UTC) - timedelta(days=KEEP_DAYS)).isoformat()
+            stored = data["buckets"] = {
+                k: v for k, v in data["buckets"].items()
+                if isinstance(v, dict) and str(v.get("at") or "") >= cutoff
+            }  # fmt: skip
             for b in buckets:
                 hour = _hour(b["hour"])
                 stored[f"{b['source']}|{hour.isoformat()}"] = {
@@ -117,28 +129,31 @@ def series(
 
     path = state_dir / ledger.LEDGER_FILE if state_dir else None
     for line in ledger.read(path):
+        at = parse_iso(line.get("at")) if isinstance(line, dict) else None
         try:
-            at = datetime.fromisoformat(line["at"])
-            amount = int(line.get("tokens") or 0)
-        except (KeyError, TypeError, ValueError):
+            amount = int(line.get("tokens") or 0) if at else 0
+        except (TypeError, ValueError):
+            continue
+        if at is None:
             continue
         process, detail = str(line.get("process") or "other"), str(line.get("detail") or "")
         key = f"{process}/{detail}" if detail else process
         add(at, str(line.get("mode") or AUTO), amount, key, _label(catalog, process), detail)
 
     for entry in InteractiveUsage(state_dir).all().values():
+        at = parse_iso(entry.get("at"))
         try:
-            at = datetime.fromisoformat(entry["at"])
-        except (KeyError, ValueError):
+            amount = int(entry.get("tokens") or 0)
+        except (TypeError, ValueError):
             continue
-        project = entry.get("project") or "?"
-        add(at, INTERACTIVE, int(entry.get("tokens") or 0), f"claude-code/{project}",
-            "Claude Code", project)  # fmt: skip
+        if at is None:
+            continue
+        project = str(entry.get("project") or "?")
+        add(at, INTERACTIVE, amount, f"claude-code/{project}", "Claude Code", project)
 
     totals = {m: sum(b[m] for b in buckets) for m in MODES}
-    reported = (
-        (read_json(state_dir / INTERACTIVE_FILE, {}) or {}).get("reportedAt") if state_dir else None
-    )
+    stored = read_json(state_dir / INTERACTIVE_FILE, {}) if state_dir else None
+    reported = stored.get("reportedAt") if isinstance(stored, dict) else None
     return {
         "range": range_ if range_ in RANGES else "24h",
         "bucketSeconds": int(step.total_seconds()),

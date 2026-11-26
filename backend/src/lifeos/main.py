@@ -165,7 +165,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(_moodle_router(settings, vault))
     jobs_file = settings.state_dir / "jobs.json" if settings.state_dir else None
     app.include_router(vault_sync_router(git, settings.git_sync_interval, jobs_file))
-    control = Control(settings, vault, jobs_file)
+    control = Control(settings, vault, jobs_file, cache_seconds=15)
     app.include_router(control_router(control))
     app.include_router(study_router(study))
     jobs = JobStore(vault)
@@ -188,7 +188,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(calendar_router(calendar, google, google_missing, settings.public_url))
     planner = build_planner(settings, vault, calendar, study.overview)
     app.include_router(planning_router(planner, committer=background_committer(git)))
-    admin = AgentAdmin(vault, committer=background_committer(git), quotas=control.agent_quotas)
+    admin = AgentAdmin(
+        vault, committer=background_committer(git), quotas=control.agent_quotas,
+        timezone=settings.timezone,
+    )  # fmt: skip
     app.include_router(agents_router(admin))
 
     if mcp is not None and settings.mcp_path_token:

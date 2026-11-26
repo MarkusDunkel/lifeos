@@ -198,3 +198,24 @@ def test_api_tokens_endpoints(tmp_path):
         assert any(p["id"] == "claude-usage" for p in status["processes"])
     finally:
         tokens.configure(None)
+
+
+def test_old_interactive_hours_are_dropped_and_odd_lines_skipped(tmp_path):
+    old = (datetime.now(UTC) - timedelta(days=60)).replace(minute=0, second=0, microsecond=0)
+    (tmp_path / "tokens-interactive.json").write_text(
+        json.dumps({"buckets": {f"s0|{old.isoformat()}": {"at": old.isoformat(), "tokens": 9},
+                                "odd": "x"}}),
+        encoding="utf-8",
+    )  # fmt: skip
+    usage = InteractiveUsage(tmp_path)
+    now = datetime.now(UTC)
+    usage.upsert([{"source": "s1", "hour": now.isoformat(), "tokens": 10}])
+    assert [b["tokens"] for b in usage.all().values()] == [10]
+    # a ledger line without an offset, one without a time, one that is no table
+    (tmp_path / "tokens.jsonl").write_text(
+        json.dumps({"at": now.replace(tzinfo=None).isoformat(), "tokens": 5, "process": "x"})
+        + '\n{"tokens": 3}\n"text"\n',
+        encoding="utf-8",
+    )
+    data = series(build_catalog(settings(tmp_path)), tmp_path, ZoneInfo("UTC"), "24h")
+    assert data["total"] == 15

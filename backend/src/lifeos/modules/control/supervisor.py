@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from lifeos.agents.config import AgentDef, load_config
 from lifeos.agents.llm import Llm
+from lifeos.core.times import parse_iso as _parse
 from lifeos.modules.control.health import FAIL, OK, WARN
 from lifeos.modules.control.service import Control
 from lifeos.modules.control.store import REPORT_FILE, read_json, write_json
@@ -102,7 +103,9 @@ class Supervisor:
             return "skipped", f"no agents/{AGENT}.md in the vault"
         status = self.control.status(now)
         problems = self.problems(status)
-        previous = read_json(self.path) or {}
+        previous = read_json(self.path)
+        if not isinstance(previous, dict):
+            previous = {}
         if not problems:
             if previous.get("level") != OK:
                 self._save(previous, now, OK, "Everything runs as expected.", [], signature([]))
@@ -114,7 +117,9 @@ class Supervisor:
             return "skipped", "unchanged"
         # per local calendar day, like every other agent's counter (and the agents page)
         today = now.astimezone(ZoneInfo(self.control.settings.timezone)).date().isoformat()
-        calls = previous.get("calls", {}) if previous.get("callsDay") == today else {}
+        calls = previous.get("calls") if previous.get("callsDay") == today else {}
+        if not isinstance(calls, dict) or not isinstance(calls.get("n", 0), int):
+            calls = {}
         limit = int(agent.raw.get("daily_limit", 12))
         if calls.get("n", 0) >= limit:
             return "skipped", f"daily limit of {limit} diagnoses reached"
@@ -168,7 +173,3 @@ class Supervisor:
         except (OSError, subprocess.SubprocessError):
             return []
         return out.stdout.splitlines()
-
-
-def _parse(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value) if value else None

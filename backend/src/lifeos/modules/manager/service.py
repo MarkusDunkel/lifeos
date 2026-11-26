@@ -64,6 +64,7 @@ from lifeos.agents.service import TURN_STATE
 from lifeos.agents.team import Ticket
 from lifeos.agents.turn import TurnMirror
 from lifeos.connectors.github.client import GitHubError, item_values
+from lifeos.core.times import parse_iso
 from lifeos.core.vault import STATE, Vault, write_atomic
 
 log = logging.getLogger("lifeos.manager")
@@ -409,7 +410,8 @@ class Manager:
             return f"worse than when you explained it ({note.get('level')} → {level})"
         if note.get("expect") == "stays" and note.get("ticket") not in open_urls:
             return f"the ticket that covered it is closed ({note.get('ticket')})"
-        if self.clock() >= datetime.fromisoformat(note["until"]):
+        until = _parse(note.get("until"))  # unreadable (edited by hand): look again now
+        if until is None or self.clock() >= until:
             return f"still {level} after the time you gave; you said: {note.get('cause', '')}"
         return None
 
@@ -875,10 +877,13 @@ def _nodes(issue: dict[str, Any], key: str) -> list[dict[str, Any]]:
     return (issue.get(key) or {}).get("nodes") or []
 
 
-def _time(value: str) -> time:
-    hours, minutes = (int(x) for x in value.split(":"))
-    return time(hours, minutes)
+def _time(value: str, default: time = time(7, 0)) -> time:
+    """``HH:MM`` from the agent file; a value that is no time must not stop every round."""
+    try:
+        hours, minutes = (int(x) for x in value.split(":"))
+        return time(hours, minutes)
+    except ValueError:
+        return default
 
 
-def _parse(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value) if value else None
+_parse = parse_iso
