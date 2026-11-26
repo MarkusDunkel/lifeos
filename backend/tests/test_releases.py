@@ -291,3 +291,24 @@ def test_git_revert_in_a_real_vault(tmp_path: Path) -> None:
         sync.revert(change, "Revert again")  # conflicts with the later change
     assert (root / "a.md").read_text(encoding="utf-8") == "three\n"  # nothing half-done
     assert (root / "b.md").read_text(encoding="utf-8") == "pending edit\n"
+
+
+def test_a_deleted_ticket_does_not_stall_the_release(gh, vault, queue) -> None:
+    """Commenting on a deleted ticket fails; the release still advances and is saved, and a
+    pull request merged in an unsaved round is not merged again."""
+    git, app = ReleaseGit(), FakeApp()
+    work(gh, vault, git, queue, app)
+    r = releases(gh, vault, git, queue, app)
+    answer(queue, "ok")
+    gh.prs[7].update(state="MERGED", mergeCommit={"oid": "c" * 40})
+
+    def gone(subject_id: str, body: str) -> None:
+        raise RuntimeError("Could not resolve to a node")
+
+    gh.add_comment = gone  # type: ignore[method-assign]
+    assert r.poll() == ["someone/board#1: PR #7 merged, deploying"]
+    assert gh.merged == []
+    deploy = answer(queue, "ok")
+    assert deploy["sha"] == "c" * 40
+    assert r.poll() == ["someone/board#1: PR #7 live"]
+    assert r.poll() == []
