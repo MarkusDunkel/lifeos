@@ -505,8 +505,19 @@ def test_agent_quotas_mark_a_used_up_daily_limit(tmp_path):
         {"at": iso(timedelta(days=2)), "process": "control-report", "tokens": 999},  # not today
         {"at": iso(timedelta(hours=1)), "process": "agents", "detail": "job-matcher", "tokens": 7},
     ]
-    quotas = agent_quotas(vault, build_catalog(s), NOW.astimezone(TZ), report, ledger=ledger)
+    jobs = {"control-report": {"lastRun": iso(timedelta(minutes=4)), "status": "skipped",
+                               "message": "unchanged"}}  # fmt: skip
+    quotas = agent_quotas(
+        vault, build_catalog(s), NOW.astimezone(TZ), report, ledger=ledger, jobs_state=jobs
+    )
     assert quotas["control-room"]["tokensToday"] == 750
+    # the last week per local day (today last), the last model call and the last check
+    assert quotas["control-room"]["tokens7d"] == [0, 0, 0, 0, 999, 0, 750]
+    assert quotas["control-room"]["lastCall"] == iso(timedelta(hours=1))
+    assert quotas["control-room"]["lastJob"] == {
+        "at": iso(timedelta(minutes=4)), "status": "skipped", "message": "unchanged",
+    }  # fmt: skip
+    assert quotas["job-matcher"]["lastJob"] is None and quotas["job-matcher"]["lastLog"] is None
     assert quotas["control-room"]["usdToday"] == 0.01
     assert quotas["job-matcher"]["tokensToday"] == 7
     room = quotas["control-room"]
@@ -533,9 +544,11 @@ def test_a_long_run_is_not_a_dead_worker(tmp_path):
     worker = beat("moodle-sync", since=timedelta(minutes=25), at=timedelta(seconds=20))
     result = evaluate(cat, Sources(jobs=jobs, worker=worker), NOW, TZ)
     check = next(c for c in result["system"] if c["id"] == "worker")
-    assert check["ok"] is True and check["message"].startswith("running Mirror Moodle courses")
+    assert (
+        check["ok"] is True and check["message"] == 'busy with "Mirror Moodle courses" for 25 min'
+    )
     assert light(result, "git-sync") == (
-        WARN, "waiting behind Mirror Moodle courses (running for 25 min)",
+        WARN, 'waiting: the worker is busy with "Mirror Moodle courses" (for 25 min)',
     )  # fmt: skip
     moodle = next(p for p in result["processes"] if p["id"] == "moodle-sync")
     assert moodle["runningSince"] == iso(timedelta(minutes=25))

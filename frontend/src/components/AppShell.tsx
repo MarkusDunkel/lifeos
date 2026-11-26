@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Activity, Bot, BookOpen, Briefcase, CalendarCheck, ClipboardList, Compass, FileCheck, GraduationCap, KanbanSquare, NotebookPen, Settings, StickyNote } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
-import { controlQuery } from "../features/control/api";
+import { controlQuery, type Level } from "../features/control/api";
 import { LEVEL_STYLE } from "../features/control/layout";
 
 const NAV = [
@@ -22,15 +22,21 @@ const NAV = [
 ] as const;
 
 /** Red or yellow dot on the Control entry while something needs attention. */
-function Alert({ to }: { to: string }) {
-  const control = useQuery({ ...controlQuery, enabled: true });
-  const level = control.data?.level;
-  if (to !== "/control" || !level || (level !== "warn" && level !== "fail")) return null;
-  return <span className={`absolute top-1 right-3 size-2 rounded-full ${LEVEL_STYLE[level].dot}`} />;
+function Alert({ level }: { level: Level | undefined }) {
+  if (level !== "warn" && level !== "fail") return null;
+  return (
+    <span
+      aria-label={level === "fail" ? "a problem needs attention" : "a warning"}
+      className={`absolute top-1 right-3 size-2 rounded-full ring-2 ring-slate-50 dark:ring-slate-900 ${LEVEL_STYLE[level].dot}`}
+    />
+  );
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
   const bar = useRef<HTMLElement>(null);
+  // read once for both navigation bars
+  const level = useQuery(controlQuery).data?.level;
+  const alertOn = (to: string) => (to === "/control" ? level : undefined);
   const path = useRouterState({ select: (s) => s.location.pathname });
   // the bottom bar scrolls sideways on narrow phones: keep the current page's entry in view
   useEffect(() => {
@@ -50,7 +56,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <Icon className="size-5" />
             {label}
-            <Alert to={to} />
+            <Alert level={alertOn(to)} />
           </Link>
         ))}
       </nav>
@@ -70,7 +76,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <Icon className="size-5" />
             {label}
-            <Alert to={to} />
+            <Alert level={alertOn(to)} />
           </Link>
         ))}
       </nav>

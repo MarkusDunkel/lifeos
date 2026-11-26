@@ -343,6 +343,18 @@ const FOUNDATION_LABEL = "Technical foundation · carries everything, ends in no
 export const originalId = (id: string) =>
   id.startsWith(FOUNDATION) ? id.slice(FOUNDATION.length) : id.startsWith(SECOND) ? id.slice(SECOND.length) : id;
 
+/**
+ * The ids a selection is drawn under. A link or the table names a block by its catalog id;
+ * in the rows below the main flow the same block is drawn as a copy (``s:``/``f:``), and a
+ * block can be drawn in more than one row.
+ */
+export function drawnIds(placed: { id: string }[], id: string | null): string[] {
+  if (!id) return [];
+  if (placed.some((p) => p.id === id)) return [id];
+  const original = originalId(id);
+  return placed.filter((p) => originalId(p.id) === original).map((p) => p.id);
+}
+
 export type Band = { y: number; label: string };
 export type Flows = Graph & { bands: Band[] };
 

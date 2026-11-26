@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLayoutEffect, useRef, useState } from "react";
+import { Card, QueryState, SectionTitle, Segmented } from "../../components/ui";
 import { formatAgo } from "./format";
 import {
   barPath,
@@ -37,9 +38,6 @@ function tooltipLeft(index: number, slot: number, width: number): number {
   return Math.max(0, Math.min(wanted, width - TOOLTIP_W));
 }
 
-const segBtn = (on: boolean) =>
-  `rounded-md px-2.5 py-1 text-sm ${on ? "bg-white shadow-sm dark:bg-slate-700" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`;
-
 function Swatch({ mode }: { mode: TokenMode }) {
   return <span className={`inline-block size-2.5 shrink-0 rounded-sm ${MODE_BG[mode]}`} />;
 }
@@ -50,22 +48,15 @@ export function TokenChart() {
   const data = q.data;
 
   return (
-    <div className="space-y-4 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-      <div className="flex flex-wrap items-center gap-3">
-        <div>
-          <h2 className="font-semibold">Burned tokens</h2>
-          <p className="text-xs text-slate-500">Tokens processed by the AI (input, cache and output), by how much of you it took.</p>
-        </div>
-        <div className="ml-auto inline-flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
-          {RANGES.map((r) => (
-            <button key={r.id} className={segBtn(range === r.id)} onClick={() => setRange(r.id)}>
-              {r.label}
-            </button>
-          ))}
-        </div>
-      </div>
+    <Card className="!space-y-4">
+      <SectionTitle
+        hint="Tokens processed by the AI (input, cache and output), by how much of you it took."
+        actions={<Segmented label="Range" options={RANGES} value={range} onChange={setRange} />}
+      >
+        Burned tokens
+      </SectionTitle>
       {!data ? (
-        <p className="text-sm text-slate-400">{q.error ? q.error.message : "Loading…"}</p>
+        <QueryState query={q} rows={5} what="the token chart" />
       ) : (
         <>
           <Totals data={data} />
@@ -76,7 +67,7 @@ export function TokenChart() {
           </p>
         </>
       )}
-    </div>
+    </Card>
   );
 }
 

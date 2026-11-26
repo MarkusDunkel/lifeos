@@ -95,6 +95,7 @@ class AgentAdmin:
             "boardTitle": board.title if board else None,
             "model": agent.model,
             "billing": agent.billing,
+            "runner": agent.runner,
             "path": agent.path,
             "revision": revision_of(self.vault.resolve(agent.path)),
             "quota": quota,

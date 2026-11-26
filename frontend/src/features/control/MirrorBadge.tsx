@@ -47,6 +47,7 @@ export function MirrorNotice({ path }: { path: string }) {
   return (
     <Link
       to="/control"
+      search={{ sel: `p:${m.process.id}` }}
       className={`mb-4 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs ${style.box}`}
       title="Open the control room"
     >

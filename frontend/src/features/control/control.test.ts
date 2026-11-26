@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { FlowNode, ProcessHealth } from "./api";
-import { sortProcesses } from "./ControlPage";
-import { formatAgo } from "./format";
-import { buildFlows, buildGraph, checkLevel, trace } from "./layout";
+import { formatAgo, formatSpan } from "./format";
+import { buildFlows, buildGraph, checkLevel, drawnIds, trace } from "./layout";
+import { filterProcesses, runState, sortProcesses, STUCK_AFTER, tally } from "./summary";
 import { compact, niceScale, stackBars } from "./tokens";
 
 const node = (id: string, kind: "source" | "dataset"): FlowNode => ({
@@ -242,5 +242,59 @@ describe("token chart", () => {
     expect(compact(950)).toBe("950");
     expect(compact(12_400)).toBe("12k");
     expect(compact(1_400_000)).toBe("1.4M");
+  });
+});
+
+describe("the page around the map", () => {
+  const status = (extra: object = {}) => ({ requests: {}, worker: { running: null }, ...extra });
+
+  it("counts the system checks into the overall light", () => {
+    const check = (ok: boolean | null) => ({ id: "disk", label: "Disk", ok, message: "", fix: "" });
+    const counts = { ok: 5, warn: 1, fail: 0 };
+    expect(tally({ counts, system: [check(true)] })).toEqual({ fail: 0, warn: 1 });
+    expect(tally({ counts, system: [check(false), check(null)] })).toEqual({ fail: 1, warn: 2 });
+  });
+
+  it("filters the process table by problems and search words", () => {
+    const list = [
+      proc("moodle-sync", [], [], { label: "Mirror Moodle courses", level: "fail", ref: "P-30" }),
+      proc("git-sync", [], [], { label: "Sync the vault", trigger: "every 5 min" }),
+      proc("off", [], [], { label: "Switched off", level: "fail", enabled: false }),
+    ];
+    expect(filterProcesses(list, { problemsOnly: true }).map((p) => p.id)).toEqual(["moodle-sync"]);
+    expect(filterProcesses(list, { query: "vault 5 MIN" }).map((p) => p.id)).toEqual(["git-sync"]);
+    expect(filterProcesses(list, { query: "p-30" }).map((p) => p.id)).toEqual(["moodle-sync"]);
+    expect(filterProcesses(list, {})).toHaveLength(3);
+  });
+
+  it("tells queued, waiting behind a long run, and never picked up apart", () => {
+    const now = Date.parse("2026-03-10T12:00:00Z");
+    const asked = (ms: number) => new Date(now - ms).toISOString();
+    const p = { id: "writer", runningSince: null };
+    expect(runState(p, status(), now)).toEqual({ kind: "idle" });
+    expect(runState({ ...p, runningSince: asked(60_000) }, status(), now).kind).toBe("running");
+    const fresh = status({ requests: { writer: asked(20_000) } });
+    expect(runState(p, fresh, now)).toEqual({ kind: "queued", since: asked(20_000), behind: null });
+    const old = { writer: asked(STUCK_AFTER + 1000) };
+    expect(runState(p, status({ requests: old }), now).kind).toBe("stuck");
+    // an old request is not stuck while the worker is busy with another job
+    const busy = status({ requests: old, worker: { running: { job: "m", label: "Manager", since: asked(900_000) } } });
+    expect(runState(p, busy, now)).toMatchObject({ kind: "queued", behind: "Manager" });
+  });
+
+  it("finds every box a selection is drawn as", () => {
+    const placed = [{ id: "p:sync" }, { id: "kb" }, { id: "s:kb" }, { id: "f:remote" }];
+    expect(drawnIds(placed, "p:sync")).toEqual(["p:sync"]);
+    expect(drawnIds(placed, "s:kb")).toEqual(["s:kb"]);
+    expect(drawnIds(placed, "remote")).toEqual(["f:remote"]); // drawn only as a copy
+    expect(drawnIds(placed, "gone")).toEqual([]);
+    expect(drawnIds(placed, null)).toEqual([]);
+  });
+
+  it("formats how long something has been running", () => {
+    const now = Date.parse("2026-03-10T12:00:00Z");
+    expect(formatSpan("2026-03-10T11:59:20Z", now)).toBe("40 s");
+    expect(formatSpan("2026-03-10T11:35:00Z", now)).toBe("25 min");
+    expect(formatSpan("2026-03-10T09:00:00Z", now)).toBe("3 h");
   });
 });

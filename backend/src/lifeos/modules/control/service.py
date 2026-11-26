@@ -150,7 +150,10 @@ class Control:
         """Per agent: its processes, runs today, daily limit, used up or not."""
         now = (now or datetime.now(UTC)).astimezone(self.tz)
         ledger = tokens.read(self.state_dir / tokens.LEDGER_FILE) if self.state_dir else []
-        return agent_quotas(self.vault, self.catalog, now, self.report(), ledger=ledger)
+        return agent_quotas(
+            self.vault, self.catalog, now, self.report(), ledger=ledger,
+            jobs_state=read_table(self.jobs_file, dict),
+        )  # fmt: skip
 
     def manager_notes(self) -> dict[str, dict[str, Any]]:
         """What the LifeOS manager says about each yellow or red light: its explanation,

@@ -1,6 +1,6 @@
 import { ExternalLink, Flag } from "lucide-react";
+import { buttonClass, KEEP_DRAWER } from "../../components/ui";
 import type { BasedOn, ControlStatus, FlowNode, Generator, Level } from "./api";
-
 import { formatAgo } from "./format";
 import { LEVEL_STYLE } from "./layout";
 import { RefBadge } from "./RefBadge";
@@ -92,7 +92,7 @@ export function ActionableDetails({ s, node }: { s: ControlStatus; node: FlowNod
           href={node.url}
           target={internal ? undefined : "_blank"}
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700"
+          className={buttonClass("primary")}
         >
           <ExternalLink className="size-4" /> Open
         </a>
@@ -142,15 +142,16 @@ export function ActionableStrip({ s, onSelect }: { s: ControlStatus; onSelect: (
   const items = s.nodes.filter((n) => n.kind === "actionable" && n.level !== "off");
   if (!items.length) return null;
   return (
-    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+    <div {...KEEP_DRAWER} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
       {items.map((n) => {
         const style = LEVEL_STYLE[n.level];
         const open = (n.trust?.basedOn ?? []).reduce((sum, b) => sum + (b.newSince ?? 0) + (b.pending ?? 0), 0);
         return (
           <button
+            type="button"
             key={n.id}
             onClick={() => onSelect(n.id)}
-            className={`rounded-r-lg border border-l-[6px] p-2.5 text-left text-xs ${style.box}`}
+            className={`rounded-r-lg border border-l-[6px] p-2.5 text-left text-xs transition-shadow hover:shadow-md ${style.box}`}
           >
             <div className="flex items-center gap-1.5 text-sm font-medium text-slate-800 dark:text-slate-100">
               <Flag className="size-3.5 text-slate-500" /> {n.label}

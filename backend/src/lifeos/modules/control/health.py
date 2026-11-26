@@ -180,16 +180,15 @@ def _worker_check(age: float | None, needed: bool, running: dict | None = None) 
         return Check("worker", "Worker", False, "the worker has not run any job yet",
                      fix="COMPOSE_PROFILES=worker docker compose up -d")  # fmt: skip
     if age > WORKER_STALE:
-        what = f" (it was running {running['label']})" if running else ""
+        what = f' (it was busy with "{running["label"]}")' if running else ""
         return Check("worker", "Worker", False, f"no sign of life for {ago(age)}{what}",
                      fix="docker compose logs worker; docker compose up -d worker")  # fmt: skip
+    busy = f'busy with "{running["label"]}" for {ago(running["for"])}' if running else ""
     if running and running["for"] > LONG_RUN:
-        return Check("worker", "Worker", None,
-                     f"running {running['label']} for {ago(running['for'])}, longer than usual",
+        return Check("worker", "Worker", None, f"{busy}, longer than usual",
                      fix="docker compose logs worker")  # fmt: skip
     if running:
-        return Check("worker", "Worker", True,
-                     f"running {running['label']} for {ago(running['for'])}")  # fmt: skip
+        return Check("worker", "Worker", True, busy)
     return Check("worker", "Worker", True, f"alive {ago(age)} ago")
 
 
@@ -273,7 +272,7 @@ def _light(
         lasting = ago(running["for"])
         if running["job"] == (p.job or p.id):
             return OK, f"running for {lasting}"
-        return WARN, f"waiting behind {running['label']} (running for {lasting})"
+        return WARN, f'waiting: the worker is busy with "{running["label"]}" (for {lasting})'
     return level, reason
 
 

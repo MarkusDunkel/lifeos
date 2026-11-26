@@ -8,14 +8,15 @@ import {
   Handle,
   type Node,
   type NodeProps,
+  Panel,
   Position,
   ReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Flag, Hand, Monitor, Server, Sparkles, Wrench } from "lucide-react";
+import { Flag, Hand, Maximize2, Minimize2, Monitor, ScanSearch, Server, Sparkles, TriangleAlert, Wrench } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ControlStatus, Level, Where } from "./api";
-import { buildFlows, FOUNDATION, LEVEL_STYLE, originalId, trace, VAULT_STUB, widthOf } from "./layout";
+import { buildFlows, drawnIds, FOUNDATION, LEVEL_STYLE, originalId, trace, VAULT_STUB, widthOf } from "./layout";
 
 const WHERE_ICON: Record<Where, typeof Server> = { server: Server, pc: Monitor, manual: Hand, host: Wrench };
 export { WHERE_ICON };
@@ -36,6 +37,7 @@ type ItemData = {
   where?: Where;
   mirror?: boolean;
   ai?: boolean;
+  running?: boolean;
   selected: boolean;
   dimmed: boolean;
 };
@@ -53,7 +55,7 @@ function Item({ data }: NodeProps<Node<ItemData>>) {
     <div
       style={{ width: data.width }}
       className={`border px-3 py-1.5 text-left shadow-sm transition-opacity ${shape} ${look} ${
-        data.selected ? "ring-2 ring-sky-500" : ""
+        data.selected ? "ring-2 ring-accent-500" : ""
       } ${data.dimmed ? "opacity-25" : ""}`}
     >
       {data.kind !== "source" && <Handle type="target" position={Position.Left} className="!bg-slate-400" />}
@@ -61,7 +63,15 @@ function Item({ data }: NodeProps<Node<ItemData>>) {
         title={data.label}
         className="flex items-center gap-1.5 text-xs leading-tight font-medium text-slate-800 dark:text-slate-100"
       >
-        {data.kind !== "source" && <span className={`size-2 shrink-0 rounded-full ${style.dot}`} />}
+        {data.kind !== "source" &&
+          (data.running ? (
+            <span className="relative flex size-2 shrink-0" aria-label="running now">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent-400 opacity-75" />
+              <span className="relative inline-flex size-2 rounded-full bg-accent-500" />
+            </span>
+          ) : (
+            <span className={`size-2 shrink-0 rounded-full ${style.dot}`} />
+          ))}
         <span className="line-clamp-2">{data.label}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {Kind && <Kind className="size-3.5 text-slate-500" aria-label="actionable" />}
@@ -72,6 +82,7 @@ function Item({ data }: NodeProps<Node<ItemData>>) {
       <div className="truncate text-[10px] text-slate-500">
         {data.ref && <span className="font-mono text-slate-600 dark:text-slate-300">{data.ref} · </span>}
         {data.mirror ? "mirror · " : ""}
+        {data.running ? "running now · " : ""}
         {data.sub}
       </div>
       <Handle type="source" position={Position.Right} className="!bg-slate-400" />
@@ -163,16 +174,29 @@ function RoutedEdge({ id, sourceX, sourceY, targetX, targetY, style, data }: Edg
 
 const edgeTypes = { loop: LoopEdge, routed: RoutedEdge };
 
+/** The part of the React Flow instance the toolbar uses. */
+type Viewer = {
+  fitView: (options?: { nodes?: { id: string }[]; padding?: number; maxZoom?: number; duration?: number }) => unknown;
+};
+
+const toolBtn =
+  "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-45 dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-200 dark:hover:bg-slate-800";
+
 export function ControlFlow({
   status,
   selected,
   onSelect,
+  fullscreen,
+  onFullscreen,
 }: {
   status: ControlStatus;
   selected: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
+  fullscreen: boolean;
+  onFullscreen: (on: boolean) => void;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
+  const flow = useRef<Viewer | null>(null);
   // highlight a moment after the pointer arrives: re-rendering right away would swallow a
   // click that follows immediately (fast clicks, touch)
   const timer = useRef<number | undefined>(undefined);
@@ -182,8 +206,24 @@ export function ControlFlow({
   };
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const graph = useMemo(() => buildFlows(status.nodes, status.processes), [status]);
-  const focus = hovered ?? selected;
-  const lit = useMemo(() => (focus ? trace(graph.links, focus) : null), [graph, focus]);
+  // a selection from a link or the table names the catalog id: light every box drawn for it
+  const chosen = useMemo(() => drawnIds(graph.placed, selected), [graph, selected]);
+  const lit = useMemo(() => {
+    const foci = hovered ? [hovered] : chosen;
+    if (!foci.length) return null;
+    return new Set(foci.flatMap((id) => [...trace(graph.links, id)]));
+  }, [graph, hovered, chosen]);
+  // the view fits the new size after the switch to or from the full screen
+  useEffect(() => {
+    const t = window.setTimeout(() => flow.current?.fitView({ duration: 200 }), 60);
+    return () => window.clearTimeout(t);
+  }, [fullscreen]);
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onFullscreen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fullscreen, onFullscreen]);
 
   const { nodes, edges } = useMemo(() => {
     const processes = new Map(status.processes.map((p) => [`p:${p.id}`, p]));
@@ -207,11 +247,11 @@ export function ControlFlow({
     }));
     const items: Node<ItemData>[] = graph.placed.map(({ id, x, y }) => {
       const p = processes.get(id);
-      const common = { selected: selected === id, dimmed: dim(id) };
+      const common = { selected: chosen.includes(id), dimmed: dim(id) };
       if (p) {
         return {
           id, type: "item", position: { x, y },
-          data: { label: p.label, width: widthOf(id), ref: p.ref, sub: p.trigger, level: p.level, kind: "process", where: p.where, mirror: p.mirror, ai: p.ai.length > 0, ...common },
+          data: { label: p.label, width: widthOf(id), ref: p.ref, sub: p.trigger, level: p.level, kind: "process", where: p.where, mirror: p.mirror, ai: p.ai.length > 0, running: !!p.runningSince, ...common },
         };
       }
       const n = nodeOf(id);
@@ -265,16 +305,31 @@ export function ControlFlow({
       };
     });
     return { nodes: [...band, ...boxes, ...items], edges: [...edges, ...loops] };
-  }, [status, graph, lit, selected]);
+  }, [status, graph, lit, chosen]);
+
+  const problems = useMemo(
+    () => nodes.filter((n) => n.type === "item" && ["warn", "fail"].includes((n.data as ItemData).level)).map((n) => ({ id: n.id })),
+    [nodes],
+  );
 
   return (
-    <div className="h-[760px] rounded-xl border border-slate-200 dark:border-slate-800">
+    <div
+      className={
+        fullscreen
+          ? "fixed inset-0 z-30 bg-white dark:bg-slate-950"
+          : "h-[min(760px,calc(100dvh-13rem))] min-h-[26rem] overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800"
+      }
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        onInit={(instance) => {
+          flow.current = instance;
+        }}
         onNodeClick={(_, node) => node.type === "item" && node.id !== VAULT_STUB && onSelect(node.id)}
+        onPaneClick={() => selected && onSelect(null)}
         onNodeMouseEnter={(_, node) => node.type === "item" && hover(node.id)}
         onNodeMouseLeave={() => hover(null)}
         nodesDraggable={false}
@@ -286,6 +341,29 @@ export function ControlFlow({
       >
         <Background gap={24} size={1} />
         <Controls showInteractive={false} />
+        <Panel position="top-right" className="flex gap-1.5">
+          <button
+            type="button"
+            className={toolBtn}
+            disabled={problems.length === 0}
+            title={problems.length ? "Zoom to the yellow and red boxes" : "Nothing is yellow or red"}
+            onClick={() => flow.current?.fitView({ nodes: problems, padding: 0.5, maxZoom: 1, duration: 400 })}
+          >
+            <TriangleAlert className="size-3.5" /> Problems
+          </button>
+          <button type="button" className={toolBtn} title="Show the whole map" onClick={() => flow.current?.fitView({ duration: 400 })}>
+            <ScanSearch className="size-3.5" /> Fit
+          </button>
+          <button
+            type="button"
+            className={toolBtn}
+            title={fullscreen ? "Leave the full screen (Esc)" : "Use the full screen"}
+            onClick={() => onFullscreen(!fullscreen)}
+          >
+            {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+            {fullscreen ? "Close" : "Full screen"}
+          </button>
+        </Panel>
       </ReactFlow>
     </div>
   );

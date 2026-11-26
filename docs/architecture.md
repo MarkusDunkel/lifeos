@@ -105,7 +105,7 @@ lacks the Gmail permission) or a last success older than the deadline; yellow wh
 skipped. Interval jobs warn after 3 and fail after 6 intervals (at least 5/15 min), daily
 jobs warn 1 h and fail 4 h after their slot. A stopped worker (no heartbeat for 10 min) turns
 every worker job red. A long run does not: the job shows as running, and a job that was fine
-when that run began is yellow ("waiting behind …") instead of overdue.
+when that run began is yellow ("waiting: the worker is busy with …") instead of overdue.
 
 The status has to load when something else is broken: state files are read tolerantly, and a
 part that cannot be read (agent settings, actionable inputs, manager notes) becomes a yellow
@@ -125,6 +125,8 @@ out. The web app keeps a status for 15 s.
   unchanged. Each report carries the commit and the update result; the control room shows
   it next to the server's commit (from the deployer heartbeat) and turns a task yellow when
   its update was skipped or failed. `LIFEOS_PC_SELF_UPDATE=false` switches it off.
+- The details of a block open in a panel and are part of the address
+  (`/control?sel=p:<process>`, `c:<system check>` or a node id), so other pages link to them.
 - "Run now" on a worker job writes `state/job-requests.json`; the worker runs it at its next
   tick (after the job it is running). The status reports the open requests per process.
   Manual syncs call their own endpoints.

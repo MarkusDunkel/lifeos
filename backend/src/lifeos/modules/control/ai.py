@@ -12,6 +12,7 @@ from typing import Any
 
 from lifeos.agents.config import AgentConfig, load_config
 from lifeos.agents.runlog import runlog_path
+from lifeos.core.times import parse_iso
 from lifeos.core.vault import STATE, Vault, VaultPathError
 from lifeos.modules.career.matcher import STATE_FILE as MATCHER_STATE
 from lifeos.modules.control.catalog import WORKFLOW_AGENTS, Catalog
@@ -123,32 +124,72 @@ def _limits(raw: dict) -> list[str]:
     return out
 
 
-def _tokens_today(ledger: list[dict], agent: str, jobs: set[str], now: datetime) -> dict:
-    """Tokens (and API dollars) booked to the agent today, local time: board agents are
-    named in ``detail``, the others by the job their process runs in."""
-    tokens, usd = 0, 0.0
+DAYS = 7  # the agents page shows the tokens of this many days, today last
+
+
+def _tokens(ledger: list[dict], agent: str, jobs: set[str], now: datetime) -> dict:
+    """What the ledger books to the agent: tokens and API dollars today (local time), the
+    tokens of the last ``DAYS`` days and its last model call. Board agents are named in
+    ``detail``, the others by the job their process runs in."""
+    days = [0] * DAYS
+    usd = 0.0
+    last: datetime | None = None
     for line in ledger:
+        if not isinstance(line, dict):
+            continue
         detail = line.get("detail")
         if not (detail == agent or (not detail and line.get("process") in jobs)):
             continue
+        at = parse_iso(line.get("at"))
+        if at is None:
+            continue
         try:
-            at = datetime.fromisoformat(str(line["at"]).replace("Z", "+00:00"))
-        except (KeyError, ValueError):
+            amount, cost = int(line.get("tokens") or 0), float(line.get("usd") or 0.0)
+        except (TypeError, ValueError):
             continue
-        if at.astimezone(now.tzinfo).date() != now.date():
-            continue
-        tokens += int(line.get("tokens", 0))
-        usd += float(line.get("usd", 0.0))
-    return {"tokensToday": tokens, "usdToday": round(usd, 4)}
+        last = at if last is None or at > last else last
+        back = (now.date() - at.astimezone(now.tzinfo).date()).days
+        if 0 <= back < DAYS:
+            days[DAYS - 1 - back] += amount
+        if back == 0:
+            usd += cost
+    return {
+        "tokensToday": days[-1],
+        "usdToday": round(usd, 4),
+        "tokens7d": days,
+        "lastCall": last.isoformat(timespec="seconds") if last else None,
+    }
+
+
+def _last_logged(vault: Vault, agent: str) -> str | None:
+    """The newest entry of the agent's run log: ``<time> · <ticket> · <outcome>``."""
+    try:
+        text = vault.resolve(runlog_path(agent)).read_text(encoding="utf-8")
+    except (OSError, VaultPathError):
+        return None
+    heads = [line[3:].strip() for line in text.splitlines() if line.startswith("## ")]
+    return heads[-1] if heads else None
+
+
+def _last_job_run(jobs: dict[str, dict], names: set[str]) -> dict | None:
+    """The newest run of the worker jobs the agent works in (many of them only check for
+    work: the status says how the check ended, not that the model was called)."""
+    runs = [
+        {"at": e.get("lastRun"), "status": e.get("status"), "message": e.get("message") or ""}
+        for e in (jobs.get(n) for n in sorted(names))
+        if isinstance(e, dict) and isinstance(e.get("lastRun"), str)
+    ]
+    return max(runs, key=lambda r: r["at"], default=None)
 
 
 def agent_quotas(
     vault: Vault, catalog: Catalog, now: datetime, report: dict | None,
     config: AgentConfig | None = None, ledger: list[dict] | None = None,
+    jobs_state: dict[str, dict] | None = None,
 ) -> dict[str, dict]:  # fmt: skip
     """Per agent: the processes that call it (with their schedule), how many runs it had
-    today, its daily limit and whether that is used up, and the tokens it used today –
-    for the agents page. ``now`` is local time."""
+    today, its daily limit and whether that is used up, the tokens it used (today and the
+    last week) and how its last run ended – for the agents page. ``now`` is local time."""
     cfg = config or load_config(vault)
     today = now.date().isoformat()
     usage = ai_usage(vault, catalog, now, report, cfg)
@@ -174,7 +215,9 @@ def agent_quotas(
         # the board agents share one job ("agents"): their calls are told apart by `detail`
         shared = {p.job or p.id for p in catalog.processes if WORKFLOW_AGENTS in p.ai}
         jobs = {p.job or p.id for p in catalog.processes if name in p.ai} - shared
-        result[name] = _tokens_today(ledger or [], name, jobs, now) | {
+        result[name] = _tokens(ledger or [], name, jobs, now) | {
+            "lastJob": _last_job_run(jobs_state or {}, jobs),
+            "lastLog": _last_logged(vault, name),
             "processes": processes,
             "runsToday": runs,
             "dailyLimit": limit,

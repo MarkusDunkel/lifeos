@@ -46,6 +46,8 @@ export type ProcessHealth = {
   ai: AiAgent[];
   /** PC tasks: the app commit they ran on, the server's, and how the self-update went. */
   app?: PcApp | null;
+  /** Worker jobs: set while the worker runs it right now. */
+  runningSince?: string | null;
 };
 
 export type PcApp = {
@@ -133,14 +135,21 @@ export type ControlStatus = {
   nodes: FlowNode[];
   system: Check[];
   report: Report | null;
+  /** "Run now" requests the worker has not run yet: process id → asked at. */
   requests: Record<string, string>;
   manager?: Record<string, ManagerNote>;
+  /** What the worker runs right now (it runs one job at a time). */
+  worker?: { running: { job: string; label: string; since: string } | null };
 };
 
 export const controlQuery = queryOptions({
   queryKey: ["control"],
   queryFn: () => api<ControlStatus>("/api/control/status"),
-  refetchInterval: 60_000,
+  // look more often while something is running or queued
+  refetchInterval: (query) => {
+    const d = query.state.data;
+    return d && (d.worker?.running || Object.keys(d.requests ?? {}).length) ? 15_000 : 60_000;
+  },
 });
 
 /** Worker jobs are queued for the worker; manual syncs call their own endpoint. */

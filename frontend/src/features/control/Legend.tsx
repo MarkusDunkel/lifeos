@@ -1,12 +1,13 @@
-import { Flag, Sparkles } from "lucide-react";
+import { ChevronRight, Flag, Sparkles } from "lucide-react";
 import type { ReactNode } from "react";
+import { useStored } from "../../lib/useMediaQuery";
 import type { Level, Where } from "./api";
 import { WHERE_ICON, WHERE_LABEL } from "./ControlFlow";
 import { LEVEL_STYLE } from "./layout";
 
 const LEVELS: [Level, string][] = [
   ["ok", "OK"],
-  ["warn", "late or skipped"],
+  ["warn", "late, skipped or waiting while the worker is busy"],
   ["fail", "failed, precondition missing or overdue"],
   ["off", "not set up"],
 ];
@@ -20,10 +21,31 @@ function Entry({ sample, children }: { sample: ReactNode; children: ReactNode })
   );
 }
 
-/** What the shapes, colours and icons of the control room mean. */
+/** What the page shows and what its shapes, colours and icons mean; folded away by default. */
 export function Legend() {
+  const [open, setOpen] = useStored<"open" | "closed">("lifeos.control.legend", "closed", ["open", "closed"]);
   return (
-    <section className="grid gap-4 rounded-xl border border-slate-200 p-4 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4 dark:border-slate-800 dark:text-slate-300">
+    <details
+      open={open === "open"}
+      onToggle={(e) => setOpen(e.currentTarget.open ? "open" : "closed")}
+      className="group rounded-xl border border-slate-200 dark:border-slate-800"
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-600 select-none hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900">
+        <ChevronRight className="size-4 transition-transform group-open:rotate-90" /> How to read this page
+      </summary>
+      <p className="px-4 pb-3 text-sm text-slate-500 dark:text-slate-400">
+        Every process that feeds LifeOS: where it runs, when it last succeeded and whether it ran often enough. Red
+        means failed, a missing precondition or overdue; yellow means late, skipped or waiting while the worker is
+        busy with a long run. Hover a box to follow its flow, click it for details.
+      </p>
+      <LegendGrid />
+    </details>
+  );
+}
+
+function LegendGrid() {
+  return (
+    <section className="grid gap-4 border-t border-slate-100 p-4 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4 dark:border-slate-800 dark:text-slate-300">
       <div>
         <h3 className="mb-2 font-medium text-slate-800 dark:text-slate-100">Shapes</h3>
         <ul className="space-y-1.5">
@@ -94,8 +116,15 @@ export function Legend() {
           <Entry sample={<span className="h-0 w-10 border-t-2 border-dashed border-violet-400" />}>
             Your reactions on an actionable (moved tickets, comments) trigger this process
           </Entry>
-          <Entry sample={<span className="text-[10px] text-slate-500">hover</span>}>
-            Hover or click a box to follow its flow
+          <Entry
+            sample={
+              <span className="relative flex size-2.5">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent-400 opacity-75" />
+                <span className="relative inline-flex size-2.5 rounded-full bg-accent-500" />
+              </span>
+            }
+          >
+            Running right now (the worker runs one job at a time)
           </Entry>
         </ul>
       </div>
