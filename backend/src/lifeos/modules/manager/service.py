@@ -97,8 +97,10 @@ Your job, in this order:
    can on your own – a vault file, a job to run again (`run_now`). Say what you did.
 3. Follow-ups of a pull request that went live: what else has to happen before the fix
    works? Code that runs on the owner's PC (processes with `where: pc`) runs from the PC's
-   own copy of the app, which deployments do not update. A job may have to run again
-   (`run_now`). Do what you can; what only the owner can do is a `needs_you` ticket.
+   own copy of the app; the PC tasks update it themselves before each run (their `app`
+   shows the commit and whether the update worked). Only when that update was skipped or
+   failed, or the task will not run soon, does the PC need the owner. A job may have to run
+   again (`run_now`). Do what you can; what only the owner can do is a `needs_you` ticket.
 4. What you cannot solve without the owner: one ticket (`create_ticket`, kind `needs_you`)
    with what is wrong, what you checked and the one thing the owner has to do. Look at
    `ownTickets` first: do not open a second ticket for the same thing.
@@ -382,7 +384,7 @@ class Manager:
             {k: p.get(k) for k in ("id", "label", "where", "trigger", "enabled", "level",
                                    "reason", "status", "message", "lastRun", "lastSuccess",
                                    "description", "inputs", "outputs", "hint", "canRequest",
-                                   "checks", "ai")}
+                                   "checks", "ai", "app")}
             | {"recentRuns": (p.get("history") or [])[-5:]}
             for p in status["processes"]
         ]  # fmt: skip

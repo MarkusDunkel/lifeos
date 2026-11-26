@@ -3,6 +3,9 @@
 Reads ``LIFEOS_CONTROL_SERVER_URL`` (falls back to ``LIFEOS_JOBSEARCH_SERVER_URL``) and
 ``LIFEOS_CONTROL_REPORT_TOKEN`` from the task's env file. A report never fails the task:
 when the server is unreachable the run is only missing on the page.
+
+Every report also carries the app commit the task ran on and how its self-update went
+(``lifeos.core.self_update``), so the control room shows when the PC falls behind.
 """
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ from pathlib import Path
 import httpx
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from lifeos.core.self_update import UpdateResult
+
 log = logging.getLogger("lifeos.control")
 
 
@@ -25,6 +30,8 @@ class ReporterSettings(BaseSettings):
     control_server_url: str | None = None
     jobsearch_server_url: str | None = None
     control_report_token: str | None = None
+    deploy_branch: str = "main"  # the PC tasks follow this branch (as the server does)
+    pc_self_update: bool = True  # false: the PC tasks never update the app themselves
 
     @property
     def url(self) -> str | None:
@@ -37,6 +44,14 @@ def load_settings(env_file: Path | None) -> ReporterSettings:
     return ReporterSettings()
 
 
+_app: UpdateResult | None = None  # set once per process by the CLI, before the task runs
+
+
+def set_app_update(result: UpdateResult | None) -> None:
+    global _app
+    _app = result
+
+
 def send(
     process: str,
     status: str,
@@ -44,15 +59,20 @@ def send(
     duration: float | None,
     settings: ReporterSettings,
     transport: httpx.BaseTransport | None = None,
+    app: UpdateResult | None = None,
 ) -> bool:
     if not settings.url or not settings.control_report_token:
         log.info("control report skipped: LIFEOS_CONTROL_* not set")
         return False
+    body: dict = {"status": status, "message": message[:2000], "duration": duration}
+    app = app or _app
+    if app is not None:
+        body |= {"version": app.version, "update": app.message[:300], "updateOk": app.ok}
     try:
         with httpx.Client(timeout=15, transport=transport) as http:
             r = http.post(
                 settings.url.rstrip("/") + f"/api/control/report/{process}",
-                json={"status": status, "message": message[:2000], "duration": duration},
+                json=body,
                 headers={"Authorization": f"Bearer {settings.control_report_token}"},
             )
         if r.status_code != 200:

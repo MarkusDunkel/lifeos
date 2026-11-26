@@ -76,6 +76,7 @@ class ProcessHealth:
     reacts_to: list[str] = field(default_factory=list)
     reaction: str = ""
     ai: list[dict] = field(default_factory=list)  # agents (model, billing, runs today)
+    app: dict | None = None  # PC tasks: the app commit they ran on vs. the server's
 
 
 @dataclass
@@ -86,6 +87,7 @@ class Sources:
     pc: dict[str, dict] = field(default_factory=dict)  # state/pc-jobs.json
     manual: dict[str, str | None] = field(default_factory=dict)  # process → last run
     deployer: str | None = None  # last heartbeat of the host deployer
+    server_version: str | None = None  # app commit the server runs (from that heartbeat)
     checks: dict[str, Check] = field(default_factory=dict)
     system_checks: list[Check] = field(default_factory=list)
     ai: dict[str, list[dict]] = field(default_factory=dict)  # process → agents it calls
@@ -194,10 +196,31 @@ def _one(p: Process, src: Sources, now: datetime, tz: ZoneInfo, worker: Check) -
         mirror=p.mirror, system=p.system, foundation=p.foundation, second_order=p.second_order,
         reacts_to=list(p.reacts_to), reaction=p.reaction, ai=src.ai.get(p.id, []),
     )  # fmt: skip
+    if p.where == PC:
+        health.app = _pc_app(entry.get("app"), src.server_version)
     if not p.enabled:
         return health
     health.level, health.reason = _light(p, entry, checks, now, tz, worker)
+    app = health.app
+    if app and app["ok"] is False and health.level == OK:
+        health.level = WARN
+        health.reason = f"PC app not updated: {app['update']}" + (
+            f" (PC at {app['version']}, server at {app['serverVersion']})" if app["behind"] else ""
+        )
     return health
+
+
+def _pc_app(app: dict | None, server: str | None) -> dict | None:
+    """What the PC task reported about its copy of the app; ``behind`` when its commit is
+    not the one the server runs (both short or long hashes)."""
+    if not isinstance(app, dict):
+        return None
+    version = app.get("version") or None
+    behind = bool(version and server) and not (
+        str(version).startswith(str(server)) or str(server).startswith(str(version))
+    )
+    return {"version": version, "serverVersion": server, "update": app.get("update") or "",
+            "ok": app.get("ok"), "behind": behind}  # fmt: skip
 
 
 def _light(

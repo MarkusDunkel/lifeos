@@ -325,6 +325,18 @@ function ProcessDetails({ s, p }: { s: ControlStatus; p: ProcessHealth }) {
             <dd className="break-words">{p.message}</dd>
           </>
         )}
+        {p.app && (
+          <>
+            <dt className="text-slate-500">App on the PC</dt>
+            <dd className="break-words">
+              <span className={p.app.behind ? "text-amber-700 dark:text-amber-400" : ""}>
+                {p.app.version ?? "unknown"}
+                {p.app.serverVersion && ` (server ${p.app.serverVersion})`}
+              </span>
+              {p.app.update && <span className="block text-xs text-slate-500">{p.app.update}</span>}
+            </dd>
+          </>
+        )}
       </dl>
       {p.checks.length > 0 && (
         <div>
