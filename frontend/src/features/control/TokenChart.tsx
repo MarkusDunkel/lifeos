@@ -28,6 +28,15 @@ const AXIS_LEFT = 44;
 const AXIS_BOTTOM = 22;
 const PAD_TOP = 8;
 
+const TOOLTIP_W = 208; // w-52
+
+/** Beside the hovered column, on the side with more room, never past the chart's edges. */
+function tooltipLeft(index: number, slot: number, width: number): number {
+  const left = AXIS_LEFT + index * slot;
+  const wanted = left + slot / 2 > width / 2 ? left - TOOLTIP_W - 8 : left + slot + 8;
+  return Math.max(0, Math.min(wanted, width - TOOLTIP_W));
+}
+
 const segBtn = (on: boolean) =>
   `rounded-md px-2.5 py-1 text-sm ${on ? "bg-white shadow-sm dark:bg-slate-700" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`;
 
@@ -108,11 +117,16 @@ function useWidth<T extends HTMLElement>() {
 function Bars({ data }: { data: TokenSeries }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
+  const [hidden, setHidden] = useState<TokenMode[]>([]);
+  const shown = MODES.filter((m) => !hidden.includes(m));
+  const visible = data.buckets.map((b) => ({ ...b, ...Object.fromEntries(hidden.map((m) => [m, 0])) }));
+  const toggle = (m: TokenMode) =>
+    setHidden((h) => (h.includes(m) ? h.filter((x) => x !== m) : shown.length > 1 ? [...h, m] : h));
   const plotW = Math.max(100, width - AXIS_LEFT);
   const plotH = HEIGHT - AXIS_BOTTOM - PAD_TOP;
-  const max = Math.max(0, ...data.buckets.map((b) => MODES.reduce((sum, m) => sum + b[m], 0)));
+  const max = Math.max(0, ...visible.map((b) => MODES.reduce((sum, m) => sum + b[m], 0)));
   const { top, step } = niceScale(max);
-  const segments = stackBars(data.buckets, plotW, plotH, top, data.buckets.length > 40 ? 1 : 2);
+  const segments = stackBars(visible, plotW, plotH, top, data.buckets.length > 40 ? 1 : 2);
   const slot = plotW / Math.max(1, data.buckets.length);
   const ticks = Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step);
   const hovered = hover === null ? null : data.buckets[hover];
@@ -140,7 +154,7 @@ function Bars({ data }: { data: TokenSeries }) {
           ))}
           {data.buckets.map((b, i) => {
             const label = tickLabel(b.start, data.range, i);
-            return label ? (
+            return label && i * slot < plotW - 30 ? (
               <text key={b.start} x={i * slot} y={plotH + 15} className="fill-slate-400 text-[10px]">
                 {label}
               </text>
@@ -169,11 +183,7 @@ function Bars({ data }: { data: TokenSeries }) {
       {hovered && hover !== null && (
         <div
           className="pointer-events-none absolute top-2 z-10 w-52 rounded-lg border border-slate-200 bg-white p-2.5 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900"
-          style={
-            AXIS_LEFT + (hover + 0.5) * slot > width / 2
-              ? { right: width - (AXIS_LEFT + hover * slot) + 8 }
-              : { left: AXIS_LEFT + (hover + 1) * slot + 8 }
-          }
+          style={{ left: tooltipLeft(hover, slot, width) }}
         >
           <div className="mb-1.5 font-medium">{bucketTitle(hovered.start, data.bucketSeconds)}</div>
           {[...MODES].reverse().map((m) => (
@@ -188,12 +198,18 @@ function Bars({ data }: { data: TokenSeries }) {
           </div>
         </div>
       )}
-      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
         {MODES.map((m) => (
-          <span key={m} className="inline-flex items-center gap-1.5">
+          <button
+            key={m}
+            onClick={() => toggle(m)}
+            aria-pressed={!hidden.includes(m)}
+            className={`inline-flex items-center gap-1.5 hover:text-slate-800 dark:hover:text-slate-200 ${hidden.includes(m) ? "line-through opacity-50" : ""}`}
+          >
             <Swatch mode={m} /> {MODE_LABEL[m]}
-          </span>
+          </button>
         ))}
+        <span className="text-slate-400">· click to hide a mode, the axis rescales</span>
       </div>
     </div>
   );
