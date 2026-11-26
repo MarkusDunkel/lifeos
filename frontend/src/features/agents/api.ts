@@ -12,6 +12,17 @@ export type AgentSummary = {
   billing: Billing;
   path: string;
   revision: string | null;
+  /** Its processes, runs today and limits; null when the counters could not be read. */
+  quota: AgentQuota | null;
+};
+
+export type AgentQuota = {
+  processes: { id: string; ref: string; label: string; trigger: string; enabled: boolean }[];
+  runsToday: number;
+  dailyLimit: number | null;
+  exhausted: boolean;
+  note: string;
+  limits: string[];
 };
 
 export type AgentsOverview = {

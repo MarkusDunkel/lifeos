@@ -42,7 +42,7 @@ class Node:
     local: bool = False  # kept by the owner, not written by a process
     # a dataset made of other nodes (e.g. all boards): takes their worst light
     derived_from: tuple[str, ...] = ()
-    ref: str = ""  # the global id ``L-n``, see ``REFS``
+    ref: str = ""  # the global id, e.g. ``D-8``, see ``REFS``
 
 
 EXPLAINER = "Control room explainer"  # the process that writes the explanation on /control
@@ -54,41 +54,44 @@ VAULT_TARGETS = (
     "applications",
 )  # fmt: skip
 
-# The global id of every building block (source, dataset, actionable, process): one count
-# for all, like issue numbers, so "L-12" alone says what is meant. A number is never
-# reused: a block that goes away moves its number to ``RETIRED``; a new one takes the next.
-REFS: dict[str, str] = {
+# The global id of every building block: a letter for its kind and a number. The numbers
+# are one count for all kinds, like issue numbers, so "P-46" (or just 46) says what is meant.
+# A number is never reused: a block that goes away moves its number to ``RETIRED``; a new
+# one takes the next free number.
+PREFIX = {"source": "S", "dataset": "D", "actionable": "A", "process": "P"}
+REFS: dict[str, int] = {
     # sources
-    "moodle": "L-1", "gmail": "L-2", "onedrive-pc": "L-3", "onedrive": "L-4",
-    "google-calendar": "L-5", "devjobs": "L-6", "github-boards": "L-7",
+    "moodle": 1, "gmail": 2, "onedrive-pc": 3, "onedrive": 4,
+    "google-calendar": 5, "devjobs": 6, "github-boards": 7,
     # datasets
-    "kb-moodle": "L-8", "kb-teams-chats": "L-9", "kb-teams-files": "L-10",
-    "kb-presentations": "L-11", "kb-planning": "L-12", "applications": "L-13",
-    "job-postings": "L-14", "postings-commute": "L-15",
+    "kb-moodle": 8, "kb-teams-chats": 9, "kb-teams-files": 10,
+    "kb-presentations": 11, "kb-planning": 12, "applications": 13,
+    "job-postings": 14, "postings-commute": 15,
     # actionables
-    "act-university": "L-16", "act-day-plan": "L-17", "act-job-assessments": "L-18",
-    "act-applications": "L-19", "act-tasks": "L-20",
+    "act-university": 16, "act-day-plan": 17, "act-job-assessments": 18,
+    "act-applications": 19, "act-tasks": 20,
     # second order and foundation nodes
-    "boards": "L-21", "control-room": "L-22", "control-explanation": "L-23",
-    "pull-requests": "L-24", "tickets": "L-25", "app-live": "L-26", "vault-remote": "L-27",
-    "claude-code-pc": "L-28", "token-usage": "L-29",
+    "boards": 21, "control-room": 22, "control-explanation": 23,
+    "pull-requests": 24, "tickets": 25, "app-live": 26, "vault-remote": 27,
+    "claude-code-pc": 28, "token-usage": 29,
     # processes
-    "moodle-sync": "L-30", "teams-mail": "L-31", "teams-files": "L-32",
-    "presentations": "L-33", "uni-planner": "L-34", "calendar-sync": "L-35",
-    "calendar-planner": "L-36", "planner-queue": "L-37", "job-import": "L-38",
-    "commute": "L-39", "job-matcher": "L-40", "start-application": "L-41",
-    "application-writer": "L-42", "applications-board": "L-43", "agents": "L-44",
-    "lifeos-manager": "L-45", "control-report": "L-46", "git-sync": "L-47",
-    "deployer": "L-48", "tickets-copy": "L-49", "claude-usage": "L-50",
+    "moodle-sync": 30, "teams-mail": 31, "teams-files": 32,
+    "presentations": 33, "uni-planner": 34, "calendar-sync": 35,
+    "calendar-planner": 36, "planner-queue": 37, "job-import": 38,
+    "commute": 39, "job-matcher": 40, "start-application": 41,
+    "application-writer": 42, "applications-board": 43, "agents": 44,
+    "lifeos-manager": 45, "control-report": 46, "git-sync": 47,
+    "deployer": 48, "tickets-copy": 49, "claude-usage": 50,
 }  # fmt: skip
-RETIRED: tuple[str, ...] = ()  # numbers of blocks that are gone: never hand them out again
+RETIRED: tuple[int, ...] = ()  # numbers of blocks that are gone: never hand them out again
 
 
-def ref_of(block_id: str, kind: str = "node") -> str:
-    """The ``L-n`` of a node or process (the process "tickets" shares its id with the
-    dataset it writes, so processes are looked up as ``<id>-copy`` there)."""
+def ref_of(block_id: str, kind: str) -> str:
+    """The global id (e.g. ``P-46``) of a node (``kind`` = its kind) or a process. The
+    process "tickets" shares its id with the dataset it writes: it is ``tickets-copy`` here."""
     key = "tickets-copy" if kind == "process" and block_id == "tickets" else block_id
-    return REFS.get(key, "")
+    number = REFS.get(key)
+    return f"{PREFIX[kind]}-{number}" if number is not None else ""
 
 
 @dataclass(frozen=True)
@@ -119,7 +122,7 @@ class Process:
     quiet_skips: tuple[str, ...] = ()  # skip messages that are normal, not a warning
     ai: tuple[str, ...] = ()  # agents whose model it calls (``WORKFLOW_AGENTS`` = board agents)
     description: str = ""
-    ref: str = ""  # the global id ``L-n``, see ``REFS``
+    ref: str = ""  # the global id, e.g. ``D-8``, see ``REFS``
 
 
 @dataclass
@@ -271,7 +274,7 @@ def build_catalog(s: Settings) -> Catalog:
         Node("token-usage", "Token usage", "dataset", "Burned tokens chart"),
     ]
     nodes = [
-        replace(n, group=VAULT if n.id in VAULT_TARGETS else n.group, ref=ref_of(n.id))
+        replace(n, group=VAULT if n.id in VAULT_TARGETS else n.group, ref=ref_of(n.id, n.kind))
         for n in nodes
     ]  # fmt: skip
     agents_on = s.agents_interval > 0 and bool(s.github_token)

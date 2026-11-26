@@ -12,7 +12,7 @@ from lifeos.connectors.onedrive.sync import STATE_FILE as PRESENTATIONS_STATE
 from lifeos.core.config import Settings
 from lifeos.core.vault import KNOWLEDGE, Vault, VaultPathError
 from lifeos.modules.applications.service import STATE_DIR as APPLICATIONS_STATE
-from lifeos.modules.control.ai import ai_usage
+from lifeos.modules.control.ai import agent_quotas, ai_usage
 from lifeos.modules.control.catalog import PC, Catalog, build_catalog
 from lifeos.modules.control.checks import disk_check, run_checks
 from lifeos.modules.control.health import Sources, evaluate
@@ -77,6 +77,11 @@ class Control:
         result["requests"] = self.requests.all()
         result["manager"] = self.manager_notes()
         return result
+
+    def agent_quotas(self, now: datetime | None = None) -> dict[str, dict]:
+        """Per agent: its processes, runs today, daily limit, used up or not."""
+        now = (now or datetime.now(UTC)).astimezone(self.tz)
+        return agent_quotas(self.vault, self.catalog, now, self.report())
 
     def manager_notes(self) -> dict[str, dict[str, Any]]:
         """What the LifeOS manager says about each yellow or red light: its explanation,

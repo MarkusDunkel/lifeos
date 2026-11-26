@@ -121,6 +121,13 @@ class AgentDef:
     def responsible_option(self) -> str:
         return f"AI: {self.title}"
 
+    @property
+    def former_options(self) -> list[str]:
+        """Options under earlier titles (``former_titles:``): tickets still set to one of
+        them belong to this agent, and the board mirror renames them."""
+        former = self.raw.get("former_titles") or []
+        return [f"AI: {t}" for t in (former if isinstance(former, list) else [former])]
+
     def section(self, heading: str) -> str:
         """The text of the ``## <heading>`` section (empty if missing)."""
         return section(self.body, heading)

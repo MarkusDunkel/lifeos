@@ -15,6 +15,7 @@ import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 
@@ -35,7 +36,7 @@ thing to do (a button in LifeOS, a command, "turn on the PC", or "nothing, it re
 itself"). Name what is affected (which folder or calendar is out of date). Problems with one
 cause (e.g. the worker is down) get one finding. Be brief: the summary is one or two
 sentences, each finding one sentence for cause and one for action. When you name a process
-in the text, use its label with its global id, e.g. "Moodle sync (L-30)". Never invent facts
+in the text, use its label with its global id, e.g. "Moodle sync (P-30)". Never invent facts
 that are not in the data; say when the cause is unclear. {language}"""
 
 
@@ -111,7 +112,8 @@ class Supervisor:
         last = _parse(previous.get("at"))
         if previous.get("signature") == sig and last and now - last < REFRESH:
             return "skipped", "unchanged"
-        today = now.date().isoformat()
+        # per local calendar day, like every other agent's counter (and the agents page)
+        today = now.astimezone(ZoneInfo(self.control.settings.timezone)).date().isoformat()
         calls = previous.get("calls", {}) if previous.get("callsDay") == today else {}
         limit = int(agent.raw.get("daily_limit", 12))
         if calls.get("n", 0) >= limit:

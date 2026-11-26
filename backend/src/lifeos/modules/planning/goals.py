@@ -35,7 +35,7 @@ PRIORITIES = ("hoch", "mittel", "niedrig")
 
 TEMPLATE = """# Ziele
 
-Wöchentliche Kontingente und Regeln für den Tagesplaner. Menge `auto` = LifeOS
+Wöchentliche Kontingente und Regeln für den Day planner. Menge `auto` = LifeOS
 rechnet selbst (Uni: aus anstehenden Prüfungen und dem Lernstand). Ziele mit einer
 Gruppe teilen sich deren Stunden: feste Stunden, `auto` oder `%` vom Rest.
 

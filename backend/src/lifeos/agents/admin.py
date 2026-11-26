@@ -7,6 +7,7 @@ and is committed like any other vault edit.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 from datetime import date
@@ -23,7 +24,9 @@ from lifeos.agents.config import (
 )
 from lifeos.core.vault import Vault, revision_of, write_checked
 
+log = logging.getLogger("lifeos.agents")
 Committer = Callable[[list[str], str], None]
+Quotas = Callable[[], dict[str, dict[str, Any]]]  # agent → processes, runs today, limit
 
 
 class AgentAdminError(Exception):
@@ -62,11 +65,25 @@ def with_history(text: str, heading: str, entry: str) -> str:
 
 
 class AgentAdmin:
-    def __init__(self, vault: Vault, committer: Committer | None = None) -> None:
+    def __init__(
+        self, vault: Vault, committer: Committer | None = None, quotas: Quotas | None = None
+    ) -> None:
         self.vault = vault
         self.committer = committer
+        self.quotas = quotas
 
-    def _summary(self, agent: AgentDef, boards: dict[str, Any]) -> dict[str, Any]:
+    def _quotas(self) -> dict[str, dict[str, Any]]:
+        if self.quotas is None:
+            return {}
+        try:
+            return self.quotas()
+        except Exception:  # the page works without the counters
+            log.exception("could not read the agents' run counters")
+            return {}
+
+    def _summary(
+        self, agent: AgentDef, boards: dict[str, Any], quota: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         board = boards.get(agent.board or "")
         return {
             "name": agent.name,
@@ -77,12 +94,14 @@ class AgentAdmin:
             "billing": agent.billing,
             "path": agent.path,
             "revision": revision_of(self.vault.resolve(agent.path)),
+            "quota": quota,
         }
 
     def overview(self) -> dict[str, Any]:
         cfg = load_config(self.vault)
+        quotas = self._quotas()
         return {
-            "agents": [self._summary(a, cfg.boards) for a in sorted(
+            "agents": [self._summary(a, cfg.boards, quotas.get(a.name)) for a in sorted(
                 cfg.agents.values(), key=lambda a: a.title.lower())],
             "billingOptions": list(BILLING),
             "errors": cfg.errors,

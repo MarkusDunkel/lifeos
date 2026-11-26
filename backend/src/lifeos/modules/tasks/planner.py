@@ -422,7 +422,7 @@ class UniPlanner:
     # -- apply ----------------------------------------------------------------------------
 
     def _comment(self, gh: Any, issue_id: str, text: str) -> None:
-        gh.add_comment(issue_id, f"{comments.marker(AGENT)}\n🤖 **Studienplaner:** {text}")
+        gh.add_comment(issue_id, f"{comments.marker(AGENT)}\n🤖 **Study planner:** {text}")
 
     def _set(self, gh: Any, project: Any, item_id: str, name: str, value: str | None) -> None:
         f = project.fields.get(name)

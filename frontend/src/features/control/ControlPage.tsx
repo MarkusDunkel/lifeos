@@ -473,9 +473,20 @@ function AiDetails({ agents }: { agents: AiAgent[] }) {
 /** An agent's title, linking to its card on the agents page. */
 function AgentLink({ agent }: { agent: AiAgent }) {
   if (!agent.configured) return <span>{agent.title}</span>;
+  const exhausted = agent.dailyLimit !== null && agent.runsToday >= agent.dailyLimit;
   return (
-    <Link to="/agents" hash={agent.agent} className="text-violet-700 hover:underline dark:text-violet-300">
+    <Link
+      to="/agents"
+      hash={agent.agent}
+      title={exhausted ? `Daily limit reached (${agent.runsToday} of ${agent.dailyLimit})` : undefined}
+      className="inline-flex items-center gap-1 text-violet-700 hover:underline dark:text-violet-300"
+    >
       {agent.title}
+      {exhausted && (
+        <span className="rounded-full bg-amber-100 px-1.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+          limit
+        </span>
+      )}
     </Link>
   );
 }

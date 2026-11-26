@@ -366,6 +366,22 @@ def test_mirror_applies_columns_fields_and_readme_and_keeps_statuses(gh, vault) 
     assert gh.calls == []
 
 
+def test_renamed_agent_keeps_its_tickets(gh, vault) -> None:
+    item = gh.ticket(3, "Old task", Status="Todo")
+    mirrored(gh, vault)
+    project = gh.project("someone", 3)
+    gh.set_field(project.id, item, project.fields["Responsible"], "AI: Helper")
+    path = vault.resolve("agents/helper.md")
+    renamed = HELPER.replace("title: Helper", "title: Aide\nformer_titles: [Helper]")
+    path.write_text(renamed, encoding="utf-8")
+    mirrored(gh, vault)
+    project = gh.project("someone", 3)
+    assert list(project.fields["Responsible"].options) == ["Owner", "AI: Aide"]
+    assert gh.values(item)["Responsible"] == "AI: Aide"  # moved to the new name
+    agent = load_config(vault).agents["helper"]
+    assert agent.former_options == ["AI: Helper"]
+
+
 def test_mirror_reports_drift_once_instead_of_overwriting(gh, vault) -> None:
     mirrored(gh, vault)
     gh.projects[4]["readme"] = "edited on GitHub"

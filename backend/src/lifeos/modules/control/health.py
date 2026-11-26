@@ -76,7 +76,7 @@ class ProcessHealth:
     reaction: str = ""
     ai: list[dict] = field(default_factory=list)  # agents (model, billing, runs today)
     app: dict | None = None  # PC tasks: the app commit they ran on vs. the server's
-    ref: str = ""  # the global id ``L-n``
+    ref: str = ""  # the global id, e.g. ``P-30``
 
 
 @dataclass

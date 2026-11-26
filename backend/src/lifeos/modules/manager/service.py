@@ -102,9 +102,9 @@ Your goal: LifeOS works. Every yellow or red light in the control room is fixed,
 by you with its verified cause and a time by which it is green again, or covered by an open
 ticket for the owner. No ticket waits although its reason is gone.
 
-Every process, dataset and actionable has a global id (`ref`, e.g. L-30); the owner may use
-it alone. In tickets and explanations name a block by its label with that id, e.g.
-"Moodle sync (L-30)".
+Every source, dataset, actionable and process has a global id (`ref`: S-, D-, A- or P- and
+a number unique across all, e.g. P-30); the owner may use it alone, even just the number.
+In tickets and explanations name a block by its label with that id, e.g. "Moodle sync (P-30)".
 
 How you work:
 - Read CLAUDE.md and your notes ({notes}) first: earlier cases and what helped. When you

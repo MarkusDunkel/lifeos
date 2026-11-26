@@ -276,7 +276,7 @@ class Team:
             wanted = ticket.values.get(ai.responsible_field)
             return next(
                 (a for a in self.cfg.agents_of(self.contract.board)
-                 if a.responsible_option == wanted),
+                 if wanted in (a.responsible_option, *a.former_options)),
                 None,
             )  # fmt: skip
         column = self.contract.column(ticket.status)

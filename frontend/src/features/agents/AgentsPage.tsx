@@ -3,7 +3,74 @@ import { useLocation } from "@tanstack/react-router";
 import { Bot, TriangleAlert } from "lucide-react";
 import { useEffect } from "react";
 import { ApiError } from "../../lib/api";
-import { type AgentSummary, agentsQuery, type Billing, BILLING_LABELS, setBilling } from "./api";
+import { type AgentQuota, type AgentSummary, agentsQuery, type Billing, BILLING_LABELS, setBilling } from "./api";
+
+/** When it runs, how often it ran today and what limits it has. */
+function QuotaBox({ quota }: { quota: AgentQuota }) {
+  const { runsToday, dailyLimit, exhausted } = quota;
+  const share = dailyLimit ? Math.min(1, runsToday / dailyLimit) : 0;
+  return (
+    <div
+      className={`space-y-2 rounded-lg border p-3 text-sm ${
+        exhausted
+          ? "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30"
+          : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900"
+      }`}
+    >
+      <div>
+        <div className="mb-0.5 text-xs font-medium text-slate-500">Runs in</div>
+        {quota.processes.length === 0 ? (
+          <span className="text-slate-500">no process calls this agent</span>
+        ) : (
+          <ul className="space-y-0.5">
+            {quota.processes.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center gap-2">
+                <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  {p.ref}
+                </span>
+                <span className="font-medium">{p.label}</span>
+                <span className="text-slate-500">{p.enabled ? p.trigger : "off"}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div>
+        <div className="mb-1 flex items-baseline justify-between gap-2">
+          <span className="text-xs font-medium text-slate-500">Today</span>
+          <span className={exhausted ? "font-medium text-amber-800 dark:text-amber-200" : ""}>
+            {runsToday} run(s){dailyLimit !== null ? ` of max. ${dailyLimit}` : " · no daily limit"}
+          </span>
+        </div>
+        {dailyLimit !== null && (
+          <div className="h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+            <div
+              className={`h-full rounded-full ${exhausted ? "bg-amber-500" : "bg-sky-500"}`}
+              style={{ width: `${share * 100}%` }}
+            />
+          </div>
+        )}
+        {quota.note && <p className="mt-1 text-xs text-slate-500">{quota.note}</p>}
+        {exhausted && (
+          <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+            Used up for today: the agent does not run again until midnight. Raise <code>daily_limit</code> in the agent
+            file to allow more.
+          </p>
+        )}
+      </div>
+      {quota.limits.length > 0 && (
+        <div>
+          <div className="mb-0.5 text-xs font-medium text-slate-500">Other limits</div>
+          <ul className="list-inside list-disc text-slate-600 dark:text-slate-300">
+            {quota.limits.map((l) => (
+              <li key={l}>{l}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function AgentsPage() {
   const overview = useQuery(agentsQuery);
@@ -48,20 +115,31 @@ function AgentCard({ agent, options, focused }: { agent: AgentSummary; options: 
     <section
       id={agent.name}
       className={`scroll-mt-4 space-y-4 rounded-xl border p-4 ${
-        focused ? "border-sky-500 ring-2 ring-sky-500/40" : "border-slate-200 dark:border-slate-800"
+        focused
+          ? "border-sky-500 ring-2 ring-sky-500/40"
+          : agent.quota?.exhausted
+            ? "border-amber-400 dark:border-amber-700"
+            : "border-slate-200 dark:border-slate-800"
       }`}
     >
       <div className="flex items-start gap-3">
         <Bot className="mt-0.5 size-5 shrink-0 text-sky-600" />
         <div className="min-w-0">
-          <h2 className="font-medium">
+          <h2 className="flex flex-wrap items-center gap-2 font-medium">
             {agent.title} <span className="font-mono text-xs font-normal text-slate-500">{agent.name}</span>
+            {agent.quota?.exhausted && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                Daily limit reached
+              </span>
+            )}
           </h2>
           <p className="text-sm text-slate-500">
             {agent.boardTitle ?? agent.board ?? "no board"} · {agent.model} · <code>{agent.path}</code>
           </p>
         </div>
       </div>
+
+      {agent.quota && <QuotaBox quota={agent.quota} />}
 
       <fieldset>
         <legend className="mb-2 text-sm font-medium">Paid via</legend>

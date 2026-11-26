@@ -153,7 +153,9 @@ class BoardMirror:
             entry["applied"] = wanted
             entry.pop("drift", None)
         elif entry.get("applied") != wanted:
-            events += self.apply(project, owner, number, contract, desired, current)
+            renames = {old: a.responsible_option for a in cfg.agents.values()
+                       for old in a.former_options}  # fmt: skip
+            events += self.apply(project, owner, number, contract, desired, current, renames)
             entry["applied"] = wanted
             entry.pop("drift", None)
         else:
@@ -217,7 +219,10 @@ class BoardMirror:
         contract: BoardContract,
         desired: dict[str, Any],
         current: dict[str, Any],
+        renames: dict[str, str] | None = None,
     ) -> list[str]:
+        """``renames``: old option → new one (an agent got a new title), so tickets keep
+        their value when the options are replaced."""
         events: list[str] = []
         names = [c[0] for c in desired["columns"]]
         descriptions = {c[0]: c[1] for c in desired["columns"]}
@@ -236,7 +241,9 @@ class BoardMirror:
                     f"expected {want['type']} – check it on GitHub"
                 )
             elif have != want:
-                self._replace_options(project, owner, number, name, want["options"], {})
+                self._replace_options(
+                    project, owner, number, name, want["options"], {}, renames or {}
+                )
                 events.append(f"{contract.board}: options of '{name}' mirrored")
             project = self.gh.project(owner, number)
         if current.get("title") != desired["title"]:
@@ -255,8 +262,10 @@ class BoardMirror:
         field_name: str,
         options: list[str],
         descriptions: dict[str, str],
+        renames: dict[str, str] | None = None,
     ) -> None:
-        """Replace a single-select field's options and restore every item's value."""
+        """Replace a single-select field's options and restore every item's value (a value
+        whose option was renamed gets the new name)."""
         f = project.fields[field_name]
         before = {
             node["id"]: item_values(node, project.fields).get(field_name)
@@ -266,5 +275,6 @@ class BoardMirror:
         fresh = self.gh.project(owner, number)
         new_field = fresh.fields[field_name]
         for item_id, value in before.items():
+            value = (renames or {}).get(value, value)
             if value in options:
                 self.gh.set_field(fresh.id, item_id, new_field, value)

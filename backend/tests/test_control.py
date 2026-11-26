@@ -453,12 +453,16 @@ def test_every_block_has_a_unique_global_ref(tmp_path):
     from lifeos.modules.control.catalog import REFS, RETIRED
 
     cat = build_catalog(settings(tmp_path))
-    refs = [n.ref for n in cat.nodes] + [p.ref for p in cat.processes]
-    assert all(re.fullmatch(r"L-\d+", r) for r in refs), refs
-    assert len(refs) == len(set(refs))  # one count for nodes and processes together
+    prefix = {"source": "S", "dataset": "D", "actionable": "A"}
+    for n in cat.nodes:
+        assert re.fullmatch(rf"{prefix[n.kind]}-\d+", n.ref), (n.id, n.ref)
+    for p in cat.processes:
+        assert re.fullmatch(r"P-\d+", p.ref), (p.id, p.ref)
+    numbers = [int(b.ref.split("-")[1]) for b in [*cat.nodes, *cat.processes]]
+    assert len(numbers) == len(set(numbers))  # one count for all kinds: P-12 and D-12 never both
     assert len(REFS) == len(set(REFS.values()))
     assert not set(RETIRED) & set(REFS.values())
-    assert len(refs) == len(REFS)  # no stale entries in the table
+    assert len(numbers) == len(REFS)  # no stale entries in the table
 
 
 def test_daily_limit_of_the_explainer_is_no_warning(tmp_path):
@@ -467,3 +471,37 @@ def test_daily_limit_of_the_explainer_is_no_warning(tmp_path):
            "message": "daily limit of 12 diagnoses reached"}  # fmt: skip
     result = run(tmp_path, {"control-report": job}, control_report_interval=300)
     assert light(result, "control-report")[0] == OK
+
+
+def test_agent_quotas_mark_a_used_up_daily_limit(tmp_path):
+    from lifeos.core.vault import Vault
+    from lifeos.modules.control.ai import agent_quotas
+
+    s = settings(tmp_path, control_report_interval=300)
+    agents = s.vault_root / "agents"
+    agents.mkdir()
+    head = "---\nrunner: job\nmodel: m\n"
+    (agents / "control-room.md").write_text(
+        f"{head}name: control-room\ntitle: Control room explainer\ndaily_limit: 2\n---\n\n# C\n",
+        encoding="utf-8",
+    )
+    (agents / "job-matcher.md").write_text(
+        f"{head}name: job-matcher\ntitle: Job matcher\ndaily_limit: 1\nmanual_limit: 5\n"
+        "max_searches: 3\n---\n\n# J\n",
+        encoding="utf-8",
+    )
+    vault = Vault.open(s.vault_root)
+    from lifeos.modules.career.matcher import STATE_FILE
+
+    target = vault.resolve(STATE_FILE)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    today = NOW.astimezone(TZ).date().isoformat()
+    target.write_text(json.dumps({"days": {today: {"auto": 1, "manual": 0}}}), encoding="utf-8")
+    report = {"callsDay": today, "calls": {"n": 2}}
+    quotas = agent_quotas(vault, build_catalog(s), NOW.astimezone(TZ), report)
+    room = quotas["control-room"]
+    assert room["runsToday"] == 2 and room["dailyLimit"] == 2 and room["exhausted"]
+    assert [p["ref"] for p in room["processes"]] == ["P-46"]
+    matcher = quotas["job-matcher"]
+    assert not matcher["exhausted"] and "automatic runs used up" in matcher["note"]
+    assert "up to 3 web searches per run" in matcher["limits"]
