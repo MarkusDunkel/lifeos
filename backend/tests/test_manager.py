@@ -273,3 +273,41 @@ def test_needs_subscription_and_agent_file(gh, vault) -> None:
 def test_schema_is_complete() -> None:
     schema = ManagerResult.model_json_schema()
     assert {"unblock", "run_now", "comments", "create_tickets"} <= set(schema["properties"])
+
+
+def test_release_live_and_long_red_are_events_once(gh, vault) -> None:
+    item = gh.ticket(3, "Fix the PC task", Status="Review")
+    issue_id = gh.items[item]["issue"]
+    clock = [NOW]
+    claude = FakeClaude(answer())
+    m = manager(gh, vault, claude, clock=lambda: clock[0])
+    assert m.run()[1].startswith("ideas run")  # 10:00: today's ideas run first
+    # the pull request of the ticket goes live: a repair run looks at the follow-ups
+    releases = vault.resolve(".lifeos/agents/releases.json")
+    releases.write_text(json.dumps({issue_id: {"prs": [{"number": 4, "stage": "live"}]}}), "utf-8")
+    clock[0] += timedelta(minutes=16)
+    assert m.run()[1].startswith("repair run")
+    events = json.loads(claude.calls[-1]["prompt"])["events"]
+    assert events == ["release live: PR #4 for #1 Fix the PC task – check its follow-ups"]
+    clock[0] += timedelta(minutes=16)
+    assert m.run() == ("skipped", "nothing new")  # the same release is no news
+    # a light turns red: news once; red for 6 h: looked at once more, then quiet
+    m.status = lambda: status("fail")
+    assert m.run()[1].startswith("repair run")
+    clock[0] += timedelta(hours=3)
+    assert m.run() == ("skipped", "nothing new")
+    clock[0] += timedelta(hours=3, minutes=1)
+    assert m.run()[1].startswith("repair run")
+    assert json.loads(claude.calls[-1]["prompt"])["events"] == [
+        "control room: moodle-sync red for 6 h"
+    ]
+    clock[0] += timedelta(hours=2)
+    assert m.run() == ("skipped", "nothing new")
+    # better, then red again: a new red period
+    m.status = lambda: status("ok")
+    clock[0] += timedelta(minutes=2)
+    assert m.run() == ("skipped", "nothing new")
+    m.status = lambda: status("fail")
+    clock[0] += timedelta(minutes=16)
+    assert m.run()[1].startswith("repair run")
+    assert len(claude.calls) == 5

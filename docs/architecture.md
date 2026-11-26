@@ -153,8 +153,10 @@ control room status and every item of every board (`LIFEOS_GITHUB_PROJECTS`, app
 University) with fields and recent comments, plus the manager's own earlier tickets. Two beats decide whether the model runs:
 
 - The **watch** (every check, code only) compares with the last check: a ticket that became
-  `AI = blocked`, a process whose light got worse, an owner's comment on one of the
-  manager's tickets. Any of these starts a **repair run**, at most one model run per
+  `AI = blocked`, a process whose light got worse, a process red for 6 h (once per red
+  period), a pull request that went live for an unfinished ticket (`.lifeos/agents/
+  releases.json`; the run checks its follow-ups, e.g. the PC's own copy of the app), an
+  owner's comment on one of the manager's tickets. Any of these starts a **repair run**, at most one model run per
   `repair_cooldown_minutes` (agent file, default 15); it may not create proposals.
 - The **ideas run**, once a day from `ideas_at` (agent file, default 07:00 local time),
   looks at everything and may add proposals.

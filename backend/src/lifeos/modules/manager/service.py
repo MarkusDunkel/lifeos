@@ -7,7 +7,9 @@ Two beats:
 
 - **Watch** (every check, a few minutes apart, code only): it looks for events that need a
   reaction – a ticket that became blocked, a process that turned yellow or red (or worse),
-  an owner's comment on one of the manager's tickets. Then a **repair run** follows, at
+  a process red for ``LONG_RED`` (once per red period), a pull request that went live (its
+  follow-ups: e.g. the PC runs its own copy of the app), an owner's comment on one of the
+  manager's tickets. Then a **repair run** follows, at
   most one every ``repair_cooldown_minutes`` (agent file); it creates no proposals.
 - **Ideas run** (daily at ``ideas_at``, agent file): the full look at everything, including
   proposals that pursue the owner's vision.
@@ -61,6 +63,8 @@ AGENT = "lifeos-manager"
 STATE_FILE = f"{STATE}/agents/{AGENT}.json"
 REPAIR, IDEAS = "repair", "ideas"
 LEVEL_RANK = {"ok": 0, "warn": 1, "check": 2, "fail": 2}
+LONG_RED = timedelta(hours=6)  # red that long: looked at once, even if nothing else changed
+RELEASES_FILE = f"{STATE}/agents/releases.json"  # lifeos.agents.releases.STATE_FILE
 AI_FIELD = "AI"
 RUNNING, BLOCKED = "running", "blocked"
 KEEP_CLOSED_DAYS = 30
@@ -91,9 +95,14 @@ Your job, in this order:
    reason what to fix. Only when it needs the owner: a `needs_you` ticket.
 2. Faults in the control room (yellow or red processes): find the cause and fix what you
    can on your own – a vault file, a job to run again (`run_now`). Say what you did.
-3. What you cannot solve without the owner: one ticket (`create_ticket`, kind `needs_you`)
-   with what is wrong, what you checked and the one thing the owner has to do.
-4. Proposals that pursue the owner's vision for LifeOS (read ready/knowledge/Projects/
+3. Follow-ups of a pull request that went live: what else has to happen before the fix
+   works? Code that runs on the owner's PC (processes with `where: pc`) runs from the PC's
+   own copy of the app, which deployments do not update. A job may have to run again
+   (`run_now`). Do what you can; what only the owner can do is a `needs_you` ticket.
+4. What you cannot solve without the owner: one ticket (`create_ticket`, kind `needs_you`)
+   with what is wrong, what you checked and the one thing the owner has to do. Look at
+   `ownTickets` first: do not open a second ticket for the same thing.
+5. Proposals that pursue the owner's vision for LifeOS (read ready/knowledge/Projects/
    LifeOS/, boards/, agents/): how a process could be automated, a gap, a simplification.
    Be creative but concrete; kind `proposal`, with analysis, pros and cons. At most
    {max_open} proposals may be open at a time (counting yours that are still open); never
@@ -113,6 +122,9 @@ Rules:
 - `unblock` already posts your reason as a comment on the ticket: do not add a separate
   comment for the same ticket. Never start a comment with a heading or your name; the code
   adds it.
+- `please_check` is only for hints on reviewing what you did. Anything the owner has to
+  do (run something, update the PC, decide) is a `needs_you` ticket, never a
+  `please_check` line: nobody reads those in time.
 - Doing nothing is fine when everything runs; say so in the summary.
 - Write tickets and comments in {language}.
 
@@ -124,11 +136,11 @@ Rules:
 MODES = {
     REPAIR: """\
 This is a REPAIR run. The watch started it because of the `events` in the data (new blocks,
-worse lights, the owner's comments on your tickets). Handle those (points 1 to 3 below) and
-whatever else is plainly broken. Do not create proposals – the daily ideas run does that;
-the code refuses them here.""",
+worse lights, lights red for hours, pull requests that went live, the owner's comments on
+your tickets). Handle those (points 1 to 4 below) and whatever else is plainly broken.
+Do not create proposals – the daily ideas run does that; the code refuses them here.""",
     IDEAS: """\
-This is the daily IDEAS run: look at everything (points 1 to 4 below), including proposals
+This is the daily IDEAS run: look at everything (points 1 to 5 below), including proposals
 that pursue the owner's vision.""",
 }
 
@@ -274,9 +286,42 @@ class Manager:
             if c["ok"] is not True
         ]  # fmt: skip
 
-    def watch(self, items: list[dict[str, Any]], status: dict[str, Any]) -> dict[str, Any]:
+    def live_releases(self, items: list[dict[str, Any]]) -> dict[str, str]:
+        """``{"<issue id>:<pr>": text}`` for pull requests that went live for a ticket that is
+        not done yet."""
+        try:
+            data = json.loads(self.vault.resolve(RELEASES_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        by_issue = {i["issueId"]: i for i in items}
+        out: dict[str, str] = {}
+        for issue_id, entry in (data if isinstance(data, dict) else {}).items():
+            item = by_issue.get(issue_id)
+            if item is None or item["state"] != "open" or item["status"] == "Done":
+                continue
+            for pr in entry.get("prs") or []:
+                if pr.get("stage") == "live":
+                    out[f"{issue_id}:{pr.get('number')}"] = (
+                        f"release live: PR #{pr.get('number')} for #{item['number']} "
+                        f"{item['title']} – check its follow-ups"
+                    )
+        return out
+
+    def watch(
+        self, items: list[dict[str, Any]], status: dict[str, Any],
+        seen: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:  # fmt: skip
         """What the watch compares between checks."""
+        seen = seen or {}
+        now = self.clock().isoformat(timespec="seconds")
+        red_before = seen.get("red") or {}
+        red = {p["id"]: red_before.get(p["id"], now)
+               for p in self.problems(status) if p["level"] == "fail"}  # fmt: skip
         return {
+            "releases": sorted(self.live_releases(items)),
+            "red": red,
+            # reminded once per red period; forgotten when the light gets better
+            "reminded": [r for r in seen.get("reminded") or [] if r in red],
             "blocked": sorted(i["url"] for i in items
                               if i["state"] == "open" and i["fields"].get(AI_FIELD) == BLOCKED),
             "problems": {p["id"]: p["level"] for p in self.problems(status)},
@@ -287,15 +332,28 @@ class Manager:
     def events(
         self, gh: Any, items: list[dict[str, Any]], seen: dict[str, Any], now: dict[str, Any]
     ) -> list[str]:
-        """New since the last run: blocked tickets, worse lights, owner comments on the
-        manager's tickets (other agents' comments there are no reason to run)."""
+        """New since the last run: blocked tickets, worse lights, lights red for long,
+        releases that went live, owner comments on the manager's tickets (other agents'
+        comments there are no reason to run). Marks long red lights as reminded in ``now``."""
         by_url = {i["url"]: i for i in items}
+        releases = self.live_releases(items)
+        found_releases = [releases[k] for k in now["releases"]
+                          if k not in seen.get("releases", [])]  # fmt: skip
         found = [f"blocked: #{by_url[u]['number']} {by_url[u]['title']}"
                  for u in now["blocked"] if u not in seen.get("blocked", [])]  # fmt: skip
         before = seen.get("problems", {})
         for pid, level in now["problems"].items():
             if LEVEL_RANK.get(level, 0) > LEVEL_RANK.get(before.get(pid, "ok"), 0):
                 found.append(f"control room: {pid} is {level}")
+        clock = self.clock()
+        for pid, since in now["red"].items():
+            red_for = clock - datetime.fromisoformat(since)
+            if red_for >= LONG_RED and pid not in now["reminded"]:
+                found.append(
+                    f"control room: {pid} red for {round(red_for.total_seconds() / 3600)} h"
+                )
+                now["reminded"].append(pid)
+        found += found_releases
         for u, updated in now["own"].items():
             old = seen.get("own", {}).get(u)
             if old is None or old == updated:
@@ -370,7 +428,7 @@ class Manager:
         boards = self.boards(gh)
         items = self.items(gh, boards)
         status = self.status()
-        watched = self.watch(items, status)
+        watched = self.watch(items, status, state.get("watch"))
         if "watch" not in state:
             # first check: lights and comments now are known, not news; but every blocked
             # ticket is looked at once by the next repair run
@@ -439,7 +497,8 @@ class Manager:
         if mode == IDEAS:
             state["ideasDay"] = today
         # what the run itself changed on the boards is not news for the next run
-        state["watch"] = self.watch(self.items(gh, boards), self.status())
+        after = self.watch(self.items(gh, boards), self.status(), watched)
+        state["watch"] = after | {"reminded": watched["reminded"]}
         state["last"] = {"run": mode, "reasons": found, "summary": result.summary,
                          "fixed": result.fixed, "events": events,
                          "pleaseCheck": result.please_check, "files": changed,
