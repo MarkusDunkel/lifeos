@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, CalendarClock, Pencil } from "lucide-react";
+import { ArrowLeft, CalendarClock, ChevronDown, FileDown, ListTree, Pencil } from "lucide-react";
 import { useRef, useState } from "react";
 import { DocEditor, docBtn } from "../knowledge/DocEditor";
 import { type Bank, type Grade, gradeCard, type Material, type StudyCard, subjectQuery, type SubjectDetail } from "./api";
@@ -89,7 +89,18 @@ function BackLink() {
 function Head({ d }: { d: SubjectDetail }) {
   return (
     <header className="space-y-3">
-      <h1 className="text-2xl font-semibold">{d.name}</h1>
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="min-w-0 flex-1 text-2xl font-semibold">{d.name}</h1>
+        <Link
+          to="/print/study/$subject"
+          params={{ subject: d.key }}
+          target="_blank"
+          className={`${docBtn} text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800`}
+          title="Material, questions and overview as one PDF (print dialog → Save as PDF)"
+        >
+          <FileDown className="size-4" /> Export PDF
+        </Link>
+      </div>
       <div className="grid gap-2 sm:grid-cols-2">
         {d.exams.map((e) => {
           const stats = topicStats(d.progress, e.topics);
@@ -154,28 +165,65 @@ function MaterialFile({ material, onSaved }: { material: Material; onSaved: () =
     const target = [...headings].find((h) => h.textContent?.trim() === section);
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+  const hasToc = material.sections.length > 0;
+  // Wide screens: the contents column hangs in the free margin left of the page column
+  // (negative margin), so the text keeps the full width it has without a TOC. Below that,
+  // a collapsible "Contents" bar above the text.
   return (
-    <div className="grid gap-4 lg:grid-cols-[13rem_1fr]">
-      {material.sections.length > 0 && (
-        <aside className="lg:sticky lg:top-4 lg:self-start">
+    <div className={hasToc ? "min-[88rem]:-ml-[15rem] min-[88rem]:grid min-[88rem]:grid-cols-[13rem_1fr] min-[88rem]:gap-8" : ""}>
+      {hasToc && (
+        <aside className="sticky top-4 hidden max-h-[calc(100vh-2rem)] self-start overflow-y-auto min-[88rem]:block">
           <h3 className="mb-1 text-xs font-semibold tracking-wide text-slate-500 uppercase">Contents</h3>
-          <ul className="flex flex-wrap gap-1 text-sm lg:block lg:space-y-0.5">
-            {material.sections.map((s) => (
-              <li key={s}>
-                <button
-                  onClick={() => jump(s)}
-                  className="rounded px-1.5 py-0.5 text-left text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                  {s}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <TocList sections={material.sections} onJump={jump} />
         </aside>
       )}
-      <div className="min-w-0">
+      <div className="min-w-0 space-y-3">
+        {hasToc && <TocBar sections={material.sections} onJump={jump} />}
         <DocEditor path={material.file} title={material.title} onSaved={onSaved} viewRef={viewRef} />
       </div>
+    </div>
+  );
+}
+
+function TocList({ sections, onJump }: { sections: string[]; onJump: (section: string) => void }) {
+  return (
+    <ul className="space-y-0.5 text-sm">
+      {sections.map((s) => (
+        <li key={s}>
+          <button
+            onClick={() => onJump(s)}
+            className="rounded px-1.5 py-0.5 text-left text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            {s}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function TocBar({ sections, onJump }: { sections: string[]; onJump: (section: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl border border-slate-200 min-[88rem]:hidden dark:border-slate-800">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-slate-600 dark:text-slate-300"
+      >
+        <ListTree className="size-4" /> Contents <span className="text-xs font-normal text-slate-400">{sections.length}</span>
+        <ChevronDown className={`ml-auto size-4 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="border-t border-slate-200 px-1.5 py-2 dark:border-slate-800">
+          <TocList
+            sections={sections}
+            onJump={(s) => {
+              setOpen(false);
+              onJump(s);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

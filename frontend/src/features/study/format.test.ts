@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Bank, Progress, StudyCard, SubjectSummary, TopicProgress } from "./api";
-import { banksByExam, countdown, examRows, filterCards, topicStats } from "./format";
+import { banksByExam, countdown, examRows, filterCards, printDocs, topicStats } from "./format";
 
 const topic = (over: Partial<TopicProgress>): TopicProgress => ({
   cards: 10,
@@ -123,5 +123,22 @@ describe("banksByExam", () => {
       bank("soon2", "2026-11-21T12:30:00+01:00"),
     ]);
     expect(groups.map((g) => g.banks.map((b) => b.topic))).toEqual([["soon1", "soon2"], ["late"], ["none"]]);
+  });
+});
+
+describe("printDocs", () => {
+  const material = (file: string, title: string) => ({ file, title, topic: "", sections: [] });
+
+  it("puts the overview first, then the learning texts, without duplicates", () => {
+    const docs = printDocs({
+      subjectFile: "Uni/Law/_Fach.md",
+      material: [material("Uni/Law/00 Map.md", "00 Map"), material("Uni/Law/_Fach.md", "dup"), material("Uni/Law/B.md", "B")],
+    });
+    expect(docs.map((d) => d.heading)).toEqual(["Overview", "00 Map", "B"]);
+    expect(docs.map((d) => d.anchor)).toEqual(["doc-0", "doc-1", "doc-2"]);
+  });
+
+  it("skips a missing overview file", () => {
+    expect(printDocs({ subjectFile: "", material: [material("a.md", "A")] }).map((d) => d.heading)).toEqual(["A"]);
   });
 });

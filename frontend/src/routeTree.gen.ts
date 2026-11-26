@@ -32,6 +32,7 @@ import { Route as AppStudyIndexRouteImport } from './routes/_app/study/index'
 import { Route as AppStudySubjectRouteImport } from './routes/_app/study/$subject'
 import { Route as AppWorkspacesIndexRouteImport } from './routes/_app/workspaces/index'
 import { Route as AppWorkspacesSplatRouteImport } from './routes/_app/workspaces/$'
+import { Route as PrintStudySubjectRouteImport } from './routes/print/study/$subject'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -147,6 +148,11 @@ const AppWorkspacesSplatRoute = AppWorkspacesSplatRouteImport.update({
   path: '/$',
   getParentRoute: () => AppWorkspacesRoute,
 } as any)
+const PrintStudySubjectRoute = PrintStudySubjectRouteImport.update({
+  id: '/print/study/$subject',
+  path: '/print/study/$subject',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -167,6 +173,7 @@ export interface FileRoutesByFullPath {
   '/reviews/$': typeof AppReviewsSplatRoute
   '/study/$subject': typeof AppStudySubjectRoute
   '/workspaces/$': typeof AppWorkspacesSplatRoute
+  '/print/study/$subject': typeof PrintStudySubjectRoute
   '/knowledge/': typeof AppKnowledgeIndexRoute
   '/reviews/': typeof AppReviewsIndexRoute
   '/study/': typeof AppStudyIndexRoute
@@ -188,6 +195,7 @@ export interface FileRoutesByTo {
   '/reviews/$': typeof AppReviewsSplatRoute
   '/study/$subject': typeof AppStudySubjectRoute
   '/workspaces/$': typeof AppWorkspacesSplatRoute
+  '/print/study/$subject': typeof PrintStudySubjectRoute
   '/knowledge': typeof AppKnowledgeIndexRoute
   '/reviews': typeof AppReviewsIndexRoute
   '/study': typeof AppStudyIndexRoute
@@ -214,6 +222,7 @@ export interface FileRoutesById {
   '/_app/reviews/$': typeof AppReviewsSplatRoute
   '/_app/study/$subject': typeof AppStudySubjectRoute
   '/_app/workspaces/$': typeof AppWorkspacesSplatRoute
+  '/print/study/$subject': typeof PrintStudySubjectRoute
   '/_app/knowledge/': typeof AppKnowledgeIndexRoute
   '/_app/reviews/': typeof AppReviewsIndexRoute
   '/_app/study/': typeof AppStudyIndexRoute
@@ -240,6 +249,7 @@ export interface FileRouteTypes {
     | '/reviews/$'
     | '/study/$subject'
     | '/workspaces/$'
+    | '/print/study/$subject'
     | '/knowledge/'
     | '/reviews/'
     | '/study/'
@@ -261,6 +271,7 @@ export interface FileRouteTypes {
     | '/reviews/$'
     | '/study/$subject'
     | '/workspaces/$'
+    | '/print/study/$subject'
     | '/knowledge'
     | '/reviews'
     | '/study'
@@ -286,6 +297,7 @@ export interface FileRouteTypes {
     | '/_app/reviews/$'
     | '/_app/study/$subject'
     | '/_app/workspaces/$'
+    | '/print/study/$subject'
     | '/_app/knowledge/'
     | '/_app/reviews/'
     | '/_app/study/'
@@ -295,6 +307,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
+  PrintStudySubjectRoute: typeof PrintStudySubjectRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -460,6 +473,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWorkspacesSplatRouteImport
       parentRoute: typeof AppWorkspacesRoute
     }
+    '/print/study/$subject': {
+      id: '/print/study/$subject'
+      path: '/print/study/$subject'
+      fullPath: '/print/study/$subject'
+      preLoaderRoute: typeof PrintStudySubjectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -546,6 +566,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
+  PrintStudySubjectRoute: PrintStudySubjectRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

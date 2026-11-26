@@ -1,4 +1,4 @@
-import type { Bank, CardStatus, Exam, Progress, StudyCard, SubjectSummary } from "./api";
+import type { Bank, CardStatus, Exam, Progress, StudyCard, SubjectDetail, SubjectSummary } from "./api";
 
 export type ExamRow = Exam & {
   subject: string;
@@ -72,6 +72,17 @@ export function banksByExam(banks: Bank[]): { exam: string | null; banks: Bank[]
   for (const bank of banks) groups.set(bank.exam, [...(groups.get(bank.exam) ?? []), bank]);
   const time = (e: string | null) => (e === null ? Infinity : new Date(e).getTime());
   return [...groups.entries()].sort(([a], [b]) => time(a) - time(b)).map(([exam, banks]) => ({ exam, banks }));
+}
+
+export type PrintDoc = { path: string; heading: string; anchor: string };
+
+/** The files of a subject in PDF order: the overview first, then every learning text. */
+export function printDocs(d: Pick<SubjectDetail, "subjectFile" | "material">): PrintDoc[] {
+  const docs = [{ path: d.subjectFile, heading: "Overview" }, ...d.material.map((m) => ({ path: m.file, heading: m.title }))];
+  const seen = new Set<string>();
+  return docs
+    .filter((doc) => doc.path && !seen.has(doc.path) && seen.add(doc.path))
+    .map((doc, i) => ({ ...doc, anchor: `doc-${i}` }));
 }
 
 export const STATUS_LABEL: Record<CardStatus, string> = {
