@@ -18,6 +18,7 @@ import {
   type View,
 } from "./grid";
 import { NoteEditor } from "./NoteEditor";
+import { inputClass, Loading } from "../../components/ui";
 
 export type NotesSearch = View & { note?: string };
 export const NEW = "new";
@@ -60,7 +61,7 @@ export function NotesPage({ search, onChange }: Props) {
   };
 
   if (isError) return <p className="p-6 text-red-600">Could not load notes: {String(error)}</p>;
-  if (!data) return <p className="p-6 text-slate-400">Loading…</p>;
+  if (!data) return <Loading className="p-6" />;
 
   const selected = search.note && search.note !== NEW ? notes.find((n) => n.id === search.note) : undefined;
   const editorOpen = search.note === NEW || selected !== undefined;
@@ -116,7 +117,7 @@ export function NotesPage({ search, onChange }: Props) {
       {search.note && search.note !== NEW && !selected && (
         <aside className="w-full p-6 text-slate-500 lg:w-[30rem] lg:border-l">
           This note does not exist (anymore).{" "}
-          <button className="text-sky-600 underline" onClick={() => open(undefined)}>
+          <button className="text-accent-600 underline" onClick={() => open(undefined)}>
             Close
           </button>
         </aside>
@@ -142,7 +143,7 @@ function Toolbar(props: {
   const { search, fields } = props;
   const current = sortKey(search);
   const select =
-    "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900";
+    inputClass;
   return (
     <div className="space-y-2 border-b border-slate-200 p-3 dark:border-slate-800">
       <div className="flex items-center gap-2">
@@ -152,12 +153,12 @@ function Toolbar(props: {
             value={props.q}
             onChange={(e) => props.setQ(e.target.value)}
             placeholder="Search notes"
-            className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-3 pl-8 text-sm focus:border-sky-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900"
+            className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-3 pl-8 text-sm focus:border-accent-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900"
           />
         </div>
         <button
           onClick={props.onNew}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-700"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-2 text-sm font-medium text-white hover:bg-accent-700"
         >
           <Plus className="size-4" /> New
         </button>
@@ -168,7 +169,7 @@ function Toolbar(props: {
             key={f.key}
             value={search.f?.[f.key] ?? ""}
             onChange={(e) => props.setFilter(f.key, e.target.value)}
-            className={`${select} ${search.f?.[f.key] ? "border-sky-500 text-sky-700 dark:text-sky-300" : ""}`}
+            className={`${select} ${search.f?.[f.key] ? "border-accent-500 text-accent-700 dark:text-accent-300" : ""}`}
             aria-label={`Filter by ${f.label}`}
           >
             <option value="">{f.label}: all</option>
@@ -243,8 +244,8 @@ function Table(props: {
           <tr
             key={n.id}
             onClick={() => props.onOpen(n.id)}
-            className={`cursor-pointer border-t border-slate-100 hover:bg-sky-50 dark:border-slate-800 dark:hover:bg-slate-900 ${
-              props.search.note === n.id ? "bg-sky-50 dark:bg-slate-900" : ""
+            className={`cursor-pointer border-t border-slate-100 hover:bg-accent-50 dark:border-slate-800 dark:hover:bg-slate-900 ${
+              props.search.note === n.id ? "bg-accent-50 dark:bg-slate-900" : ""
             }`}
           >
             <td className="max-w-md truncate px-3 py-2">{preview(n, props.fields) || <span className="text-slate-400">(empty)</span>}</td>

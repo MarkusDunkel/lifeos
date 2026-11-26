@@ -5,6 +5,9 @@
   Anything specific comes from `deploy/.env` (`LIFEOS_*` variables).
 - Code, comments, docs and UI text are in English.
 - Backend: `cd backend && uv run pytest && uv run ruff check src tests && uv run ruff format src tests`.
+- Frontend pages are built from `frontend/src/components/ui` (Button, Card, Page, PageHeader,
+  Tabs, Notice, QueryState, Drawer, Dialog) and the `accent-*` colour token; do not copy
+  button, card or field classes into a page.
 - Frontend: `cd frontend && npm run build && npm test`. On Windows run vitest from a path
   with an upper-case drive letter (`C:\...`), otherwise it fails with "reading 'config'".
 - Every request path goes through `lifeos.core.vault.Vault.resolve(..., zone=...)`;

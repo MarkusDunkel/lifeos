@@ -4,6 +4,7 @@ import { CalendarClock, ChevronRight, NotebookPen } from "lucide-react";
 import { subjectsQuery } from "./api";
 import { countdown, type ExamRow, examRows, formatExamDate } from "./format";
 import { VoiceControls } from "./VoiceControls";
+import { pageClass, PageHeader, QueryState } from "../../components/ui";
 
 export function ReadinessBar({ secure, cards }: { secure: number; cards: number }) {
   const pct = cards ? Math.round((100 * secure) / cards) : 0;
@@ -24,7 +25,7 @@ function ExamCard({ row }: { row: ExamRow }) {
     <Link
       to="/study/$subject"
       params={{ subject: row.subject }}
-      className="block space-y-3 rounded-xl border border-slate-200 p-4 transition-colors hover:border-sky-300 hover:bg-sky-50/40 dark:border-slate-800 dark:hover:border-sky-800 dark:hover:bg-sky-950/30"
+      className="block space-y-3 rounded-xl border border-slate-200 p-4 transition-colors hover:border-accent-300 hover:bg-accent-50/40 dark:border-slate-800 dark:hover:border-accent-800 dark:hover:bg-accent-950/30"
     >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -33,7 +34,7 @@ function ExamCard({ row }: { row: ExamRow }) {
             <CalendarClock className="size-4" />
             {formatExamDate(row.date)}
             <span
-              className={`rounded px-1.5 py-0.5 text-xs ${row.past ? "bg-slate-100 dark:bg-slate-800" : "bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200"}`}
+              className={`rounded px-1.5 py-0.5 text-xs ${row.past ? "bg-slate-100 dark:bg-slate-800" : "bg-accent-100 text-accent-800 dark:bg-accent-900/50 dark:text-accent-200"}`}
             >
               {countdown(row.date)}
             </span>
@@ -68,19 +69,21 @@ export function StudyPage() {
   const undated = subjects.data?.filter((s) => s.exams.length === 0) ?? [];
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-6 sm:p-8">
-      <h1 className="flex items-center gap-2 text-2xl font-semibold">
-        <NotebookPen className="size-7 text-violet-600" /> Study
-      </h1>
-      <p className="text-sm text-slate-500">
-        Exams with their learning material and question banks. The tutor (ChatGPT via MCP) asks these cards; open an
-        exam to check and correct what it asks. An exam date is set in <code className="text-xs">_Fach.md</code> or, per
-        topic, with <code className="text-xs">prüfung:</code> in a question bank.
-      </p>
+    <div className={pageClass("md")}>
+      <PageHeader
+        icon={NotebookPen}
+        title="Study"
+        subtitle={
+          <>
+            Exams with their learning material and question banks. The tutor (ChatGPT via MCP) asks these cards; open
+            an exam to check and correct what it asks. An exam date is set in <code className="text-xs">_Fach.md</code>{" "}
+            or, per topic, with <code className="text-xs">prüfung:</code> in a question bank.
+          </>
+        }
+      />
       <VoiceControls />
-      {subjects.isError && <p className="text-red-600">Could not load the subjects.</p>}
       {!rows ? (
-        <p className="text-slate-400">Loading…</p>
+        <QueryState query={subjects} what="the subjects" />
       ) : (
         <>
           <section className="space-y-3">
@@ -94,7 +97,7 @@ export function StudyPage() {
             <section className="space-y-2">
               <h2 className="text-sm font-semibold tracking-wide text-slate-500 uppercase">Without exam date</h2>
               {undated.map((s) => (
-                <Link key={s.key} to="/study/$subject" params={{ subject: s.key }} className="block text-sky-600 hover:underline">
+                <Link key={s.key} to="/study/$subject" params={{ subject: s.key }} className="block text-accent-600 hover:underline">
                   {s.name}
                 </Link>
               ))}

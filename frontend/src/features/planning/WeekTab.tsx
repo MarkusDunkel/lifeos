@@ -26,7 +26,7 @@ export function WeekTab() {
           <ChevronRight className="size-4" />
         </button>
         {start && (
-          <button className="text-sm text-teal-700 underline" onClick={() => setStart(undefined)}>
+          <button className="text-sm text-accent-700 underline" onClick={() => setStart(undefined)}>
             this week
           </button>
         )}
@@ -49,7 +49,7 @@ export function WeekTab() {
         {w?.days.map((day) => (
           <section
             key={day.date}
-            className={`space-y-2 rounded-xl border p-3 ${day.date === today ? "border-teal-600" : "border-slate-200 dark:border-slate-800"}`}
+            className={`space-y-2 rounded-xl border p-3 ${day.date === today ? "border-accent-600" : "border-slate-200 dark:border-slate-800"}`}
           >
             <h3 className="text-sm font-semibold">{dayLabel(day.date, today)}</h3>
             <PlannerNote day={day.date} thread={day.thread} readOnly={day.date < today} />

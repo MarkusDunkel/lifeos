@@ -21,6 +21,8 @@ const router = createRouter({
   defaultPreload: "intent",
   defaultPreloadStaleTime: 0,
   scrollRestoration: true,
+  // pages scroll inside the shell's <main>, not the window (see AppShell)
+  scrollToTopSelectors: ["#main"],
 });
 
 declare module "@tanstack/react-router" {

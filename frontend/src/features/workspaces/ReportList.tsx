@@ -4,6 +4,7 @@ import { Archive, FileText, MessageSquare } from "lucide-react";
 import { useState } from "react";
 import { reportsQuery, type ReportInfo } from "./api";
 import { formatTime } from "./review";
+import { Loading } from "../../components/ui";
 
 export function ReportList() {
   const { data, isError } = useQuery(reportsQuery);
@@ -11,7 +12,7 @@ export function ReportList() {
   const [showArchive, setShowArchive] = useState(false);
 
   if (isError) return <p className="p-4 text-sm text-red-600">Could not load reports.</p>;
-  if (!data) return <p className="p-4 text-sm text-slate-400">Loading…</p>;
+  if (!data) return <Loading className="p-4" />;
 
   return (
     <nav className="h-full overflow-y-auto p-2">
@@ -54,7 +55,7 @@ function Row({ report, active }: { report: ReportInfo; active: boolean }) {
         to="/workspaces/$"
         params={{ _splat: report.path }}
         className={`flex gap-2 rounded-lg px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800 ${
-          active ? "bg-sky-50 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100" : ""
+          active ? "bg-accent-50 text-accent-900 dark:bg-accent-900/40 dark:text-accent-100" : ""
         }`}
       >
         <FileText className="mt-0.5 size-4 shrink-0 text-slate-400" />

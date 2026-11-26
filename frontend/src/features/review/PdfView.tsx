@@ -193,7 +193,7 @@ function PageView({ doc, number, width, items, reviewing, focus, onRegion, onPic
             onClick={() => onPick(item.id)}
             title={item.feedback}
             className={`absolute border-2 text-left ${
-              focus === item.id ? "border-sky-600 bg-sky-500/15" : "border-amber-500 bg-amber-400/10 hover:bg-amber-400/20"
+              focus === item.id ? "border-accent-600 bg-accent-500/15" : "border-amber-500 bg-amber-400/10 hover:bg-amber-400/20"
             }`}
             style={box(item.region!)}
           >
@@ -202,7 +202,7 @@ function PageView({ doc, number, width, items, reviewing, focus, onRegion, onPic
             </span>
           </button>
         ))}
-        {live && <div className="pointer-events-none absolute border-2 border-dashed border-sky-600 bg-sky-500/10" style={box(live)} />}
+        {live && <div className="pointer-events-none absolute border-2 border-dashed border-accent-600 bg-accent-500/10" style={box(live)} />}
       </div>
     </div>
   );

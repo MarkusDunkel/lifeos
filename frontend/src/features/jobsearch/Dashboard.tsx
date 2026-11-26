@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowDownRight, ArrowRight, ArrowUpRight, Bot, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { type Dashboard, dashboardQuery, type Verdicts } from "./api";
+import { cardClass } from "../../components/ui";
 
 // Colors by job (dataviz reference palette): one blue for magnitude, blue/orange for the two
 // compared series, status steps for the AI verdicts (always shown with their label).
@@ -16,7 +17,7 @@ const VERDICT: Record<keyof Verdicts, { label: string; bar: string; fill: string
 // sequential blue ramp, light → dark (100 … 700); index 0 = nothing
 const RAMP = ["", "#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"];
 
-const card = "space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800";
+const card = `${cardClass} space-y-3 p-4`;
 const muted = "text-xs text-slate-500";
 const pct = (v: number) => `${Math.round(v * 100)} %`;
 
@@ -382,7 +383,7 @@ function Gaps({ d }: { d: Dashboard }) {
       </div>
       <p className={muted}>
         Skills without a level (?) are not in your overview yet.{" "}
-        <Link to="/career" className="text-sky-700 hover:underline dark:text-sky-300">
+        <Link to="/career" className="text-accent-700 hover:underline dark:text-accent-300">
           Open the career page
         </Link>
       </p>

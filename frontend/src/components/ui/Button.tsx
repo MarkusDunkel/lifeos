@@ -21,6 +21,9 @@ const VARIANT: Record<ButtonVariant, string> = {
     "border border-red-300 bg-white text-red-700 shadow-sm hover:bg-red-50 dark:border-red-800 dark:bg-slate-900 dark:text-red-300 dark:hover:bg-red-950/40",
 };
 
+/** Shape and size of a button without a colour, for the few places that colour it themselves. */
+export const buttonBase = `${BASE} ${SIZE.md}`;
+
 /** The classes of a button, for links and labels that should look like one. */
 export function buttonClass(variant: ButtonVariant = "secondary", size: ButtonSize = "md", extra = ""): string {
   return `${BASE} ${SIZE[size]} ${VARIANT[variant]} ${extra}`;

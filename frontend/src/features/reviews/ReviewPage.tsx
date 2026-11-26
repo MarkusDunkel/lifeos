@@ -7,7 +7,7 @@ import { flattenFiles } from "../knowledge/links";
 import { MarkdownView } from "../knowledge/MarkdownView";
 import { formatTime } from "../workspaces/review";
 import { PdfView } from "../review/PdfView";
-import { btn, errorText, plural, type PreviewContext, ReviewPane } from "../review/ReviewPane";
+import { errorText, plural, type PreviewContext, ReviewPane } from "../review/ReviewPane";
 import {
   packageQuery,
   packagesQuery,
@@ -19,11 +19,12 @@ import {
   ticketUrl,
   viewUrl,
 } from "./api";
+import { buttonClass, Loading } from "../../components/ui";
 
 export function PackageList() {
   const { data, isError } = useQuery(packagesQuery);
   if (isError) return <p className="p-4 text-sm text-red-600">Could not load review packages.</p>;
-  if (!data) return <p className="p-4 text-sm text-slate-400">Loading…</p>;
+  if (!data) return <Loading className="p-4" />;
   return (
     <nav className="h-full overflow-y-auto p-2">
       <h2 className="px-2 pt-2 pb-1 text-xs font-semibold tracking-wide text-slate-500 uppercase">To review</h2>
@@ -39,7 +40,7 @@ export function PackageList() {
               to="/reviews/$"
               params={{ _splat: p.path }}
               className="flex gap-2 rounded-lg px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-              activeProps={{ className: "bg-sky-50 dark:bg-sky-950/40" }}
+              activeProps={{ className: "bg-accent-50 dark:bg-accent-950/40" }}
             >
               {p.error ? <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" /> : <FileText className="mt-0.5 size-4 shrink-0 text-slate-400" />}
               <span className="min-w-0">
@@ -71,7 +72,7 @@ export function ReviewPage({ path }: { path: string }) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["reviews"] }),
   });
   if (pkg.isError) return <p className="p-6 text-slate-500">This review package does not exist (anymore).</p>;
-  if (!pkg.data) return <p className="p-6 text-slate-400">Loading…</p>;
+  if (!pkg.data) return <Loading className="p-6" />;
   const docs = pkg.data.documents;
   const doc = docs[Math.min(active, docs.length - 1)];
   const ticket = pkg.data.ticket ? ticketUrl(pkg.data.ticket) : null;
@@ -92,7 +93,7 @@ export function ReviewPage({ path }: { path: string }) {
         </Link>
         <h1 className="min-w-0 flex-1 truncate font-medium">{pkg.data.title}</h1>
         {ticket && (
-          <a href={ticket} target="_blank" rel="noreferrer" className={`${btn} text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800`}>
+          <a href={ticket} target="_blank" rel="noreferrer" className={`${buttonClass("ghost")}`}>
             {pkg.data.ticket} <ExternalLink className="size-3.5" />
           </a>
         )}
@@ -108,7 +109,7 @@ export function ReviewPage({ path }: { path: string }) {
           <button
             onClick={confirmSend}
             disabled={pending === 0 || send.isPending}
-            className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}
+            className={`${buttonClass("primary")}`}
             title={pending === 0 ? "Add comments to the documents first" : "Post all comments to the ticket"}
           >
             <Send className="size-4" /> {send.isPending ? "Sending…" : `Send feedback${pending ? ` (${pending})` : ""}`}
@@ -143,12 +144,12 @@ export function ReviewPage({ path }: { path: string }) {
               onClick={() => setActive(d.index)}
               className={`border-b-2 px-3 py-2 text-sm whitespace-nowrap ${
                 d.index === doc.index
-                  ? "border-sky-600 font-medium text-sky-700 dark:text-sky-300"
+                  ? "border-accent-600 font-medium text-accent-700 dark:text-accent-300"
                   : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
             >
               {d.label}
-              {d.rounds.some((r) => r.editable) && <span className="ml-1 text-xs text-sky-600">●</span>}
+              {d.rounds.some((r) => r.editable) && <span className="ml-1 text-xs text-accent-600">●</span>}
             </button>
           ))}
         </nav>

@@ -16,8 +16,9 @@ import { btn } from "./CalendarsTab";
 import { addDays, dayLabel, isoDay } from "./format";
 import { PlannerNote } from "./PlannerNote";
 import { Timeline } from "./Timeline";
+import { cardClass, QueryState } from "../../components/ui";
 
-const card = "space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800";
+const card = `${cardClass} space-y-3 p-4`;
 
 /** The evening screen: check off today, write the journal, plan tomorrow. */
 export function EveningTab() {
@@ -87,7 +88,7 @@ export function PlannerCard() {
         </p>
       )}
       {!!s?.pendingNotes.length && !busy && (
-        <p className="rounded bg-sky-50 px-2 py-1 text-xs text-sky-800 dark:bg-sky-950 dark:text-sky-200">
+        <p className="rounded bg-accent-50 px-2 py-1 text-xs text-accent-800 dark:bg-accent-950 dark:text-accent-200">
           {s.pendingNotes.length === 1 ? "1 note is" : `${s.pendingNotes.length} notes are`} not planned yet (
           {s.pendingNotes.join(", ")}) – press “Plan again”.
         </p>
@@ -153,7 +154,7 @@ function TodayCard({ day }: { day: string }) {
           <Timeline day={data.data} onStatus={(block, status) => check.mutate({ block, status })} />
         </>
       ) : (
-        <p className="text-sm text-slate-400">{data.error ? data.error.message : "Loading…"}</p>
+        <QueryState query={data} />
       )}
     </section>
   );
@@ -175,7 +176,7 @@ function DayCard({ day, today }: { day: string; today: string }) {
           <Timeline day={data.data} onEdit={(block, title, text) => editBlock(block.id, title, text).then(refresh)} />
         </>
       ) : (
-        <p className="text-sm text-slate-400">{data.error ? data.error.message : "Loading…"}</p>
+        <QueryState query={data} />
       )}
     </section>
   );
@@ -275,7 +276,7 @@ function Scale({
             type="button"
             aria-pressed={value === v}
             onClick={() => onChange(value === v ? null : v)}
-            className={`size-7 rounded border text-xs ${value === v ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"}`}
+            className={`size-7 rounded border text-xs ${value === v ? "border-accent-600 bg-accent-600 text-white" : "border-slate-300 hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"}`}
           >
             {v}
           </button>

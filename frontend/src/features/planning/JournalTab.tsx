@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { journalQuery } from "./api";
+import { QueryState } from "../../components/ui";
 
 /** The journal so far, newest first, with the scales side by side. */
 export function JournalTab() {
   const data = useQuery(journalQuery);
-  if (!data.data) return <p className="text-sm text-slate-400">{data.error ? data.error.message : "Loading…"}</p>;
+  if (!data.data) return <QueryState query={data} />;
   const entries = [...data.data].reverse();
   if (!entries.length) return <p className="text-sm text-slate-400">No journal entries yet – write one on the Evening tab.</p>;
   return (

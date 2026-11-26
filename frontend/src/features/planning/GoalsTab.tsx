@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { type GoalInput, goalsQuery, saveGoals } from "./api";
 import { btn } from "./CalendarsTab";
 import { groupGoals, type ResolvedGoal, resolveGoals } from "./format";
+import { cardClass, QueryState } from "../../components/ui";
 
 const input = "rounded border border-slate-300 bg-transparent px-2 py-1 text-sm dark:border-slate-700";
 const PRIORITIES = ["hoch", "mittel", "niedrig"];
@@ -49,7 +50,7 @@ export function GoalsTab() {
   const resolved = useMemo(() => resolveGoals(goals ?? [], autoHours), [goals, autoHours]);
 
   if (!data.data || goals === null) {
-    return <p className="text-sm text-slate-400">{data.error ? data.error.message : "Loading…"}</p>;
+    return <QueryState query={data} />;
   }
   const auto = data.data.autoStudy;
   const autoShort = auto.exams.length
@@ -177,7 +178,7 @@ export function GoalsTab() {
 
   return (
     <div className="space-y-4">
-      <section className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+      <section className={`${cardClass} space-y-3 p-4`}>
         <h2 className="font-semibold">Weekly quotas</h2>
         <p className="text-xs text-slate-500">
           What you want to reach each week (Monday to Sunday); the planner spreads it over the free time. A <b>group</b>{" "}
@@ -200,7 +201,7 @@ export function GoalsTab() {
                 <div className="ml-4 space-y-2 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
                   {members.get(g.name)?.map((m) => row(m, true))}
                   <button
-                    className="inline-flex items-center gap-1 text-xs text-teal-700 hover:underline"
+                    className="inline-flex items-center gap-1 text-xs text-accent-700 hover:underline"
                     onClick={() => setGoals([...goals, newGoal(g.name)])}
                   >
                     <Plus className="size-3" /> Add goal to {g.name || "group"}

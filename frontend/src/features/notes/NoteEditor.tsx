@@ -4,11 +4,12 @@ import { useCallback, useEffect, useId, useState } from "react";
 import { ApiError } from "../../lib/api";
 import { createNote, deleteNote, notesQuery, updateNote, type NotesData } from "./api";
 import { cellText, type Cells, type Field, formatCell, type Note, sameCells } from "./grid";
+import { buttonBase, buttonClass, inputClass } from "../../components/ui";
 
 const btn =
-  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";
+  buttonBase;
 const input =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900";
+  `${inputClass} w-full`;
 
 type Props = {
   /** The note being edited, or `null` for a new one. */
@@ -132,7 +133,7 @@ export function NoteEditor({ note, initial, fields, allNotes, onClose, onCreated
         <span className="hidden text-xs text-slate-400 sm:inline">
           {save.isPending ? "Saving…" : dirty ? "Unsaved changes" : isNew ? "" : "Saved"}
         </span>
-        <button onClick={doSave} disabled={!dirty || save.isPending} className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}>
+        <button onClick={doSave} disabled={!dirty || save.isPending} className={`${buttonClass("primary")}`}>
           <Check className="size-4" /> Save
         </button>
         {!isNew && (

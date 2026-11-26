@@ -95,12 +95,12 @@ function Box({ data }: NodeProps<Node<BoxData>>) {
   return (
     <div
       style={{ width: data.width, height: data.height }}
-      className={`rounded-xl border-2 border-dashed border-sky-300 bg-sky-50/40 transition-opacity dark:border-sky-800 dark:bg-sky-950/20 ${
+      className={`rounded-xl border-2 border-dashed border-accent-300 bg-accent-50/40 transition-opacity dark:border-accent-800 dark:bg-accent-950/20 ${
         data.dimmed ? "opacity-40" : ""
       }`}
     >
-      <div className="px-3 pt-1.5 text-[11px] font-medium text-sky-700 dark:text-sky-300">{data.label}</div>
-      <Handle type="source" position={Position.Right} style={{ top: 14 }} className="!bg-sky-500" />
+      <div className="px-3 pt-1.5 text-[11px] font-medium text-accent-700 dark:text-accent-300">{data.label}</div>
+      <Handle type="source" position={Position.Right} style={{ top: 14 }} className="!bg-accent-500" />
     </div>
   );
 }

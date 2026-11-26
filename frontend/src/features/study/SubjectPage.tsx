@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, CalendarClock, ChevronDown, FileDown, ListTree, Pencil } from "lucide-react";
 import { useRef, useState } from "react";
-import { DocEditor, docBtn } from "../knowledge/DocEditor";
+import { DocEditor } from "../knowledge/DocEditor";
 import { type Bank, type Grade, gradeCard, type Material, type StudyCard, subjectQuery, type SubjectDetail } from "./api";
 import {
   banksByExam,
@@ -16,6 +16,7 @@ import {
 } from "./format";
 import { ReadinessBar } from "./StudyPage";
 import { VoiceControls } from "./VoiceControls";
+import { buttonClass, Loading } from "../../components/ui";
 
 export type StudyTab = "material" | "questions" | "overview";
 
@@ -45,7 +46,7 @@ export function SubjectPage({
         <p className="mt-4 text-slate-500">This subject does not exist (anymore).</p>
       </div>
     );
-  if (!detail.data) return <p className="p-8 text-slate-400">Loading…</p>;
+  if (!detail.data) return <Loading className="p-8" />;
   const d = detail.data;
 
   return (
@@ -60,7 +61,7 @@ export function SubjectPage({
             onClick={() => onTab(key)}
             className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${
               tab === key
-                ? "border-sky-600 text-sky-700 dark:text-sky-300"
+                ? "border-accent-600 text-accent-700 dark:text-accent-300"
                 : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
             }`}
           >
@@ -106,7 +107,7 @@ function Head({ d }: { d: SubjectDetail }) {
           params={{ subject: d.key }}
           search={{}}
           target="_blank"
-          className={`${docBtn} text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800`}
+          className={`${buttonClass("ghost")}`}
           title="Material, questions and overview as one PDF (print dialog → Save as PDF)"
         >
           <FileDown className="size-4" /> Export all as PDF
@@ -118,7 +119,7 @@ function Head({ d }: { d: SubjectDetail }) {
           return (
             <div
               key={e.date}
-              className={`space-y-2 rounded-xl border p-3 text-sm ${e.past ? "border-slate-200 opacity-70 dark:border-slate-800" : "border-sky-200 dark:border-sky-900"}`}
+              className={`space-y-2 rounded-xl border p-3 text-sm ${e.past ? "border-slate-200 opacity-70 dark:border-slate-800" : "border-accent-200 dark:border-accent-900"}`}
             >
               <div className="flex flex-wrap items-center gap-2">
                 <CalendarClock className="size-4 text-slate-500" />
@@ -157,7 +158,7 @@ function MaterialTab({ d, onSaved }: { d: SubjectDetail; onSaved: () => void }) 
             <button
               key={m.file}
               onClick={() => setSelected(i)}
-              className={`rounded-full px-3 py-1 text-sm ${m === material ? "bg-sky-600 text-white" : "bg-slate-100 dark:bg-slate-800"}`}
+              className={`rounded-full px-3 py-1 text-sm ${m === material ? "bg-accent-600 text-white" : "bg-slate-100 dark:bg-slate-800"}`}
             >
               {m.title}
             </button>
@@ -269,7 +270,7 @@ function QuestionsTab({ d, onSaved }: { d: SubjectDetail; onSaved: () => void })
           <button
             key={key}
             onClick={() => setFilter(key)}
-            className={`rounded-full px-3 py-1 text-sm ${filter === key ? "bg-sky-600 text-white" : "bg-slate-100 dark:bg-slate-800"}`}
+            className={`rounded-full px-3 py-1 text-sm ${filter === key ? "bg-accent-600 text-white" : "bg-slate-100 dark:bg-slate-800"}`}
           >
             {label} <span className="opacity-70">{filterCards(all, key).length}</span>
           </button>
@@ -325,11 +326,11 @@ function BankCards({
         <Link
           to="/knowledge/$"
           params={{ _splat: bank.file }}
-          className={`${docBtn} text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800`}
+          className={`${buttonClass("ghost")}`}
         >
           <span className="hidden sm:inline">Open in</span> Knowledge
         </Link>
-        <button onClick={onEdit} className={`${docBtn} hover:bg-slate-100 dark:hover:bg-slate-800`}>
+        <button onClick={onEdit} className={`${buttonClass("ghost")}`}>
           <Pencil className="size-4" /> Edit
         </button>
       </div>

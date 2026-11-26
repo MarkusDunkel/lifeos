@@ -15,15 +15,16 @@ import {
   ticketQuery,
 } from "./api";
 import { changeName, ticketLabel, toggle } from "./list";
+import { buttonBase, buttonClass, inputClass, Loading } from "../../components/ui";
 
 const btn =
-  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";
+  buttonBase;
 const input =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900";
+  `${inputClass} w-full`;
 const chip = (on: boolean) =>
   `rounded-full px-2.5 py-0.5 text-xs ring-1 ${
     on
-      ? "bg-sky-600 text-white ring-sky-600"
+      ? "bg-accent-600 text-white ring-accent-600"
       : "text-slate-600 ring-slate-200 hover:bg-slate-100 dark:text-slate-300 dark:ring-slate-700 dark:hover:bg-slate-800"
   }`;
 
@@ -125,7 +126,7 @@ export function TicketEditor({ path, meta, onClose }: { path: string; meta: Meta
   };
 
   if (doc.isError) return <p className="p-6 text-slate-500">This ticket does not exist (anymore).</p>;
-  if (!doc.data || !current) return <p className="p-6 text-slate-400">Loading…</p>;
+  if (!doc.data || !current) return <Loading className="p-6" />;
   const d = doc.data;
   const set = (patch: Partial<Draft>) => setDraft({ ...current, ...patch });
   const labels = [...new Set([...(meta.labels[d.repo] ?? []), ...current.labels])].sort();
@@ -142,13 +143,13 @@ export function TicketEditor({ path, meta, onClose }: { path: string; meta: Meta
             href={d.url}
             target="_blank"
             rel="noopener noreferrer"
-            className={`${btn} border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800`}
+            className={`${buttonClass("secondary")}`}
             title="Open this issue on GitHub"
           >
             <ExternalLink className="size-4" /> GitHub
           </a>
         )}
-        <button onClick={() => void save()} disabled={!dirty || busy} className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}>
+        <button onClick={() => void save()} disabled={!dirty || busy} className={`${buttonClass("primary")}`}>
           <Check className="size-4" /> Save
         </button>
         {d.number === null && (
@@ -193,7 +194,7 @@ export function TicketEditor({ path, meta, onClose }: { path: string; meta: Meta
         </div>
       )}
       {d.changes.length > 0 && d.conflicts.length === 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-sky-50 px-4 py-1.5 text-xs text-sky-800 dark:border-slate-800 dark:bg-sky-950 dark:text-sky-200">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-accent-50 px-4 py-1.5 text-xs text-accent-800 dark:border-slate-800 dark:bg-accent-950 dark:text-accent-200">
           <span className="flex-1">
             Not on GitHub yet: {d.changes.map(changeName).join(", ")}. Write back via “Changes”.
           </span>

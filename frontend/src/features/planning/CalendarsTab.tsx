@@ -10,9 +10,10 @@ import {
   saveInputs,
   syncCalendars,
 } from "./api";
+import { buttonClass, Loading, QueryState } from "../../components/ui";
 
 export const btn =
-  "inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800";
+  buttonClass("secondary");
 
 /** Connect Google, pick the input calendars and mirror them into the LifeOS calendar. */
 export function CalendarsTab({ notice }: { notice?: string }) {
@@ -51,7 +52,7 @@ export function CalendarsTab({ notice }: { notice?: string }) {
   return (
     <section className="space-y-4 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
       <h2 className="flex items-center gap-2 font-semibold">
-        <CalendarDays className="size-5 text-sky-600" /> Calendars (Google)
+        <CalendarDays className="size-5 text-accent-600" /> Calendars (Google)
       </h2>
       <p className="text-sm text-slate-500">
         LifeOS reads your input calendars and mirrors every appointment into its own calendar "LifeOS", together with
@@ -61,7 +62,7 @@ export function CalendarsTab({ notice }: { notice?: string }) {
         <p className={`text-sm ${notice.startsWith("error") ? "text-red-600" : "text-emerald-600"}`}>Google: {notice}</p>
       )}
       {!s ? (
-        <p className="text-sm text-slate-400">{status.error ? status.error.message : "Loading…"}</p>
+        <QueryState query={status} />
       ) : !s.configured ? (
         <p className="text-sm text-amber-600">Not set up. Add {s.missing.join(", ")} to the deployment's .env.</p>
       ) : !s.connected ? (
@@ -90,7 +91,7 @@ export function CalendarsTab({ notice }: { notice?: string }) {
 
           <div>
             <h3 className="mb-2 text-sm font-medium">Input calendars</h3>
-            {calendars.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
+            {calendars.isLoading && <Loading />}
             {calendars.error && <p className="text-sm text-red-600">{calendars.error.message}</p>}
             <ul className="space-y-1">
               {calendars.data

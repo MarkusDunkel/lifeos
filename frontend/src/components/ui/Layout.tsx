@@ -8,6 +8,9 @@ const WIDTH = {
   xl: "max-w-7xl",
 } as const;
 
+/** The classes of a page frame, for pages that need their own element. */
+export const pageClass = (width: keyof typeof WIDTH = "lg") => `mx-auto space-y-5 p-4 sm:p-6 lg:p-8 ${WIDTH[width]}`;
+
 /** The frame of a page: one width scale and the same padding everywhere. */
 export function Page({
   width = "lg",
@@ -18,7 +21,7 @@ export function Page({
   className?: string;
   children: ReactNode;
 }) {
-  return <div className={`mx-auto space-y-5 p-4 sm:p-6 lg:p-8 ${WIDTH[width]} ${className}`}>{children}</div>;
+  return <div className={`${pageClass(width)} ${className}`}>{children}</div>;
 }
 
 /** Title row of a page: icon, title, what the page is for, and its actions on the right. */

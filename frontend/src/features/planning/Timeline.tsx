@@ -108,7 +108,7 @@ function BlockItem({
           <button
             onClick={save}
             disabled={saving || !title.trim()}
-            className="rounded bg-teal-600 px-3 py-1 text-white hover:bg-teal-700 disabled:opacity-50"
+            className="rounded bg-accent-600 px-3 py-1 text-white hover:bg-accent-700 disabled:opacity-50"
           >
             Save
           </button>
@@ -142,7 +142,7 @@ function BlockItem({
             </span>
           )}
           {block.edited && (
-            <span className="ml-1 text-xs font-normal text-teal-700 dark:text-teal-400" title="Set by you – the planner keeps it">
+            <span className="ml-1 text-xs font-normal text-accent-700 dark:text-accent-400" title="Set by you – the planner keeps it">
               ✎
             </span>
           )}
@@ -201,7 +201,7 @@ function IconButton({
       aria-pressed={active}
       title={label}
       onClick={onClick}
-      className={`rounded border p-1 ${active ? "border-teal-600 bg-teal-600 text-white" : "border-slate-300 hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"}`}
+      className={`rounded border p-1 ${active ? "border-accent-600 bg-accent-600 text-white" : "border-slate-300 hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-800"}`}
     >
       {children}
     </button>

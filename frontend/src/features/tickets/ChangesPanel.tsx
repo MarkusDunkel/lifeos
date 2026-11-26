@@ -5,9 +5,10 @@ import { MarkdownView } from "../knowledge/MarkdownView";
 import { api, qs } from "../../lib/api";
 import { applyPlan, createPlan, discardPlan, planQuery, revertTicket, type TicketDoc, type TicketsData } from "./api";
 import { changeName, isPending, ticketLabel } from "./list";
+import { buttonBase, buttonClass } from "../../components/ui";
 
 const btn =
-  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";
+  buttonBase;
 
 /** Strip the machine-readable block from the plan for display; it stays in the file. */
 const readable = (plan: string) => plan.split("\n## Operations (machine-readable)")[0];
@@ -104,7 +105,7 @@ export function ChangesPanel({
                   setShown(created.id);
                 })
               }
-              className={`${btn} mt-3 bg-sky-600 text-white hover:bg-sky-700`}
+              className={`${buttonClass("primary", "md", "mt-3")}`}
             >
               <FileCheck2 className="size-4" /> Create plan
             </button>

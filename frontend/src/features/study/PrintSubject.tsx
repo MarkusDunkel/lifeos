@@ -86,7 +86,7 @@ export function PrintSubject({
         <button
           onClick={() => window.print()}
           disabled={!ready}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 font-medium text-white hover:bg-sky-700 disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 font-medium text-white hover:bg-accent-700 disabled:opacity-40"
         >
           <FileDown className="size-4" /> Print / Save as PDF
         </button>
@@ -137,14 +137,14 @@ export function PrintSubject({
           <ol className="list-decimal space-y-0.5 pl-5">
             {docs.map((doc) => (
               <li key={doc.path}>
-                <a href={`#${doc.anchor}`} className="text-sky-700">
+                <a href={`#${doc.anchor}`} className="text-accent-700">
                   {doc.heading}
                 </a>
               </li>
             ))}
             {banks.length > 0 && (
               <li>
-                <a href="#questions" className="text-sky-700">
+                <a href="#questions" className="text-accent-700">
                   Questions ({cardCount})
                 </a>
               </li>

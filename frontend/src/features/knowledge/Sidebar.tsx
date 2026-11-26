@@ -90,7 +90,7 @@ export function KnowledgeSidebar({ onNavigate }: { onNavigate?: () => void }) {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search notes…"
-            className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-8 pl-8 text-sm outline-none focus:border-sky-500 dark:border-slate-800 dark:bg-slate-900"
+            className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-8 pl-8 text-sm outline-none focus:border-accent-500 dark:border-slate-800 dark:bg-slate-900"
           />
           {q && (
             <button
@@ -212,7 +212,7 @@ function TreeItem(props: TreeProps) {
       <li>
         <button onClick={() => toggle(node.path)} className={`${row} hover:bg-slate-100 dark:hover:bg-slate-800`} style={pad}>
           <ChevronRight className={`size-3.5 shrink-0 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
-          <Folder className="size-4 shrink-0 text-sky-500" />
+          <Folder className="size-4 shrink-0 text-accent-500" />
           <span className="truncate">{node.name}</span>
           <MirrorDot path={node.path} />
         </button>
@@ -232,7 +232,7 @@ function TreeItem(props: TreeProps) {
         onClick={onNavigate}
         className={`${row} ${
           active
-            ? "bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100"
+            ? "bg-accent-100 text-accent-900 dark:bg-accent-900/40 dark:text-accent-100"
             : "hover:bg-slate-100 dark:hover:bg-slate-800"
         } ${isMarkdown(node.path) ? "" : "text-slate-400"}`}
         style={{ paddingLeft: `${depth * 14 + 26}px` }}

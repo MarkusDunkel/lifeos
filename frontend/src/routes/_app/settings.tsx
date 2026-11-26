@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { LogOut } from "lucide-react";
+import { LogOut, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Button, Notice, Page, PageHeader } from "../../components/ui";
 import { PresentationsSettings } from "../../features/presentations/PresentationsSettings";
 import { api } from "../../lib/api";
 import { logout, sessionQuery } from "../../lib/session";
@@ -27,20 +28,23 @@ function SettingsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-xl space-y-6 p-8">
-      <h1 className="text-2xl font-semibold">Settings</h1>
-      <p className="text-sm text-slate-500">LifeOS {version}</p>
-      {session.data?.auth_disabled ? (
-        <p className="text-sm text-amber-600">Login is disabled (LIFEOS_AUTH_DISABLED). Only use this locally.</p>
-      ) : (
-        <button
-          onClick={signOut}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
-        >
-          <LogOut className="size-4" /> Sign out
-        </button>
+    <Page width="sm">
+      <PageHeader
+        icon={Settings}
+        title="Settings"
+        subtitle={`LifeOS ${version}`}
+        actions={
+          !session.data?.auth_disabled && (
+            <Button icon={LogOut} onClick={signOut}>
+              Sign out
+            </Button>
+          )
+        }
+      />
+      {session.data?.auth_disabled && (
+        <Notice tone="warn">Login is disabled (LIFEOS_AUTH_DISABLED). Only use this locally.</Notice>
       )}
       <PresentationsSettings />
-    </div>
+    </Page>
   );
 }

@@ -29,7 +29,7 @@ export function PlannerNote({ day, thread, readOnly = false }: { day: string; th
   if (readOnly && !saved && !answers.length) return null;
   if (!open && !readOnly && !answers.length) {
     return (
-      <button onClick={() => setOpen(true)} className="flex items-center gap-1 text-xs text-teal-700 hover:underline dark:text-teal-400">
+      <button onClick={() => setOpen(true)} className="flex items-center gap-1 text-xs text-accent-700 hover:underline dark:text-accent-400">
         <MessageSquare className="size-3.5" /> Write a note for the planner about this day
       </button>
     );
@@ -59,7 +59,7 @@ export function PlannerNote({ day, thread, readOnly = false }: { day: string; th
   };
 
   return (
-    <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50/60 p-2 text-sm dark:border-sky-900 dark:bg-sky-950/40">
+    <div className="space-y-2 rounded-lg border border-accent-200 bg-accent-50/60 p-2 text-sm dark:border-accent-900 dark:bg-accent-950/40">
       <div className="flex items-center justify-between gap-2">
         <span className="font-medium">{thread.title}</span>
         {thread.pending && <span className="text-xs text-amber-600">not planned yet</span>}
@@ -79,7 +79,7 @@ export function PlannerNote({ day, thread, readOnly = false }: { day: string; th
             <button
               onClick={save}
               disabled={busy || draft.trim() === base.trim()}
-              className="rounded bg-teal-600 px-3 py-1 text-white hover:bg-teal-700 disabled:opacity-40"
+              className="rounded bg-accent-600 px-3 py-1 text-white hover:bg-accent-700 disabled:opacity-40"
             >
               Save note
             </button>
@@ -88,7 +88,7 @@ export function PlannerNote({ day, thread, readOnly = false }: { day: string; th
         </>
       )}
       {!!answers.length && (
-        <ul className="space-y-0.5 border-t border-sky-200 pt-1 text-xs text-slate-600 dark:border-sky-900 dark:text-slate-300">
+        <ul className="space-y-0.5 border-t border-accent-200 pt-1 text-xs text-slate-600 dark:border-accent-900 dark:text-slate-300">
           {answers.map((a) => (
             <li key={a}>{a}</li>
           ))}

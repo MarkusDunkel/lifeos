@@ -6,13 +6,14 @@ import { createTicket, type Meta, runSync, type SyncReport, ticketsQuery, type T
 import { ChangesPanel } from "./ChangesPanel";
 import { filterTickets, isPending, NO_PROJECT, projectStatuses, statusField, ticketLabel, type TicketView } from "./list";
 import { TicketEditor } from "./TicketEditor";
+import { buttonBase, buttonClass, inputClass, Loading, PromptDialog } from "../../components/ui";
 
 type Props = { search: TicketView; onChange: (next: TicketView, replace?: boolean) => void };
 
 const btn =
-  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";
+  buttonBase;
 const select =
-  "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900";
+  inputClass;
 
 export function TicketsPage({ search, onChange }: Props) {
   const queryClient = useQueryClient();
@@ -47,23 +48,24 @@ export function TicketsPage({ search, onChange }: Props) {
     }
   };
 
-  const newTicket = async () => {
-    if (!meta) return;
-    const repo = search.repo ?? (meta.repos.length === 1 ? meta.repos[0] : window.prompt(`Repository (${meta.repos.join(", ")}):`, meta.repos[0]));
-    if (!repo) return;
-    const title = window.prompt("Title of the new ticket:");
-    if (!title?.trim()) return;
+  // the "New" dialog: open, and what went wrong when the ticket could not be created
+  const [creating, setCreating] = useState<{ busy: boolean; error: string | null } | null>(null);
+  const newTicket = async (values: Record<string, string>) => {
+    const repo = values.repo ?? search.repo ?? meta?.repos[0];
+    if (!repo || !values.title) return;
+    setCreating({ busy: true, error: null });
     try {
-      const doc = await createTicket(repo, title);
+      const doc = await createTicket(repo, values.title);
       await queryClient.invalidateQueries({ queryKey: ["tickets", "list"] });
+      setCreating(null);
       onChange({ ...search, ticket: doc.path, changes: undefined });
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      setCreating({ busy: false, error: e instanceof Error ? e.message : String(e) });
     }
   };
 
   if (isError) return <p className="p-6 text-red-600">Could not load tickets: {String(error)}</p>;
-  if (!data || !meta) return <p className="p-6 text-slate-400">Loading…</p>;
+  if (!data || !meta) return <Loading className="p-6" />;
 
   const panelOpen = Boolean(search.ticket || search.changes);
   const projectNames = Object.keys(meta.projects);
@@ -83,10 +85,10 @@ export function TicketsPage({ search, onChange }: Props) {
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Search tickets"
-                className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-3 pl-8 text-sm focus:border-sky-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900"
+                className="w-full rounded-lg border border-slate-200 bg-white py-2 pr-3 pl-8 text-sm focus:border-accent-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900"
               />
             </div>
-            <button onClick={sync} disabled={syncing || !meta.configured} className={`${btn} ring-1 ring-slate-200 hover:bg-slate-100 dark:ring-slate-700 dark:hover:bg-slate-800`} title="Fetch from GitHub and merge">
+            <button onClick={sync} disabled={syncing || !meta.configured} className={`${buttonClass("secondary")}`} title="Fetch from GitHub and merge">
               <RefreshCw className={`size-4 ${syncing ? "animate-spin" : ""}`} /> Sync
             </button>
             <button
@@ -95,7 +97,7 @@ export function TicketsPage({ search, onChange }: Props) {
             >
               <GitPullRequestArrow className="size-4" /> Changes{pending ? ` (${pending})` : ""}
             </button>
-            <button onClick={newTicket} disabled={meta.repos.length === 0} className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}>
+            <button onClick={() => setCreating({ busy: false, error: null })} disabled={meta.repos.length === 0} className={buttonClass("primary")}>
               <Plus className="size-4" /> New
             </button>
           </div>
@@ -144,7 +146,7 @@ export function TicketsPage({ search, onChange }: Props) {
               </select>
             )}
             {boardUrl && (
-              <a href={boardUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-sky-600 hover:underline" title="Open the project on GitHub">
+              <a href={boardUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-accent-600 hover:underline" title="Open the project on GitHub">
                 <ExternalLink className="size-3.5" /> {chosen} on GitHub
               </a>
             )}
@@ -170,6 +172,21 @@ export function TicketsPage({ search, onChange }: Props) {
         </div>
       </div>
 
+      {creating && (
+        <PromptDialog
+          title="New ticket"
+          submitLabel="Create"
+          busy={creating.busy}
+          error={creating.error}
+          onClose={() => setCreating(null)}
+          onSubmit={newTicket}
+          fields={[
+            // asked only when it is not clear from the filter or there is more than one
+            ...(search.repo || meta.repos.length === 1 ? [] : [{ name: "repo", label: "Repository", options: meta.repos }]),
+            { name: "title", label: "Title" },
+          ]}
+        />
+      )}
       {panelOpen && (
         <aside className="w-full min-w-0 border-slate-200 lg:w-[34rem] lg:shrink-0 lg:border-l dark:border-slate-800">
           {search.ticket ? (
@@ -219,7 +236,7 @@ function GitHubLink({ url }: { url: string | null }) {
       target="_blank"
       rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}
-      className="inline-flex rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-sky-600 dark:hover:bg-slate-800"
+      className="inline-flex rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-accent-600 dark:hover:bg-slate-800"
       title="Open on GitHub"
       aria-label="Open on GitHub"
     >
@@ -244,7 +261,7 @@ function TicketList(props: { tickets: TicketSummary[]; meta: Meta; showRepo: boo
       </thead>
       <tbody>
         {props.tickets.map((t) => (
-          <tr key={t.path} onClick={() => props.onOpen(t.path)} className={`cursor-pointer border-t border-slate-100 hover:bg-sky-50 dark:border-slate-800 dark:hover:bg-slate-900 ${props.selected === t.path ? "bg-sky-50 dark:bg-slate-900" : ""}`}>
+          <tr key={t.path} onClick={() => props.onOpen(t.path)} className={`cursor-pointer border-t border-slate-100 hover:bg-accent-50 dark:border-slate-800 dark:hover:bg-slate-900 ${props.selected === t.path ? "bg-accent-50 dark:bg-slate-900" : ""}`}>
             <td className="px-3 py-2 whitespace-nowrap text-slate-400">{ticketLabel(t, props.showRepo)}</td>
             <td className="px-3 py-2">
               {t.title}
@@ -263,7 +280,7 @@ function TicketList(props: { tickets: TicketSummary[]; meta: Meta; showRepo: boo
             <td className="px-3 py-2 text-xs text-slate-500">{t.labels.join(", ")}</td>
             <td className="px-3 py-2 text-right whitespace-nowrap">
               {t.conflicts.length > 0 && <TriangleAlert className="inline size-4 text-amber-600" aria-label="Conflict" />}
-              {isPending(t) && <CircleDot className="inline size-4 text-sky-600" aria-label="Local changes" />}
+              {isPending(t) && <CircleDot className="inline size-4 text-accent-600" aria-label="Local changes" />}
               <GitHubLink url={t.url} />
             </td>
           </tr>

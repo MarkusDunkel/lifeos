@@ -10,6 +10,7 @@ import { MarkdownView } from "../knowledge/MarkdownView";
 import type { FeedbackItem, Region, RoundData, RoundInfo, Scope, Sealed } from "../workspaces/api";
 import { formatTime, itemsAt, type LineRange, merge, rangeLabel, shorten, sourceSlice } from "../workspaces/review";
 import { regionLabel } from "./regions";
+import { buttonBase, buttonClass, inputClass } from "../../components/ui";
 
 export type NewItem = {
   start_line: number;
@@ -43,7 +44,7 @@ export type RoundsApi = {
 };
 
 export const btn =
-  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";
+  buttonBase;
 const TOP_BLOCK = "article > [data-ls]";
 
 type Target = { scope: Scope; range: LineRange; quote: string; region?: Region };
@@ -234,7 +235,7 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
         <div className="min-w-0 flex-1 truncate text-sm text-slate-500">{title}</div>
         {actions}
         {canReview && !reviewing && !staleDraft && (
-          <button onClick={start} className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}>
+          <button onClick={start} className={`${buttonClass("primary")}`}>
             <MessageSquarePlus className="size-4" /> {draftInfo ? "Resume feedback" : "Start feedback"}
           </button>
         )}
@@ -245,7 +246,7 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
               <button
                 onClick={finish}
                 disabled={round.data.items.length === 0}
-                className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}
+                className={`${buttonClass("primary")}`}
                 title="Seal this round"
               >
                 <Check className="size-4" /> Finish
@@ -281,7 +282,7 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
         </div>
       )}
       {reviewing && (
-        <p className="border-b border-slate-200 bg-sky-50 px-4 py-1.5 text-xs text-sky-800 dark:border-slate-800 dark:bg-sky-950 dark:text-sky-200">
+        <p className="border-b border-slate-200 bg-accent-50 px-4 py-1.5 text-xs text-accent-800 dark:border-slate-800 dark:bg-accent-950 dark:text-accent-200">
           Feedback mode: select text to comment on it, or use + beside a block
           {typeof preview === "function" ? "; mark an area in the view to comment on the layout" : ""}. The document
           itself stays unchanged.
@@ -305,7 +306,7 @@ export function ReviewPane({ content, path, rounds, api, canReview, title, actio
             <button
               onClick={() => pick("blocks", hovered.range, sourceSlice(content, hovered.range))}
               style={{ top: hovered.top }}
-              className="absolute left-2 z-10 rounded-md bg-white p-1 text-slate-400 shadow ring-1 ring-slate-200 hover:text-sky-600 dark:bg-slate-900 dark:ring-slate-700"
+              className="absolute left-2 z-10 rounded-md bg-white p-1 text-slate-400 shadow ring-1 ring-slate-200 hover:text-accent-600 dark:bg-slate-900 dark:ring-slate-700"
               title={`Comment on this block (${rangeLabel(hovered.range)})`}
             >
               <Plus className="size-4" />
@@ -432,7 +433,7 @@ function Composer({ target, onAdd, onCancel }: { target: Target; onAdd: (text: s
     setBusy(false);
   };
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-sky-300 bg-white p-3 shadow-2xl lg:static lg:shadow-none dark:border-sky-800 dark:bg-slate-950">
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-accent-300 bg-white p-3 shadow-2xl lg:static lg:shadow-none dark:border-accent-800 dark:bg-slate-950">
       <p className="mb-1 text-xs font-medium text-slate-500">
         {target.region
           ? `Area · ${regionLabel(target.region)}`
@@ -450,13 +451,13 @@ function Composer({ target, onAdd, onCancel }: { target: Target; onAdd: (text: s
         }}
         rows={4}
         placeholder="What should change? (Ctrl+Enter adds the comment)"
-        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none dark:border-slate-700 dark:bg-slate-900"
+        className={`${inputClass} w-full`}
       />
       <div className="mt-2 flex justify-end gap-2">
-        <button onClick={onCancel} className={`${btn} hover:bg-slate-100 dark:hover:bg-slate-800`}>
+        <button onClick={onCancel} className={`${buttonClass("ghost")}`}>
           Cancel
         </button>
-        <button onClick={submit} disabled={!text.trim() || busy} className={`${btn} bg-sky-600 text-white hover:bg-sky-700`}>
+        <button onClick={submit} disabled={!text.trim() || busy} className={`${buttonClass("primary")}`}>
           Add comment
         </button>
       </div>
@@ -486,11 +487,11 @@ function RoundItems(props: {
               key={item.id}
               data-item={item.id}
               className={`rounded-lg border p-2 text-sm ${
-                props.focus === item.id ? "border-sky-400 dark:border-sky-700" : "border-slate-200 dark:border-slate-800"
+                props.focus === item.id ? "border-accent-400 dark:border-accent-700" : "border-slate-200 dark:border-slate-800"
               }`}
             >
               <div className="mb-1 flex items-center gap-2 text-xs text-slate-500">
-                <button onClick={() => props.onJump(item)} className="font-semibold text-sky-700 hover:underline dark:text-sky-400">
+                <button onClick={() => props.onJump(item)} className="font-semibold text-accent-700 hover:underline dark:text-accent-400">
                   {item.id}
                 </button>
                 <span className="flex-1">
@@ -530,7 +531,7 @@ function EditableFeedback({ value, onSave }: { value: string; onSave: (v: string
         else setText(value);
       }}
       rows={Math.min(8, Math.max(2, text.split("\n").length))}
-      className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-slate-200 focus:border-sky-500 focus:outline-none dark:hover:border-slate-700"
+      className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-slate-200 focus:border-accent-500 focus:outline-none dark:hover:border-slate-700"
     />
   );
 }

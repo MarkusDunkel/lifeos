@@ -13,32 +13,31 @@ import {
   selectCourses,
   syncMoodle,
 } from "./api";
+import { buttonClass, cardClass, inputClass, Notice, pageClass, PageHeader, QueryState } from "../../components/ui";
 
 const btn =
-  "inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800";
+  buttonClass("secondary");
 const primary =
-  "inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-40";
+  buttonClass("primary");
 const input =
-  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900";
+  `${inputClass} w-full`;
 
 export function MoodlePage() {
   const status = useQuery(moodleStatusQuery);
   const s = status.data;
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-6 sm:p-8">
-      <h1 className="flex items-center gap-2 text-2xl font-semibold">
-        <GraduationCap className="size-7 text-amber-600" /> Moodle
-      </h1>
-      <p className="text-sm text-slate-500">
-        Course materials stay in Moodle. LifeOS mirrors the text of PDFs, slides, documents and pages into the knowledge
-        hub, with a link back to Moodle. A sync only fetches what is new or changed.
-      </p>
+    <div className={pageClass("md")}>
+      <PageHeader
+        icon={GraduationCap}
+        title="Moodle"
+        subtitle="Course materials stay in Moodle. LifeOS mirrors the text of PDFs, slides, documents and pages into the knowledge hub, with a link back to Moodle. A sync only fetches what is new or changed."
+      />
       {!s ? (
-        <p className="text-sm text-slate-400">{status.error ? status.error.message : "Loading…"}</p>
+        <QueryState query={status} />
       ) : !s.configured ? (
-        <p className="text-sm text-amber-600">
+        <Notice tone="warn">
           Not set up. Add {s.missing.join(", ")} to the deployment's .env (see docs/vault.md → Moodle).
-        </p>
+        </Notice>
       ) : !s.connected ? (
         <ConnectForm url={s.url} />
       ) : (
@@ -67,7 +66,7 @@ function ConnectForm({ url }: { url: string | null }) {
   };
 
   return (
-    <form onSubmit={submit} className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+    <form onSubmit={submit} className={`${cardClass} space-y-3 p-4`}>
       <h2 className="font-semibold">Connect {url}</h2>
       <p className="text-sm text-slate-500">
         {useToken
@@ -93,7 +92,7 @@ function ConnectForm({ url }: { url: string | null }) {
         <button className={primary} disabled={connect.isPending || (useToken ? !token : !username || !password)}>
           {connect.isPending ? "Connecting…" : "Connect"}
         </button>
-        <button type="button" className="text-sm text-sky-600 hover:underline" onClick={() => setUseToken(!useToken)}>
+        <button type="button" className="text-sm text-accent-600 hover:underline" onClick={() => setUseToken(!useToken)}>
           {useToken ? "Use username and password" : "Use a token instead"}
         </button>
       </div>
@@ -133,7 +132,7 @@ function Connected(props: {
           <div className="font-medium">{props.site ?? props.url}</div>
           <div className="text-slate-500">
             {props.user} ·{" "}
-            <Link to="/knowledge" className="text-sky-600 hover:underline">
+            <Link to="/knowledge" className="text-accent-600 hover:underline">
               knowledge / {props.folder}
             </Link>{" "}
             ({props.files} files)
@@ -166,7 +165,7 @@ function Connected(props: {
               <input type="checkbox" checked={c.selected} onChange={() => toggle(c)} disabled={select.isPending} aria-label={`Sync ${c.name}`} />
               <span className="min-w-0 flex-1 truncate">{c.name}</span>
               {c.in_progress && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">current</span>}
-              <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-sky-600" aria-label="Open in Moodle">
+              <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-accent-600" aria-label="Open in Moodle">
                 <ExternalLink className="size-4" />
               </a>
             </li>

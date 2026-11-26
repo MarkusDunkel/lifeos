@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, ScrollText } from "lucide-react";
 import { useMemo } from "react";
-import { btn, PromptNote, ReviewPane, type RoundsApi } from "../review/ReviewPane";
+import { PromptNote, ReviewPane, type RoundsApi } from "../review/ReviewPane";
 import {
   addItem,
   deleteItem,
@@ -14,6 +14,7 @@ import {
   updateItem,
 } from "./api";
 import { splitReportPath } from "./review";
+import { buttonClass, Loading } from "../../components/ui";
 
 export function ReportPage({ path }: { path: string }) {
   const { folder, name } = splitReportPath(path);
@@ -35,7 +36,7 @@ export function ReportPage({ path }: { path: string }) {
 
   if (doc.isError)
     return <p className="p-6 text-slate-500">This report does not exist (anymore). It may have been archived.</p>;
-  if (!doc.data) return <p className="p-6 text-slate-400">Loading…</p>;
+  if (!doc.data) return <Loading className="p-6" />;
 
   return (
     <ReviewPane
@@ -59,7 +60,7 @@ export function ReportPage({ path }: { path: string }) {
           <Link
             to="/workspaces/$"
             params={{ _splat: doc.data.changelog }}
-            className={`${btn} hover:bg-slate-100 dark:hover:bg-slate-800`}
+            className={`${buttonClass("ghost")}`}
           >
             <ScrollText className="size-4" /> Change log
           </Link>

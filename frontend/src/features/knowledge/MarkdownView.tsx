@@ -103,7 +103,7 @@ export function MarkdownView({
   };
 
   return (
-    <article className={`prose prose-slate ${compact ? "prose-sm" : ""} max-w-none dark:prose-invert prose-headings:scroll-mt-4 prose-a:text-sky-600 dark:prose-a:text-sky-400 prose-img:rounded-lg`}>
+    <article className={`prose prose-slate ${compact ? "prose-sm" : ""} max-w-none dark:prose-invert prose-headings:scroll-mt-4 prose-a:text-accent-600 dark:prose-a:text-accent-400 prose-img:rounded-lg`}>
       {frontmatter && !hideFrontmatter && (
         <pre className="not-prose mb-6 overflow-x-auto rounded-lg bg-slate-100 p-3 text-xs text-slate-600 dark:bg-slate-900 dark:text-slate-400">
           {frontmatter}

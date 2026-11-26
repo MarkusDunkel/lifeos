@@ -11,6 +11,7 @@ import { assetUrl, flattenFiles, isImage, isMarkdown, splitFrontmatter } from ".
 import { MarkdownEditor } from "./MarkdownEditor";
 import { MarkdownView } from "./MarkdownView";
 import { useDocEditor } from "./useDocEditor";
+import { buttonClass, Loading } from "../../components/ui";
 
 export function DocumentPage({ path, edit }: { path: string; edit: boolean }) {
   if (!isMarkdown(path)) return <AssetPage path={path} />;
@@ -42,7 +43,7 @@ function AssetPage({ path }: { path: string }) {
         {isImage(path) ? (
           <img src={assetUrl(path)} alt={path} className="max-w-full rounded-lg" />
         ) : (
-          <a className="text-sky-600 underline" href={assetUrl(path)} target="_blank" rel="noreferrer">
+          <a className="text-accent-600 underline" href={assetUrl(path)} target="_blank" rel="noreferrer">
             Open file
           </a>
         )}
@@ -81,7 +82,7 @@ function MarkdownPage({ path, startInEdit }: { path: string; startInEdit: boolea
         <p className="p-6 text-slate-500">This note does not exist (anymore).</p>
       </div>
     );
-  if (!doc.data) return <p className="p-6 text-slate-400">Loading…</p>;
+  if (!doc.data) return <Loading className="p-6" />;
 
   const content = editor.content;
 
@@ -93,7 +94,7 @@ function MarkdownPage({ path, startInEdit }: { path: string; startInEdit: boolea
         ) : (
           <>
             {!mirror && (
-              <button onClick={() => setEditing(true)} className={`${btn} hover:bg-slate-100 dark:hover:bg-slate-800`}>
+              <button onClick={() => setEditing(true)} className={`${buttonClass("ghost")}`}>
                 <Pencil className="size-4" /> Edit
               </button>
             )}
@@ -124,7 +125,7 @@ function MarkdownPage({ path, startInEdit }: { path: string; startInEdit: boolea
                 <ul className="space-y-1 text-sm">
                   {backlinks.data.map((b) => (
                     <li key={b.path}>
-                      <Link to="/knowledge/$" params={{ _splat: b.path }} className="text-sky-600 hover:underline dark:text-sky-400">
+                      <Link to="/knowledge/$" params={{ _splat: b.path }} className="text-accent-600 hover:underline dark:text-accent-400">
                         {b.title}
                       </Link>
                       <span className="ml-2 text-xs text-slate-400">{b.path}</span>

@@ -7,9 +7,10 @@ import { flattenFiles } from "./links";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { MarkdownView } from "./MarkdownView";
 import { useDocEditor, type DocEditorState } from "./useDocEditor";
+import { buttonBase, buttonClass, Loading } from "../../components/ui";
 
 export const docBtn =
-  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";
+  buttonBase;
 
 /** Shown when a save failed because the file changed elsewhere since it was loaded. */
 export function ConflictBanner({ editor, what = "note" }: { editor: DocEditorState; what?: string }) {
@@ -37,7 +38,7 @@ export function EditButtons({ editor, onView }: { editor: DocEditorState; onView
       <button
         onClick={editor.doSave}
         disabled={!editor.dirty || editor.saving}
-        className={`${docBtn} bg-sky-600 text-white hover:bg-sky-700`}
+        className={`${buttonClass("primary")}`}
       >
         <Check className="size-4" /> Save
       </button>
@@ -47,7 +48,7 @@ export function EditButtons({ editor, onView }: { editor: DocEditorState; onView
           editor.discard();
           onView();
         }}
-        className={`${docBtn} hover:bg-slate-100 dark:hover:bg-slate-800`}
+        className={`${buttonClass("ghost")}`}
       >
         <Eye className="size-4" /> View
       </button>
@@ -85,12 +86,12 @@ export function DocEditor({ path, title, startInEdit = false, onSaved, actions, 
             <Link
               to="/knowledge/$"
               params={{ _splat: path }}
-              className={`${docBtn} text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800`}
+              className={`${buttonClass("ghost")}`}
               title="Open in Knowledge"
             >
               <ExternalLink className="size-4" /> <span className="hidden sm:inline">Knowledge</span>
             </Link>
-            <button onClick={() => setEditing(true)} className={`${docBtn} hover:bg-slate-100 dark:hover:bg-slate-800`}>
+            <button onClick={() => setEditing(true)} className={`${buttonClass("ghost")}`}>
               <Pencil className="size-4" /> Edit
             </button>
           </>
@@ -100,7 +101,7 @@ export function DocEditor({ path, title, startInEdit = false, onSaved, actions, 
       {editor.doc.isError ? (
         <p className="p-4 text-sm text-slate-500">This file does not exist (anymore).</p>
       ) : !editor.doc.data ? (
-        <p className="p-4 text-sm text-slate-400">Loading…</p>
+        <Loading className="p-4" />
       ) : editing ? (
         <div className="h-[70vh] p-2">
           <MarkdownEditor value={editor.content} onChange={editor.setDraft} />

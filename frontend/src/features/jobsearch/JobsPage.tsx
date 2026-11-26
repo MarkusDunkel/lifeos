@@ -22,11 +22,12 @@ import {
 } from "./api";
 import { DashboardView } from "./Dashboard";
 import { ago, formatEmployment, formatSalary } from "./format";
+import { buttonClass, inputClass, Loading, pageClass, PageHeader, QueryState, Tabs } from "../../components/ui";
 
 const btn =
-  "inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800";
+  buttonClass("secondary");
 const input =
-  "w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 pl-9 text-sm dark:border-slate-700 dark:bg-slate-900";
+  `${inputClass} w-full pl-9`;
 const badge = "rounded px-1.5 py-0.5 text-xs";
 
 const PERIODS: [string, number | null][] = [
@@ -65,28 +66,26 @@ export function JobsPage({ view = "postings", onView }: { view?: JobsView; onVie
   useEffect(() => setPages(1), [filter]);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6 sm:p-8">
-      <h1 className="flex items-center gap-2 text-2xl font-semibold">
-        <Briefcase className="size-7 text-teal-600" /> Jobs
-      </h1>
-      <p className="text-sm text-slate-500">
-        Job postings imported from devjobs.at. The import runs on your PC (devjobs.at blocks servers): once a day it asks
-        whether to import, or run <code className="text-xs">lifeos jobsearch import</code> there. Postings for the same
-        job are grouped; postings that went offline are kept for a year.
-      </p>
-      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-800" role="tablist">
-        {(["postings", "dashboard"] as const).map((v) => (
-          <button
-            key={v}
-            role="tab"
-            aria-selected={view === v}
-            onClick={() => onView?.(v)}
-            className={`-mb-px border-b-2 px-3 py-1.5 text-sm capitalize ${view === v ? "border-teal-600 font-medium" : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"}`}
-          >
-            {v}
-          </button>
-        ))}
-      </div>
+    <div className={pageClass("lg")}>
+      <PageHeader
+        icon={Briefcase}
+        title="Jobs"
+        subtitle={
+          <>
+            Job postings imported from devjobs.at. The import runs on your PC (devjobs.at blocks servers): once a day
+            it asks whether to import, or run <code className="text-xs">lifeos jobsearch import</code> there. Postings
+            for the same job are grouped; postings that went offline are kept for a year.
+          </>
+        }
+      />
+      <Tabs
+        value={view}
+        onChange={(v: JobsView) => onView?.(v)}
+        tabs={[
+          { id: "postings", label: "Postings" },
+          { id: "dashboard", label: "Dashboard" },
+        ]}
+      />
       {view === "dashboard" ? (
         <DashboardView />
       ) : (
@@ -190,7 +189,7 @@ function StatusCard() {
   const status = useQuery(jobsearchStatusQuery);
   const s = status.data;
   if (!s) {
-    return <p className="text-sm text-slate-400">{status.error ? status.error.message : "Loading…"}</p>;
+    return <QueryState query={status} />;
   }
   const last = s.lastImport;
   return (
@@ -243,7 +242,7 @@ function Results({ filter, pages, onMore }: { filter: PostingsFilter; pages: num
   const first = useQuery(postingsQuery(filter, 0));
   const total = first.data?.total ?? 0;
   if (first.error) return <p className="text-sm text-red-600">{first.error.message}</p>;
-  if (!first.data) return <p className="text-sm text-slate-400">Loading…</p>;
+  if (!first.data) return <Loading />;
   return (
     <>
       <p className="text-sm text-slate-500">
@@ -307,7 +306,7 @@ function PostingItem({ row }: { row: PostingRow }) {
         </div>
         <div className="shrink-0 text-right text-xs text-slate-400">
           <div>{ago(row.firstSeen)}</div>
-          <a href={row.url} target="_blank" rel="noopener noreferrer" className="inline-flex text-slate-400 hover:text-sky-600" aria-label="Open on devjobs.at">
+          <a href={row.url} target="_blank" rel="noopener noreferrer" className="inline-flex text-slate-400 hover:text-accent-600" aria-label="Open on devjobs.at">
             <ExternalLink className="size-4" />
           </a>
         </div>
@@ -457,7 +456,7 @@ function FitBadges({ fit, commute }: { fit: Fit; commute?: Commute }) {
         );
       })}
       {fit.remote && (
-        <span className={`${badge} inline-flex items-center gap-1 bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300`}>
+        <span className={`${badge} inline-flex items-center gap-1 bg-accent-50 text-accent-700 dark:bg-accent-950/60 dark:text-accent-300`}>
           <Globe className="size-3" /> remote
         </span>
       )}
@@ -506,7 +505,7 @@ function Badges({ row }: { row: PostingRow }) {
           +{row.duplicateCount} duplicate{row.duplicateCount === 1 ? "" : "s"}
         </span>
       )}
-      {row.repostOf && <span className={`${badge} bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300`}>republished</span>}
+      {row.repostOf && <span className={`${badge} bg-accent-100 text-accent-700 dark:bg-accent-950 dark:text-accent-300`}>republished</span>}
       {row.application && (
         <a
           href={row.application}
@@ -529,7 +528,7 @@ function PostingDetails({ postingKey }: { postingKey: string }) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["jobsearch"] }),
   });
   const d = detail.data;
-  if (!d) return <p className="mt-2 pl-6 text-slate-400">{detail.error ? detail.error.message : "Loading…"}</p>;
+  if (!d) return <div className="mt-2 pl-6"><QueryState query={detail} /></div>;
   const dates = [
     d.date_posted && `posted ${new Date(d.date_posted).toLocaleDateString()}`,
     d.valid_through && `open until ${new Date(d.valid_through).toLocaleDateString()}`,
@@ -556,7 +555,7 @@ function PostingDetails({ postingKey }: { postingKey: string }) {
         )}
         {apply.error && <span className="text-sm text-red-600">{apply.error.message}</span>}
         {apply.data && (
-          <a href={apply.data.url} target="_blank" rel="noopener noreferrer" className="text-sm text-sky-600 hover:underline">
+          <a href={apply.data.url} target="_blank" rel="noopener noreferrer" className="text-sm text-accent-600 hover:underline">
             Ticket #{apply.data.issue} created
           </a>
         )}
@@ -577,7 +576,7 @@ function PostingDetails({ postingKey }: { postingKey: string }) {
           <ul className="list-disc pl-5">
             {d.related.map((r: PostingRow) => (
               <li key={r.key}>
-                <a href={r.url} target="_blank" rel="noopener noreferrer" className="hover:text-sky-600 hover:underline">
+                <a href={r.url} target="_blank" rel="noopener noreferrer" className="hover:text-accent-600 hover:underline">
                   {r.title}
                 </a>{" "}
                 · {r.place} · imported {ago(r.firstSeen)}

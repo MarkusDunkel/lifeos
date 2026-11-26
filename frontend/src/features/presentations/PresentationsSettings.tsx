@@ -3,9 +3,10 @@ import { Presentation, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type DeviceCode, disconnect, pollConnect, presentationsStatusQuery, startConnect, syncPresentations } from "./api";
 import { summarize } from "../mirrors/mirror";
+import { buttonClass, cardClass, QueryState } from "../../components/ui";
 
 const btn =
-  "inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800";
+  buttonClass("secondary");
 
 const OUTCOME = {
   connected: "Connected.",
@@ -54,7 +55,7 @@ export function PresentationsSettings() {
 
   const s = status.data;
   return (
-    <section className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+    <section className={`${cardClass} space-y-3 p-4`}>
       <h2 className="flex items-center gap-2 font-semibold">
         <Presentation className="size-5 text-orange-600" /> Presentations (OneDrive)
       </h2>
@@ -63,7 +64,7 @@ export function PresentationsSettings() {
         presentation in PowerPoint for the web. LifeOS only reads from OneDrive.
       </p>
       {!s ? (
-        <p className="text-sm text-slate-400">{status.error ? status.error.message : "Loading…"}</p>
+        <QueryState query={status} />
       ) : !s.configured ? (
         <p className="text-sm text-amber-600">
           Not set up. Add {s.missing.join(", ")} to the deployment's .env (see docs/vault.md).
@@ -83,9 +84,9 @@ export function PresentationsSettings() {
             <dd>{s.last ? `${new Date(s.last.synced_at).toLocaleString()} · ${summarize(s.last)}` : "never"}</dd>
           </dl>
           {code && (
-            <div className="rounded-lg bg-sky-50 p-3 text-sm dark:bg-sky-950">
+            <div className="rounded-lg bg-accent-50 p-3 text-sm dark:bg-accent-950">
               Open{" "}
-              <a href={code.verification_uri} target="_blank" rel="noopener noreferrer" className="text-sky-600 underline">
+              <a href={code.verification_uri} target="_blank" rel="noopener noreferrer" className="text-accent-600 underline">
                 {code.verification_uri}
               </a>{" "}
               and enter the code{" "}

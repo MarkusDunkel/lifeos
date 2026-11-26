@@ -3,9 +3,10 @@ import { Check, ClipboardCopy, ExternalLink, GraduationCap, Presentation, Refres
 import { useState } from "react";
 import { api } from "../../lib/api";
 import { type MirrorMeta, type MirrorReport, summarize, textForClaude } from "./mirror";
+import { buttonBase } from "../../components/ui";
 
 const btn =
-  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40";
+  buttonBase;
 
 const STYLE = {
   presentation: { box: "border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950/40", accent: "bg-orange-600 hover:bg-orange-700", icon: "text-orange-600", Icon: Presentation },
