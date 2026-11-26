@@ -232,8 +232,13 @@ class Releases:
         return events
 
     def _say(self, entry: dict[str, Any], issue_id: str, text: str) -> None:
+        """Comment on the ticket. A comment that cannot be written (e.g. the ticket was
+        deleted) must not stop the release: the stage change is saved either way."""
         body = "\n".join([comments.marker(entry.get("agent") or "lifeos"), text])
-        self.gh.add_comment(issue_id, body)
+        try:
+            self.gh.add_comment(issue_id, body)
+        except Exception as exc:
+            log.warning("could not comment on %s: %s", entry.get("ref") or issue_id, exc)
 
     def _back_to_work(self, issue_id: str, entry: dict[str, Any]) -> str:
         """A failed release: back from review to the working column, blocked. Returns the
@@ -257,6 +262,19 @@ class Releases:
             return ""
         return "\n\n" + self.t("release_back_to_work", column=contract.ai.working)
 
+    def _merged_already(self, pr: dict[str, Any]) -> str | None:
+        """The merge commit when the pull request was merged in an earlier round whose state
+        was not saved; then it is not merged a second time."""
+        if self.app is None:
+            return None
+        try:
+            current = self.gh.pull_request(self.app.repo, int(pr["number"]))
+        except Exception:
+            return None
+        if not current or current.get("state") != "MERGED":
+            return None
+        return ((current.get("mergeCommit") or {}).get("oid")) or None
+
     def _advance(self, issue_id: str, entry: dict[str, Any], pr: dict[str, Any]) -> str | None:
         if pr.get("stage") not in ("test", "deploy") or not pr.get("request"):
             return None
@@ -279,7 +297,7 @@ class Releases:
                 pr["stage"] = "cancelled"
                 return f"{ref}: PR #{pr['number']} not merged (ticket discarded)"
             try:
-                merge = self.gh.merge_pull_request(
+                merge = self._merged_already(pr) or self.gh.merge_pull_request(
                     pr["id"],
                     pr["head"],
                     f"Merge #{pr['number']}: {pr.get('title', '')}"[:120],
