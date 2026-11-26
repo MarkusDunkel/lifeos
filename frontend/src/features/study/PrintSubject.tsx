@@ -5,20 +5,42 @@ import { docQuery, treeQuery } from "../knowledge/api";
 import { flattenFiles } from "../knowledge/links";
 import { MarkdownView } from "../knowledge/MarkdownView";
 import { subjectQuery } from "./api";
-import { formatExamDate, printDocs } from "./format";
+import {
+  formatExamDate,
+  PRINT_PART_TITLE,
+  type PrintPart,
+  printDocs,
+} from "./format";
 
 /**
  * The whole subject on one page for the browser's "Save as PDF": overview, every
  * learning text and every question card with its fields. Opens the print dialog once
  * everything has loaded; always light, whatever the system theme.
  */
-export function PrintSubject({ subject }: { subject: string }) {
+export function PrintSubject({
+  subject,
+  part,
+}: {
+  subject: string;
+  part: PrintPart;
+}) {
   const detail = useQuery(subjectQuery(subject));
   const tree = useQuery(treeQuery);
-  const files = useMemo(() => (tree.data ? flattenFiles(tree.data) : []), [tree.data]);
-  const docs = useMemo(() => (detail.data ? printDocs(detail.data) : []), [detail.data]);
-  const contents = useQueries({ queries: docs.map((doc) => ({ ...docQuery(doc.path), retry: false })) });
-  const ready = detail.data !== undefined && tree.data !== undefined && contents.every((c) => !c.isPending);
+  const files = useMemo(
+    () => (tree.data ? flattenFiles(tree.data) : []),
+    [tree.data],
+  );
+  const docs = useMemo(
+    () => (detail.data ? printDocs(detail.data, part) : []),
+    [detail.data, part],
+  );
+  const contents = useQueries({
+    queries: docs.map((doc) => ({ ...docQuery(doc.path), retry: false })),
+  });
+  const ready =
+    detail.data !== undefined &&
+    tree.data !== undefined &&
+    contents.every((c) => !c.isPending);
   const printed = useRef(false);
 
   useEffect(() => {
@@ -29,22 +51,38 @@ export function PrintSubject({ subject }: { subject: string }) {
   useEffect(() => {
     if (!ready || !detail.data || printed.current) return;
     printed.current = true;
-    document.title = `${detail.data.name} – Study`;
+    document.title = `${detail.data.name} – ${PRINT_PART_TITLE[part]}`;
     // let images and layout settle before the dialog freezes the page
     const timer = window.setTimeout(() => window.print(), 400);
     return () => window.clearTimeout(timer);
-  }, [ready, detail.data]);
+  }, [ready, detail.data, part]);
 
-  if (detail.isError) return <p className="p-8 text-slate-500">This subject does not exist (anymore).</p>;
+  if (detail.isError)
+    return (
+      <p className="p-8 text-slate-500">
+        This subject does not exist (anymore).
+      </p>
+    );
   if (!detail.data) return <p className="p-8 text-slate-400">Loading…</p>;
   const d = detail.data;
-  const banks = d.banks.filter((b) => b.cards.length > 0);
+  const banks =
+    part === "all" || part === "questions"
+      ? d.banks.filter((b) => b.cards.length > 0)
+      : [];
   const cardCount = banks.reduce((n, b) => n + b.cards.length, 0);
+  // A table of contents (and the cover on its own page) only pays off with several parts.
+  const withToc = docs.length + (banks.length > 0 ? 1 : 0) > 1;
+  const pageBreak = (first: boolean) =>
+    first && !withToc ? "mt-6" : "mt-8 break-before-page print:mt-0";
 
   return (
     <div className="print-compact mx-auto max-w-3xl bg-white p-6 text-slate-900 print:max-w-none print:p-0">
       <div className="mb-8 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm print:hidden">
-        <span className="flex-1 text-slate-600">{ready ? "Ready – choose “Save as PDF” in the print dialog." : "Loading all files…"}</span>
+        <span className="flex-1 text-slate-600">
+          {ready
+            ? "Ready – choose “Save as PDF” in the print dialog."
+            : "Loading all files…"}
+        </span>
         <button
           onClick={() => window.print()}
           disabled={!ready}
@@ -52,69 +90,111 @@ export function PrintSubject({ subject }: { subject: string }) {
         >
           <FileDown className="size-4" /> Print / Save as PDF
         </button>
-        <button onClick={() => window.close()} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 hover:bg-slate-200">
+        <button
+          onClick={() => window.close()}
+          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 hover:bg-slate-200"
+        >
           <X className="size-4" /> Close
         </button>
       </div>
 
       <header className="space-y-3">
-        <h1 className="text-2xl font-bold">{d.name}</h1>
+        <h1 className="text-2xl font-bold">
+          {d.name}
+          {part !== "all" && (
+            <span className="font-normal text-slate-500">
+              {" "}
+              – {PRINT_PART_TITLE[part]}
+            </span>
+          )}
+        </h1>
         {d.exams.map((e) => (
           <div key={e.date} className="text-slate-700">
             <span className="font-medium">Exam {formatExamDate(e.date)}</span>
             {e.format && <span> – {e.format}</span>}
-            {d.exams.length > 1 && <div className="text-sm text-slate-500">{e.topics.join(" · ")}</div>}
+            {d.exams.length > 1 && (
+              <div className="text-sm text-slate-500">
+                {e.topics.join(" · ")}
+              </div>
+            )}
           </div>
         ))}
         <p className="text-sm text-slate-500">
-          Exported {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+          Exported{" "}
+          {new Date().toLocaleDateString("en-GB", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })}
         </p>
       </header>
 
-      <nav className="mt-8">
-        <h2 className="mb-2 text-sm font-semibold tracking-wide text-slate-500 uppercase">Contents</h2>
-        <ol className="list-decimal space-y-0.5 pl-5">
-          {docs.map((doc) => (
-            <li key={doc.path}>
-              <a href={`#${doc.anchor}`} className="text-sky-700">
-                {doc.heading}
-              </a>
-            </li>
-          ))}
-          {banks.length > 0 && (
-            <li>
-              <a href="#questions" className="text-sky-700">
-                Questions ({cardCount})
-              </a>
-            </li>
-          )}
-        </ol>
-      </nav>
+      {withToc && (
+        <nav className="mt-8">
+          <h2 className="mb-2 text-sm font-semibold tracking-wide text-slate-500 uppercase">
+            Contents
+          </h2>
+          <ol className="list-decimal space-y-0.5 pl-5">
+            {docs.map((doc) => (
+              <li key={doc.path}>
+                <a href={`#${doc.anchor}`} className="text-sky-700">
+                  {doc.heading}
+                </a>
+              </li>
+            ))}
+            {banks.length > 0 && (
+              <li>
+                <a href="#questions" className="text-sky-700">
+                  Questions ({cardCount})
+                </a>
+              </li>
+            )}
+          </ol>
+        </nav>
+      )}
 
       {docs.map((doc, i) => {
         const content = contents[i]?.data?.content;
         return (
-          <section key={doc.path} id={doc.anchor} className="mt-8 break-before-page print:mt-0">
+          <section
+            key={doc.path}
+            id={doc.anchor}
+            className={pageBreak(i === 0)}
+          >
             <div className="mb-2 border-b border-slate-300 pb-0.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">
               {doc.heading}
             </div>
             {content === undefined ? (
-              <p className="text-sm text-slate-500">{contents[i]?.isError ? "This file could not be loaded." : "Loading…"}</p>
+              <p className="text-sm text-slate-500">
+                {contents[i]?.isError
+                  ? "This file could not be loaded."
+                  : "Loading…"}
+              </p>
             ) : (
-              <MarkdownView content={content} path={doc.path} files={files} hideFrontmatter compact />
+              <MarkdownView
+                content={content}
+                path={doc.path}
+                files={files}
+                hideFrontmatter
+                compact
+              />
             )}
           </section>
         );
       })}
 
       {banks.length > 0 && (
-        <section id="questions" className="mt-8 break-before-page print:mt-0">
+        <section id="questions" className={pageBreak(docs.length === 0)}>
           <h1 className="mb-3 text-xl font-bold">Questions</h1>
           {banks.map((bank) => (
             <div key={bank.file} className="mb-5">
               <h2 className="mb-2 border-b border-slate-300 pb-0.5 text-base font-semibold break-after-avoid">
                 {bank.topic}
-                {bank.exam && <span className="ml-2 text-sm font-normal text-slate-500">exam {formatExamDate(bank.exam)}</span>}
+                {bank.exam && (
+                  <span className="ml-2 text-sm font-normal text-slate-500">
+                    exam {formatExamDate(bank.exam)}
+                  </span>
+                )}
               </h2>
               <ol className="space-y-2">
                 {bank.cards.map((card, n) => (
@@ -127,7 +207,9 @@ export function PrintSubject({ subject }: { subject: string }) {
                         {Object.entries(card.fields).map(([key, value]) => (
                           <div key={key} className="contents">
                             <dt className="text-slate-500">{key}</dt>
-                            <dd className="min-w-0 whitespace-pre-line">{value}</dd>
+                            <dd className="min-w-0 whitespace-pre-line">
+                              {value}
+                            </dd>
                           </div>
                         ))}
                       </dl>

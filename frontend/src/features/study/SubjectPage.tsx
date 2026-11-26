@@ -68,6 +68,16 @@ export function SubjectPage({
             {key === "questions" && <span className="ml-1.5 text-xs text-slate-400">{d.cards}</span>}
           </button>
         ))}
+        <Link
+          to="/print/study/$subject"
+          params={{ subject: d.key }}
+          search={{ part: tab }}
+          target="_blank"
+          className="mb-1 ml-auto inline-flex items-center gap-1.5 self-center rounded-lg px-2.5 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          title={`Only this tab as a PDF (print dialog → Save as PDF)`}
+        >
+          <FileDown className="size-4" /> <span className="hidden sm:inline">{TABS.find(([k]) => k === tab)?.[1]}</span> PDF
+        </Link>
       </nav>
       {tab === "material" && <MaterialTab d={d} onSaved={refresh} />}
       {tab === "questions" && <QuestionsTab d={d} onSaved={refresh} />}
@@ -94,11 +104,12 @@ function Head({ d }: { d: SubjectDetail }) {
         <Link
           to="/print/study/$subject"
           params={{ subject: d.key }}
+          search={{}}
           target="_blank"
           className={`${docBtn} text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800`}
           title="Material, questions and overview as one PDF (print dialog → Save as PDF)"
         >
-          <FileDown className="size-4" /> Export PDF
+          <FileDown className="size-4" /> Export all as PDF
         </Link>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">

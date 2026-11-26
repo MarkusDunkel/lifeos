@@ -76,9 +76,24 @@ export function banksByExam(banks: Bank[]): { exam: string | null; banks: Bank[]
 
 export type PrintDoc = { path: string; heading: string; anchor: string };
 
+/** What a PDF export contains: everything, or one tab of the subject page. */
+export type PrintPart = "all" | "material" | "questions" | "overview";
+
+export const PRINT_PARTS: PrintPart[] = ["all", "material", "questions", "overview"];
+
+export const PRINT_PART_TITLE: Record<PrintPart, string> = {
+  all: "Study",
+  material: "Material",
+  questions: "Questions",
+  overview: "Overview",
+};
+
 /** The files of a subject in PDF order: the overview first, then every learning text. */
-export function printDocs(d: Pick<SubjectDetail, "subjectFile" | "material">): PrintDoc[] {
-  const docs = [{ path: d.subjectFile, heading: "Overview" }, ...d.material.map((m) => ({ path: m.file, heading: m.title }))];
+export function printDocs(d: Pick<SubjectDetail, "subjectFile" | "material">, part: PrintPart = "all"): PrintDoc[] {
+  const docs = [
+    ...(part === "all" || part === "overview" ? [{ path: d.subjectFile, heading: "Overview" }] : []),
+    ...(part === "all" || part === "material" ? d.material.map((m) => ({ path: m.file, heading: m.title })) : []),
+  ];
   const seen = new Set<string>();
   return docs
     .filter((doc) => doc.path && !seen.has(doc.path) && seen.add(doc.path))

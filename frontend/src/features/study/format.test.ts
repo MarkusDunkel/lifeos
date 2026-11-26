@@ -138,6 +138,13 @@ describe("printDocs", () => {
     expect(docs.map((d) => d.anchor)).toEqual(["doc-0", "doc-1", "doc-2"]);
   });
 
+  it("keeps only the requested part", () => {
+    const d = { subjectFile: "o.md", material: [material("a.md", "A")] };
+    expect(printDocs(d, "material").map((x) => x.heading)).toEqual(["A"]);
+    expect(printDocs(d, "overview").map((x) => x.heading)).toEqual(["Overview"]);
+    expect(printDocs(d, "questions")).toEqual([]);
+  });
+
   it("skips a missing overview file", () => {
     expect(printDocs({ subjectFile: "", material: [material("a.md", "A")] }).map((d) => d.heading)).toEqual(["A"]);
   });
