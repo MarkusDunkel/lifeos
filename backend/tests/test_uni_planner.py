@@ -282,8 +282,10 @@ def test_exam_without_question_bank_is_shown_once_per_bank_set(setup):
     # a bank written in a session: checked again, so the planner can link it
     bank = vault.root / "ready" / "knowledge" / "Studium" / "SOL" / "Leadership - Prüfen.md"
     bank.parent.mkdir(parents=True)
-    (bank.parent / "_Fach.md").write_text("---\nfach: SOL\nprüfung: 2026-12-15\n---\n")
-    bank.write_text("---\nthema: Leadership\ntyp: prüfen\n---\n\n# Fragen\n")
+    (bank.parent / "_Fach.md").write_text(
+        "---\nfach: SOL\nprüfung: 2026-12-15\n---\n", encoding="utf-8"
+    )
+    bank.write_text("---\nthema: Leadership\ntyp: prüfen\n---\n\n# Fragen\n", encoding="utf-8")
     planner.run(lambda agent: llm)
     prompt = llm.prompts[-1]
     assert prompt["questionBank"] == [40]
