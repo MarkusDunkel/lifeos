@@ -226,7 +226,12 @@ The model also sets a `Start` date per task (by kind and size, learning from an
 `experience` list of earlier outcomes); the code, without a model call, moves a Todo ticket
 to In Progress when its start is reached, and does not move it forward again after the
 owner moved it back (the next run sets a new start). Tickets past their due date and
-tickets without a start trigger a run once a day. Moodle syncs from the web app and the
+tickets without a start trigger a run once a day. Exam tickets (test, Klausur, Prüfung,
+exam, quiz in the title) whose start is reached or that are due within four weeks are
+checked against the hand-written question banks (`knowledge/Studium/**/* - Prüfen.md`):
+the model gets the banks and the Moodle mirror paths, adds a hint with sources when none
+fits and links the bank once it exists. It never writes a bank itself. A ticket triggers
+this check again only when it enters the window or the set of banks changes. Moodle syncs from the web app and the
 worker exclude each other through a file lock. Only one machine should sync Moodle (the
 server): the mirror's state (`.lifeos/moodle/state.json`) is not versioned.
 
