@@ -73,7 +73,7 @@ REFS: dict[str, int] = {
     "act-applications": 19, "act-tasks": 20,
     # second order and foundation nodes
     "boards": 21, "control-room": 22, "control-explanation": 23,
-    "pull-requests": 24, "tickets": 25, "app-live": 26, "vault-remote": 27,
+    "pull-requests": 24, "app-live": 26, "vault-remote": 27,
     "claude-code-pc": 28, "token-usage": 29,
     # processes
     "moodle-sync": 30, "teams-mail": 31, "teams-files": 32,
@@ -82,16 +82,14 @@ REFS: dict[str, int] = {
     "commute": 39, "job-matcher": 40, "start-application": 41,
     "application-writer": 42, "applications-board": 43, "agents": 44,
     "lifeos-manager": 45, "control-report": 46, "git-sync": 47,
-    "deployer": 48, "tickets-copy": 49, "claude-usage": 50,
+    "deployer": 48, "claude-usage": 50,
 }  # fmt: skip
-RETIRED: tuple[int, ...] = ()  # numbers of blocks that are gone: never hand them out again
+RETIRED: tuple[int, ...] = (25, 49)  # numbers of blocks that are gone: never hand them out again
 
 
 def ref_of(block_id: str, kind: str) -> str:
-    """The global id (e.g. ``P-46``) of a node (``kind`` = its kind) or a process. The
-    process "tickets" shares its id with the dataset it writes: it is ``tickets-copy`` here."""
-    key = "tickets-copy" if kind == "process" and block_id == "tickets" else block_id
-    number = REFS.get(key)
+    """The global id (e.g. ``P-46``) of a node (``kind`` = its kind) or a process."""
+    number = REFS.get(block_id)
     return f"{PREFIX[kind]}-{number}" if number is not None else ""
 
 
@@ -266,7 +264,6 @@ def build_catalog(s: Settings) -> Catalog:
         Node("control-explanation", "Problem explanation", "dataset", "what is wrong, what to do"),
         # technical foundation
         Node("pull-requests", "Pull requests", "source", "released by the assistant"),
-        Node("tickets", "Tickets in the vault", "dataset", "ready/tickets"),
         Node("app-live", "Running app", "dataset", "deployed branch"),
         Node("vault-remote", "Vault repository", "dataset", "private GitHub repo"),
         Node("claude-code-pc", "Claude Code on the PC", "source", "session transcripts"),
@@ -510,21 +507,6 @@ def build_catalog(s: Settings) -> Catalog:
             foundation=True,
             hint="On the server: `systemctl status lifeos-deployer.timer`.",
             description="Tests and deploys the pull requests the assistant releases.",
-        ),  # fmt: skip
-        Process(
-            "tickets",
-            "Copy GitHub tickets into the vault",
-            MANUAL,
-            "button",
-            enabled=bool(s.github_token),
-            inputs=("github-boards",),
-            outputs=("tickets",),
-            checks=("github",),
-            warn_after=14 * DAY,
-            mirror=True,
-            run_path="/api/tickets/sync",
-            foundation=True,
-            description="Copies the GitHub issues into ready/tickets for context and search.",
         ),  # fmt: skip
         Process(
             "claude-usage",

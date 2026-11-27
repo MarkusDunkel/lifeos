@@ -203,7 +203,7 @@ class UniPlanner:
         write_atomic(path, json.dumps(data, indent=1, ensure_ascii=False))
 
     def _tasks(self) -> UniTasks:
-        return UniTasks(self.vault, self.repo, self.label)
+        return UniTasks(self.vault)
 
     # -- input ----------------------------------------------------------------------------
 

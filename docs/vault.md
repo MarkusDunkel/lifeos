@@ -8,15 +8,13 @@ vault/
 │   ├── knowledge/         knowledge hub, an Obsidian-compatible Markdown vault
 │   │   ├── Presentations/ text mirrors of OneDrive PowerPoints (read-only)
 │   │   └── Moodle/        text mirrors of Moodle course materials (read-only)
-│   ├── tickets/           GitHub issue mirror: <owner>/<repo>/<number>-<slug>.md
 │   └── workspaces/        short-lived AI reports (flat)
 │       ├── aenderungsprotokoll/   change log per processed report
 │       └── archive/               processed reports, moved unchanged
-├── outbox/                digest plans and results per connector
 ├── boards/                board contracts: columns, owners, fields, README (mirrored to GitHub)
 ├── agents/                agent definitions <name>.md, texts.yaml, run logs <name>/runs.md
 ├── .md4h/feedback/        feedback rounds on workspace files (md4h v2 format)
-├── .lifeos/               runtime state: indexes, merge bases (gitignored)
+├── .lifeos/               runtime state: indexes, run logs (gitignored)
 └── CLAUDE.md              rules for agents working in the vault
 ```
 
@@ -24,10 +22,6 @@ vault/
 
 ```
 source ──ingest──▶ inbox/ ──normalise/merge──▶ ready/ ◀── humans, agents
-                                                 │
-                                   digest plan ──▶ outbox/<connector>/<ts>_plan.md
-                                                 │   (reviewed by the user)
-                                   apply ────────▶ source, result in outbox/
 ```
 
 ## Notes
@@ -59,24 +53,9 @@ accept new values.
 
 ## Tickets (GitHub)
 
-```
-GitHub ──sync──▶ inbox/github/<owner>/<repo>/issues.json        raw, reproducible
-               ▶ ready/tickets/<owner>/<repo>/<number>-<slug>.md  3-way merge
-               ▶ .lifeos/github/base/…/<number>.json             merge base = GitHub state seen last
-ready/tickets ──plan──▶ outbox/github/<ts>_plan.md   reviewed by the user
-              ──apply─▶ GitHub, outbox/github/<ts>_result.md, then sync again
-```
-
-- Ticket files hold `title`, `state`, `labels`, `assignees`, `project` (Projects v2 fields
-  of type single select, text, number, date) and the issue text; `number`, `repo`, `url`
-  and `updated` are maintained by the sync. A file without `number` is a new ticket.
-- Sync merges per field: a change on one side wins, labels and assignees merge as sets,
-  the text merges line by line (`git merge-file`). If both sides changed the same field,
-  the local value stays, the field is listed under `conflicts`, and plans are blocked
-  until it is resolved ("Use GitHub" or "Keep mine").
-- A plan lists every local change with a diff and ends with a machine-readable block.
-  Applying it skips an operation if the file or the issue changed after the plan.
-- Comments on issues are not mirrored yet.
+Tickets are not in the vault. They live on GitHub only (issues in the board repository,
+grouped by Projects v2 boards); the app and its agents read the text and the comments there
+and write there. See "Tickets: one repository, several projects" in `architecture.md`.
 
 ## Presentations (OneDrive)
 
@@ -205,31 +184,18 @@ lifeos teams-mail ─▶ inbox/teams/messages.json               every message o
 - The MCP server offers `search_mail` and `read_mail` (read-only) to the AI assistants; mail
   content is passed on as data.
 
-## University tasks (AI drafts, reviewed by you)
+## University tasks (study planner)
 
-```
-/uni-tasks (Claude Code, run in the vault folder)
-  lifeos tasks input  → changed mirror notes since the last run, Moodle task facts,
-                        existing tickets with their task markers, hints
-  AI                  → ticket drafts ready/tickets/<owner>/<board>/new-*.md (label university)
-                        + report ready/workspaces/uni-tasks-<date>.md
-  lifeos tasks check  → validates the drafts;  lifeos tasks done → run log
-you: Tickets → Changes → create plan → Apply
-```
+The worker job `uni-planner` turns new Moodle and Teams material into tickets on the
+University board, directly on GitHub (see "Study planner" in `architecture.md`). In the
+vault it only reads and remembers:
 
-- The command is installed by `lifeos init-vault` as `.claude/commands/uni-tasks.md` (only if
-  missing — afterwards it is the vault's own copy and can be refined). `.claude/settings.json`
-  allows exactly the three helper commands and writes to `ready/tickets` and
-  `ready/workspaces`; git commits, pushes and `gh` are denied.
-- Every drafted ticket carries one marker `<!-- lifeos:task <source> -->` in its text:
-  `moodle:assign:<id>`, `moodle:quiz:<id>` or `note:<moodle_id>:<short id>`. It survives on
-  GitHub, so a task is recognised after its issue was created and never drafted twice.
+- Every ticket it creates carries one marker `<!-- lifeos:task <source> -->` in its text:
+  `moodle:assign:<id>`, `moodle:quiz:<id>` or `note:<moodle_id>:<short id>`. The marker
+  lives on GitHub, so a task is recognised in every run and never created twice.
 - The run log `.lifeos/agents/uni-tasks.json` stores the revision of every processed mirror
-  note and the facts seen, so the next run only reads what changed. Hints: a due date that
-  changed in Moodle (`due_changed`) and a submission in Moodle (`submitted`, suggested once).
-  A due date you changed by hand is kept.
-- The helpers run inside the container: `docker compose -f ../app/compose.yml exec -T web
-  lifeos tasks input|check|done`. `lifeos moodle-sync` runs the Moodle sync from the shell.
+  note and the facts seen, so the next run only reads what changed.
+- `lifeos moodle-sync` runs the Moodle sync from the shell.
 
 ## Study (question banks, progress, MCP)
 

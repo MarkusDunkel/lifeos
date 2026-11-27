@@ -22,7 +22,6 @@ import { Route as AppNotesRouteImport } from './routes/_app/notes'
 import { Route as AppPlanRouteImport } from './routes/_app/plan'
 import { Route as AppReviewsRouteImport } from './routes/_app/reviews'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
-import { Route as AppTicketsRouteImport } from './routes/_app/tickets'
 import { Route as AppWorkspacesRouteImport } from './routes/_app/workspaces'
 import { Route as AppKnowledgeIndexRouteImport } from './routes/_app/knowledge/index'
 import { Route as AppKnowledgeSplatRouteImport } from './routes/_app/knowledge/$'
@@ -98,11 +97,6 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
-const AppTicketsRoute = AppTicketsRouteImport.update({
-  id: '/tickets',
-  path: '/tickets',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppWorkspacesRoute = AppWorkspacesRouteImport.update({
   id: '/workspaces',
   path: '/workspaces',
@@ -167,7 +161,6 @@ export interface FileRoutesByFullPath {
   '/plan': typeof AppPlanRoute
   '/reviews': typeof AppReviewsRouteWithChildren
   '/settings': typeof AppSettingsRoute
-  '/tickets': typeof AppTicketsRoute
   '/workspaces': typeof AppWorkspacesRouteWithChildren
   '/knowledge/$': typeof AppKnowledgeSplatRoute
   '/reviews/$': typeof AppReviewsSplatRoute
@@ -189,7 +182,6 @@ export interface FileRoutesByTo {
   '/notes': typeof AppNotesRoute
   '/plan': typeof AppPlanRoute
   '/settings': typeof AppSettingsRoute
-  '/tickets': typeof AppTicketsRoute
   '/': typeof AppIndexRoute
   '/knowledge/$': typeof AppKnowledgeSplatRoute
   '/reviews/$': typeof AppReviewsSplatRoute
@@ -215,7 +207,6 @@ export interface FileRoutesById {
   '/_app/plan': typeof AppPlanRoute
   '/_app/reviews': typeof AppReviewsRouteWithChildren
   '/_app/settings': typeof AppSettingsRoute
-  '/_app/tickets': typeof AppTicketsRoute
   '/_app/workspaces': typeof AppWorkspacesRouteWithChildren
   '/_app/': typeof AppIndexRoute
   '/_app/knowledge/$': typeof AppKnowledgeSplatRoute
@@ -243,7 +234,6 @@ export interface FileRouteTypes {
     | '/plan'
     | '/reviews'
     | '/settings'
-    | '/tickets'
     | '/workspaces'
     | '/knowledge/$'
     | '/reviews/$'
@@ -265,7 +255,6 @@ export interface FileRouteTypes {
     | '/notes'
     | '/plan'
     | '/settings'
-    | '/tickets'
     | '/'
     | '/knowledge/$'
     | '/reviews/$'
@@ -290,7 +279,6 @@ export interface FileRouteTypes {
     | '/_app/plan'
     | '/_app/reviews'
     | '/_app/settings'
-    | '/_app/tickets'
     | '/_app/workspaces'
     | '/_app/'
     | '/_app/knowledge/$'
@@ -401,13 +389,6 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/tickets': {
-      id: '/_app/tickets'
-      path: '/tickets'
-      fullPath: '/tickets'
-      preLoaderRoute: typeof AppTicketsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/workspaces': {
@@ -536,7 +517,6 @@ interface AppRouteChildren {
   AppPlanRoute: typeof AppPlanRoute
   AppReviewsRoute: typeof AppReviewsRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
-  AppTicketsRoute: typeof AppTicketsRoute
   AppWorkspacesRoute: typeof AppWorkspacesRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
   AppStudySubjectRoute: typeof AppStudySubjectRoute
@@ -554,7 +534,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppPlanRoute: AppPlanRoute,
   AppReviewsRoute: AppReviewsRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
-  AppTicketsRoute: AppTicketsRoute,
   AppWorkspacesRoute: AppWorkspacesRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
   AppStudySubjectRoute: AppStudySubjectRoute,

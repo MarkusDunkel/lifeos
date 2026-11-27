@@ -10,7 +10,6 @@ import {
   Compass,
   FileCheck,
   GraduationCap,
-  KanbanSquare,
   type LucideIcon,
   NotebookPen,
   Settings,
@@ -30,7 +29,6 @@ const NAV: Entry[][] = [
     { to: "/notes", label: "Notes", icon: StickyNote, hint: "Structured notes" },
     { to: "/workspaces", label: "Workspaces", icon: ClipboardList, hint: "Reports to give feedback on" },
     { to: "/reviews", label: "Reviews", icon: FileCheck, hint: "Documents waiting for your review" },
-    { to: "/tickets", label: "Tickets", icon: KanbanSquare, hint: "GitHub tickets in the vault" },
   ],
   [
     { to: "/study", label: "Study", icon: NotebookPen, hint: "Exams and question banks" },

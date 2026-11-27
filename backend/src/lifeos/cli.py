@@ -33,12 +33,6 @@ def main(argv: list[str] | None = None) -> int:
     imp.add_argument("--vault", type=Path, required=True)
     imp.add_argument("--dry-run", action="store_true")
 
-    tasks = sub.add_parser("tasks", help="helpers for the AI task run (/uni-tasks)")
-    tasks.add_argument("action", choices=["input", "check", "done"])
-    tasks.add_argument("--vault", type=Path, default=None, help="default: LIFEOS_VAULT_ROOT")
-    tasks.add_argument("--repo", default=None, help="board repository (owner/name)")
-    tasks.add_argument("--label", default="university")
-
     jobs = sub.add_parser("jobsearch", help="job search: import postings on the PC")
     jobs.add_argument(
         "action",
@@ -121,8 +115,6 @@ def main(argv: list[str] | None = None) -> int:
         result = git_sync_for(get_settings()).run()
         _print(asdict(result))
         return 0 if result.status in ("ok", "skipped") else 1
-    if args.cmd == "tasks":
-        return _tasks(args)
     if args.cmd == "moodle-sync":
         return _moodle_sync()
     if args.cmd == "teams-files":
@@ -271,32 +263,6 @@ def _print(data) -> None:
             out.write(text + "\n")
     except (OSError, ValueError, UnicodeError):
         pass
-
-
-def _tasks(args) -> int:
-    import os
-
-    from lifeos.core.vault import Vault
-    from lifeos.modules.tasks.service import TasksError, UniTasks
-
-    root = args.vault or os.environ.get("LIFEOS_VAULT_ROOT")
-    if not root:
-        print("set --vault or LIFEOS_VAULT_ROOT", file=sys.stderr)
-        return 2
-    try:
-        tool = UniTasks(Vault.open(Path(root)), args.repo, args.label)
-        if args.action == "input":
-            _print(tool.input())
-        elif args.action == "check":
-            result = tool.check()
-            _print(result)
-            return 0 if result["ok"] else 1
-        else:
-            _print(tool.done())
-    except TasksError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-    return 0
 
 
 def _applications_migrate(args) -> int:

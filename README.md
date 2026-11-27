@@ -14,9 +14,9 @@ I work together with AI agents — study notes, a knowledge hub, short-lived AI 
 - **Data is separated from code by sensitivity.** This repository contains only code.
   The vault is a separate git repository, pushed only to its own private sync
   repository; secrets live in a third folder outside of any repository.
-- **Ingest → AI-ready → digest.** Connectors import data (`inbox/`) into the workbench
-  (`ready/`), where humans and agents edit it; digests write changes back to their
-  source (`outbox/` holds the plans and results) — always reviewed before applying.
+- **Ingest → AI-ready.** Connectors import data (`inbox/`) into the workbench (`ready/`),
+  where humans and agents edit it. Tickets are the exception: they live on GitHub only,
+  and the app and its agents read and write them there.
 - **Agents are reviewable.** Every agent run is committed to the vault's git history, so
   each change can be inspected and reverted.
 
@@ -29,10 +29,10 @@ I work together with AI agents — study notes, a knowledge hub, short-lived AI 
 | Notes: tasks & info in a filterable, sortable grid (JSON Lines) | ✅ |
 | Workspaces: AI reports with in-app feedback rounds (md4h-compatible) | ✅ |
 | Agents: Claude Agent SDK runner, schedules, issue-triggered jobs | planned |
-| Tickets: GitHub Issues + Projects v2 mirror with 3-way merge and reviewed write-back | ✅ |
+| Tickets: GitHub Issues + Projects v2 boards as the place where the owner and the AI teammates work together | ✅ |
 | Presentations: text mirror of OneDrive PowerPoints, one click opens PowerPoint for the web | ✅ |
 | Moodle: course materials (PDF, slides, documents, pages) as searchable text mirrors | ✅ |
-| University tasks: AI drafts tickets from Moodle (dates, slides, pages), reviewed via plans | ✅ |
+| University tasks: the study planner turns Moodle and Teams material into tickets on the University board | ✅ |
 
 ## Architecture
 

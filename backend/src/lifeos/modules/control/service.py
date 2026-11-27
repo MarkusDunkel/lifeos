@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from lifeos.connectors.github.sync import STATE_DIR as GITHUB_STATE
 from lifeos.connectors.onedrive.sync import STATE_FILE as PRESENTATIONS_STATE
 from lifeos.core import tokens
 from lifeos.core.config import Settings
@@ -72,7 +71,6 @@ class Control:
             jobs=read_table(self.jobs_file, dict),
             pc=self.pc.all(),
             manual={
-                "tickets": (self._vault_json(f"{GITHUB_STATE}/meta.json") or {}).get("synced_at"),
                 "presentations": self._mtime(PRESENTATIONS_STATE),
                 "start-application": max(
                     (

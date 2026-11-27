@@ -283,15 +283,13 @@ boards group them by purpose (`LIFEOS_GITHUB_PROJECTS`, e.g. "LifeOS Tasks"; the
 applications board is added automatically). An issue lives in exactly one repository and
 can be on any number of boards; every board has its own fields (e.g. its own `Status`).
 
-The mirror (`connectors/github`) writes each issue to `ready/tickets/<owner>/<repo>/` with
-`projects: {<board title>: {<field>: <value>}}` in the frontmatter (a flat `project:` is read
-as the primary board, the first configured). The Tickets page lists them with filters by
-project, that project's status, state, label and text; there is no board view, because
-statuses differ per project. The editor groups fields per project and can add a ticket
-to another project; removing it from a project is done on GitHub.
+Tickets live on GitHub only. The vault holds no copy and the app has no ticket editor:
+the owner works on the boards on GitHub, the app and its agents read issue text, fields
+and comments through `connectors/github` each time they need them. (An earlier mirror
+into `ready/tickets/` with a reviewed write-back was removed: it carried no comments,
+which is where most of the conversation happens, and nothing read it anymore.)
 
-**Add directly, never change.** GitHub is the source of truth for tickets;
-`ready/tickets/` is a read copy (context for agents, search, history). The control over
+**Add directly, never change.** GitHub is the source of truth for tickets. The control over
 AI work is the board itself: a ticket an AI creates lands in an inbox column and nothing
 happens until the user moves it on. So the rule for every agent – worker or interactive –
 is:
@@ -303,10 +301,9 @@ is:
 | The `AI` field; moving a ticket the agent works on to its working column and to review | direct |
 | Tickets the user creates with a button (e.g. **Apply**), mechanical consequences of the user's moves (close/reopen on outcome columns) | direct |
 | Titles, texts, labels or fields the user set; closing, deleting; moving beyond review | **never** – the agent comments or proposes instead |
-| A batch change the user explicitly asks for in a session | copy → **Changes** → plan → apply |
+| A batch change the user explicitly asks for in a session | direct, after the user saw the list of changes in that session |
 
-The **Changes** page stays for such batch changes. Commits of agents that belong to a
-ticket end with `Refs <owner>/<repo>#<number>`, which links them in the ticket's timeline.
+Commits of agents that belong to a ticket end with `Refs <owner>/<repo>#<number>`, which links them in the ticket's timeline.
 
 ## Applications
 
@@ -658,14 +655,13 @@ last changed it; a sync older than that is not applied to it.
 | `modules/knowledge` | Tree, read/write, FTS5 search, wikilink backlinks |
 | `modules/notes` | JSON Lines store with per-note revisions, column schema (inferred or `schema.json`) |
 | `modules/workspaces` | Read-only reports, archive, change logs; md4h feedback rounds (draft → sealed) |
-| `modules/tickets` | Ticket list (filters by project/status/label) and editor over `ready/tickets`, conflict resolution |
 | `agents/` | AI teammates: board contracts and agent definitions (`config.py`), mirror to GitHub (`mirror.py`), taking tickets by state (`team.py`), work orders from `KI:` comments (`assistant.py`), inbox tickets (`inbox.py`), model access API or subscription (`llm.py`, `claude_code.py`), comments and run logs, workflows, one round (`service.py`), agents page API (`admin.py`, `router.py`) |
-| `connectors/github` | GraphQL client, ingest → 3-way merge, write-back plans and apply |
+| `connectors/github` | GraphQL client for issues, comments and Projects v2 boards |
 | `connectors/onedrive` | Microsoft device-code sign-in, read-only Graph client, `.pptx` text extraction, one-way mirror into the knowledge hub |
 | `connectors/moodle` | Moodle web service client (read-only), token sign-in, incremental mirror of course materials and overviews |
 | `core/extract` | Text extraction to Markdown: PDF (pypdf), PowerPoint, Word, HTML, plain text |
-| `modules/tasks` | Deterministic helpers for the AI task run: changed input, draft checks, run log (`lifeos tasks …`) |
-| `templates/` | Agent commands installed into the vault by `init-vault` (e.g. `/uni-tasks`) |
+| `modules/tasks` | Study planner (`planner.py`) and what it reads from the vault: changed mirror notes, Moodle task facts, run log |
+| `templates/` | Typst templates of the application documents |
 | `modules/moodle` | Status, connect, course selection and sync endpoints |
 | `modules/presentations` | Status, connect/disconnect and sync endpoints for the mirror |
 | `connectors/devjobs` | devjobs.at sitemap and posting pages (JSON-LD), polite client over Edge (Playwright) or `curl` |
