@@ -384,7 +384,8 @@ def build_catalog(s: Settings) -> Catalog:
             enabled=pc_on,
             inputs=("devjobs",),
             outputs=("job-postings",),
-            warn_after=6 * HOUR,
+            # the PC is off at night; like the other PC tasks, warn only after a whole day
+            warn_after=26 * HOUR,
             fail_after=2 * DAY,
             hint="On the PC: the task 'Job search import' runs hourly; "
             "`lifeos jobsearch import` starts it by hand. The PC must be on.",

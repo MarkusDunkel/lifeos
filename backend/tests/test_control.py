@@ -132,6 +132,10 @@ def test_pc_processes(tmp_path):
     result = run(tmp_path, {}, pc={"teams-files": fresh, "job-import": stale})
     assert light(result, "teams-files")[0] == OK
     assert light(result, "job-import")[0] == FAIL
+    # a night with the PC off is no warning
+    night = {"lastRun": iso(timedelta(hours=10)), "lastSuccess": iso(timedelta(hours=10)),
+             "status": "ok"}  # fmt: skip
+    assert light(run(tmp_path, {}, pc={"job-import": night}), "job-import")[0] == OK
     # without a report token the PC processes are not set up
     result = run(tmp_path, {}, control_report_token=None)
     assert light(result, "teams-files")[0] == OFF
