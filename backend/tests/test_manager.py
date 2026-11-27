@@ -177,6 +177,23 @@ def test_tickets_land_in_new_and_proposals_are_capped(gh, vault) -> None:
     assert "refused proposal 'Automate Y'" in message
 
 
+def test_a_proposal_in_closed_no_longer_counts_as_open(gh, vault) -> None:
+    clock = [NOW]
+    claude = FakeClaude(answer(create_tickets=[{"kind": "proposal", "title": "Idea", "body": "…"}]))
+    m = manager(gh, vault, claude, clock=lambda: clock[0])
+    m.run()
+    item = next(i for i in gh.items.values() if gh.issues[i["issue"]]["title"] == "Idea")
+    item["values"]["Status"] = "Closed"  # the owner drops it
+    claude.result = answer(create_tickets=[{"kind": "proposal", "title": "Other", "body": "…"}])
+    clock[0] += timedelta(days=1)
+    status_, message = m.run()
+    assert "refused proposal" not in message, message
+    assert "Other" in {i["title"] for i in gh.issues.values()}
+    seen = json.loads(claude.calls[-1]["prompt"])["boards"]
+    closed = next(t for t in seen if t["title"] == "Idea")
+    assert closed["status"] == "Closed" and "text" not in closed
+
+
 def test_watch_repair_runs_with_cooldown_and_ideas_once_a_day(gh, vault) -> None:
     gh.ticket(3, "Something", Status="Todo")
     clock = [NOW]

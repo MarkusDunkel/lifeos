@@ -482,7 +482,7 @@ main or deployed branch.
 
 ### Releasing the assistant's changes – and undoing them
 
-On a board whose contract names a discard column (`ai: {discard: New}`), everything an
+On a board whose contract names a discard column (`ai: {discard: Closed}`), everything an
 agent hands over to review is **live**, and moving the ticket to the discard column undoes
 it (`agents/releases.py`):
 

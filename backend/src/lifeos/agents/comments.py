@@ -266,11 +266,11 @@ DEFAULT_TEXTS: dict[str, str] = {
     "manager_kind_needs_you": "🧭 **From the LifeOS manager – needs you**",
     "manager_kind_proposal": (
         "🧭 **Proposal of the LifeOS manager** – move it to Todo and the assistant implements "
-        "it; close it to reject."
+        "it; move it to Closed to reject."
     ),
     "manager_kind_receipt": (
         "🧭 **Fixed by the LifeOS manager** – the change goes live by itself (tests, merge, "
-        "deployment). Done = keep it; move it to New = undo it."
+        "deployment). Done = keep it; move it to Closed = undo it."
     ),
     "manager_receipt": "**Fault:** {problem}\n\n**Fix:** {fix}\n\n**Pull request:** {url}",
     "manager_escalation_title": "Control room: {process} stays red",

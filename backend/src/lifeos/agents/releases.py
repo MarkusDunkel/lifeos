@@ -1,6 +1,6 @@
 """Releasing what the AI made for a ticket – and undoing it when the owner discards it.
 
-On boards with a discard column (``ai.discard`` in the contract, e.g. ``New``) every
+On boards with a discard column (``ai.discard`` in the contract, e.g. ``Closed``) every
 ticket an agent hands over to review is live:
 
 - vault changes are live as soon as the team committed them,

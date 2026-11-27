@@ -84,6 +84,9 @@ MESSAGE_CAP = 300
 AI_FIELD = "AI"
 RUNNING, BLOCKED = "running", "blocked"
 KEEP_CLOSED_DAYS = 30
+# columns where a ticket is settled: Done = the work was done and stays, Closed = the owner
+# dropped it (and what went live for it is undone)
+SETTLED = ("Done", "Closed")
 BODY_CAP = 1500
 COMMENTS_KEPT = 6
 COMMENT_CAP = 1200
@@ -140,7 +143,8 @@ How you work:
   ready/knowledge/Projects/LifeOS/, boards/, agents/): how a process could be automated, a
   gap, a simplification. Creative but concrete; kind `proposal`, with occasion, current
   state, change, pros and cons. At most {max_open} open at a time (counting yours still
-  open); never repeat one the owner rejected (closed, or moved back) – see `ownTickets`.
+  open); never repeat one the owner rejected (in the column Closed, closed, or moved back) – see
+  `ownTickets`.
 
 Hard limits:
 - Never delete anything of the owner's (tickets, notes, applications, vault content) and
@@ -361,7 +365,7 @@ class Manager:
 
     def live_releases(self, items: list[dict[str, Any]]) -> dict[str, str]:
         """``{"<issue id>:<pr>": text}`` for pull requests that went live for a ticket that is
-        not done yet."""
+        not settled yet."""
         try:
             data = json.loads(self.vault.resolve(RELEASES_FILE).read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -370,7 +374,7 @@ class Manager:
         out: dict[str, str] = {}
         for issue_id, entry in (data if isinstance(data, dict) else {}).items():
             item = by_issue.get(issue_id)
-            if item is None or item["state"] != "open" or item["status"] == "Done":
+            if item is None or item["state"] != "open" or item["status"] in SETTLED:
                 continue
             for pr in entry.get("prs") or []:
                 if pr.get("stage") == "live":
@@ -461,7 +465,7 @@ class Manager:
             entry = {k: i[k] for k in ("board", "number", "url", "title", "state", "status",
                                        "fields", "assignees", "labels", "updated",
                                        "openedBy")}  # fmt: skip
-            if i["state"] == "open" and i["status"] != "Done":
+            if i["state"] == "open" and i["status"] not in SETTLED:
                 entry["text"] = i["body"][:BODY_CAP]
                 notes = gh.issue_comments(i["issueId"])[-COMMENTS_KEPT:]
                 entry["comments"] = [
@@ -807,7 +811,7 @@ class Manager:
         proposal_label = texts("manager_kind_proposal")
         open_proposals = sum(
             1 for i in items
-            if i["openedBy"] == AGENT and i["state"] == "open" and i["status"] != "Done"
+            if i["openedBy"] == AGENT and i["state"] == "open" and i["status"] not in SETTLED
             and proposal_label in i["body"]
         )  # fmt: skip
         for t in result.create_tickets:
