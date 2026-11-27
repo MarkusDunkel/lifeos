@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,15 @@ from lifeos.core.config import Settings
 from lifeos.main import create_app
 
 PASSWORD = "correct horse battery staple"
+
+
+@pytest.fixture(autouse=True)
+def _no_lifeos_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests see only the settings they create: LIFEOS_* variables and CLAUDE_CONFIG_DIR of
+    the shell they run in (e.g. inside the worker container) must not change their result."""
+    for name in list(os.environ):
+        if name.startswith(("LIFEOS_", "CLAUDE_CONFIG_DIR")):
+            monkeypatch.delenv(name)
 
 
 @pytest.fixture(autouse=True)
