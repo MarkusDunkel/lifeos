@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from lifeos.modules.control.catalog import PC, SERVER
+from lifeos.modules.control.catalog import EXTERNAL, PC, SERVER
 from lifeos.modules.control.service import Control
 from lifeos.modules.control.tokens import series
 
@@ -67,9 +67,9 @@ def build_router(control: Control) -> APIRouter:
 
     @router.post("/report/{process_id}")
     def report(process_id: str, body: PcReport) -> dict:
-        """Result of a PC task (bearer LIFEOS_CONTROL_REPORT_TOKEN)."""
+        """Result of a PC task or heartbeat of an external system (bearer token)."""
         process = control.catalog.process(process_id)
-        if process is None or process.where != PC:
+        if process is None or process.where not in (PC, EXTERNAL):
             raise HTTPException(404, "no such PC process")
         app = None
         if body.version or body.update or body.update_ok is not None:

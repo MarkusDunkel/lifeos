@@ -125,6 +125,11 @@ class Settings(BaseSettings):
             "processes show as not set up."
         ),
     )
+    factory_report: bool = Field(
+        default=False,
+        description="Show the software factory (a separate system on the server) in the control "
+        "room; its watchdog reports a heartbeat with LIFEOS_CONTROL_REPORT_TOKEN.",
+    )
     university_project: str | None = Field(
         default=None,
         description="Projects v2 board for university tasks as `owner/number` "

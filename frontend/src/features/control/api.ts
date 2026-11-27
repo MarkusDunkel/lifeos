@@ -2,7 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 import { api } from "../../lib/api";
 
 export type Level = "off" | "ok" | "warn" | "fail";
-export type Where = "server" | "pc" | "manual" | "host";
+export type Where = "server" | "pc" | "manual" | "host" | "external";
 
 export type Check = { id: string; label: string; ok: boolean | null; message: string; fix: string };
 export type Run = { at: string; status: string; message: string };

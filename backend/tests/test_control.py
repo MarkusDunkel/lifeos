@@ -372,7 +372,7 @@ def test_actionable_trusts_upstream_and_counts_new_material(tmp_path):
     assert uni["trust"]["generators"]["uni-planner"]["summary"] == "2 new"
     assert "moodle-sync" in uni["trust"]["upstream"]
     foundation = {p["id"] for p in status["processes"] if p["foundation"]}
-    assert foundation == {"git-sync", "deployer", "claude-usage"}
+    assert foundation == {"git-sync", "deployer", "claude-usage", "software-factory"}
 
 
 def test_application_cycle(tmp_path):
@@ -663,3 +663,45 @@ def test_web_status_is_kept_for_a_moment(tmp_path):
     control.invalidate()
     assert control.status() is not first
     assert control.status(NOW) is not control.status(NOW)  # jobs asking with a time: fresh
+
+
+def test_software_factory_heartbeat(tmp_path):
+    # off by default: a LifeOS without the factory shows no warning light for it
+    off = next(p for p in build_catalog(settings(tmp_path)).processes if p.id == "software-factory")
+    assert not off.enabled and off.ref == "P-53"
+
+    app = create_app(settings(tmp_path, factory_report=True))
+    anon = TestClient(app)
+    auth = {"Authorization": f"Bearer {TOKEN}"}
+    body = {"status": "error", "message": "demo: PROBLEM · site down"}
+    assert (
+        anon.post("/api/control/report/software-factory", json=body, headers=auth).status_code
+        == 200
+    )
+    client = TestClient(app)
+    assert client.post("/api/auth/login", json={"password": PASSWORD}).status_code == 200
+    factory = next(
+        p
+        for p in client.get("/api/control/status").json()["processes"]
+        if p["id"] == "software-factory"
+    )
+    assert (
+        factory["where"] == "external"
+        and factory["level"] != "ok"
+        and "site down" in factory["message"]
+    )
+
+    assert (
+        anon.post(
+            "/api/control/report/software-factory",
+            json={"status": "ok", "message": "demo: ok"},
+            headers=auth,
+        ).status_code
+        == 200
+    )
+    factory = next(
+        p
+        for p in client.get("/api/control/status").json()["processes"]
+        if p["id"] == "software-factory"
+    )
+    assert factory["level"] == "ok"

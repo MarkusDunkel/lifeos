@@ -13,18 +13,19 @@ import {
   ReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Flag, Hand, Maximize2, Minimize2, Monitor, ScanSearch, Server, Sparkles, TriangleAlert, Wrench } from "lucide-react";
+import { Factory, Flag, Hand, Maximize2, Minimize2, Monitor, ScanSearch, Server, Sparkles, TriangleAlert, Wrench } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ControlStatus, Level, Where } from "./api";
 import { buildFlows, drawnIds, FOUNDATION, LEVEL_STYLE, originalId, trace, VAULT_STUB, widthOf } from "./layout";
 
-const WHERE_ICON: Record<Where, typeof Server> = { server: Server, pc: Monitor, manual: Hand, host: Wrench };
+const WHERE_ICON: Record<Where, typeof Server> = { server: Server, pc: Monitor, manual: Hand, host: Wrench, external: Factory };
 export { WHERE_ICON };
 export const WHERE_LABEL: Record<Where, string> = {
   server: "Server, automatic",
   pc: "PC, automatic (PC must be on)",
   manual: "Manual",
   host: "Server host",
+  external: "Own system on the server, reports a heartbeat",
 };
 
 type ItemData = {

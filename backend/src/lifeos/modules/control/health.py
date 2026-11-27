@@ -14,7 +14,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from lifeos.core.times import parse_iso as _parse
-from lifeos.modules.control.catalog import HOST, MANUAL, PC, SERVER, Catalog, Process
+from lifeos.modules.control.catalog import EXTERNAL, HOST, MANUAL, PC, SERVER, Catalog, Process
 from lifeos.modules.control.checks import Check
 from lifeos.modules.control.trust import actionable_trust
 
@@ -199,7 +199,7 @@ def _one(
     entry: dict[str, Any] = {}
     if p.where == SERVER:
         entry = src.jobs.get(p.job or p.id) or {}
-    elif p.where == PC:
+    elif p.where in (PC, EXTERNAL):
         entry = src.pc.get(p.id) or {}
     elif p.where == MANUAL:
         last = src.manual.get(p.id)

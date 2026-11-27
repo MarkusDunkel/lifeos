@@ -25,6 +25,7 @@ SERVER = "server"  # worker job on the server
 PC = "pc"  # scheduled task on the PC, reports to the server
 MANUAL = "manual"  # runs when someone presses a button
 HOST = "host"  # outside Docker on the server (deployer timer)
+EXTERNAL = "external"  # a system of its own on the server that reports like a PC task
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,8 @@ REFS: dict[str, int] = {
     "application-writer": 42, "applications-board": 43, "agents": 44,
     "lifeos-manager": 45, "control-report": 46, "git-sync": 47,
     "deployer": 48, "claude-usage": 50,
+    # software factory (own system, only reports its heartbeat)
+    "factory-boards": 51, "factory-sites": 52, "software-factory": 53,
 }  # fmt: skip
 RETIRED: tuple[int, ...] = (25, 49)  # numbers of blocks that are gone: never hand them out again
 
@@ -268,6 +271,8 @@ def build_catalog(s: Settings) -> Catalog:
         Node("vault-remote", "Vault repository", "dataset", "private GitHub repo"),
         Node("claude-code-pc", "Claude Code on the PC", "source", "session transcripts"),
         Node("token-usage", "Token usage", "dataset", "Burned tokens chart"),
+        Node("factory-boards", "Project boards", "source", "tickets of the factory projects"),
+        Node("factory-sites", "Project sites", "dataset", "built and deployed by the factory"),
     ]
     nodes = [
         replace(n, group=VAULT if n.id in VAULT_TARGETS else n.group, ref=ref_of(n.id, n.kind))
@@ -523,6 +528,24 @@ def build_catalog(s: Settings) -> Catalog:
             "the task; `lifeos claude-usage report` sends now. The PC must be on.",
             description="Sends the tokens of your Claude Code sessions for the Burned tokens "
             "chart (numbers, model and project folder only).",
+        ),  # fmt: skip
+        Process(
+            "software-factory",
+            "Software factory: agents build the projects",
+            EXTERNAL,
+            "heartbeat every 10 min",
+            enabled=pc_on and s.factory_report,
+            inputs=("factory-boards",),
+            outputs=("factory-sites",),
+            foundation=True,
+            warn_after=30 * MIN,
+            fail_after=2 * HOUR,
+            hint="On the server: `systemctl status factory-watchdog.timer`; details per project in "
+            "`/srv/<project>/agent/state/watchdog.json`.",
+            description="A separate system on the server: autonomous agents work the tickets of "
+            "software projects, deploy them and look after themselves. LifeOS only shows the "
+            "heartbeat of its watchdog: green = every project runs, red = a project has a "
+            "problem (the message names it).",
         ),  # fmt: skip
         _job(
             "control-report",
