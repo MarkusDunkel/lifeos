@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
-from importlib.resources import files
 from pathlib import Path
 
 DIRECTORIES = [
     "inbox",
     "ready/notes",
     "ready/knowledge",
-    "ready/tickets",
     "ready/workspaces/aenderungsprotokoll",
     "ready/workspaces/archive",
-    "outbox",
     "agents",
     ".md4h/feedback",
     ".lifeos",
@@ -53,9 +49,7 @@ sync repository (the pre-push hook blocks every other target).
 - `ready/` the workbench ("AI ready"). All manual and AI edits happen here.
   - `notes/` notes as JSON Lines (one note per line).
   - `knowledge/` knowledge hub, an Obsidian-compatible Markdown vault.
-  - `tickets/` mirror of GitHub issues (YAML frontmatter + Markdown body).
   - `workspaces/` short-lived reports; `aenderungsprotokoll/` change logs; `archive/`.
-- `outbox/` digest plans and results (what will be / was written back).
 - `.md4h/feedback/` feedback rounds on workspace files. Never modify.
 
 ## Rules
@@ -66,14 +60,10 @@ sync repository (the pre-push hook blocks every other target).
   no raw HTML or angle brackets outside code, no lists mixing checkboxes and plain items.
 - Knowledge hub: extend instead of duplicating, link related notes with [[wikilinks]],
   keep sources.
-- Tickets: GitHub is the source of truth, `ready/tickets/` is the editable copy. Agents
-  never write to GitHub themselves: they edit the copy (titles, text, labels, project
-  fields, new tickets as `new-*.md` files) and the user reviews and sends the changes via
-  "Changes" in LifeOS. Only the app writes directly, and only uncritical things: tickets
-  the user creates with a button, status moves inside a process the user steers (e.g. an
-  application from Active to In Review), closing/reopening as a consequence of the user's
-  move, and notice comments with links. When an agent's commit belongs to a ticket, its
-  message ends with `Refs <owner>/<repo>#<number>`.
+- Tickets live on GitHub only; there is no copy in the vault. Read them there (issue text
+  and comments). The app writes to GitHub; agents do so only where the board rules allow
+  it. When an agent's commit belongs to a ticket, its message ends with
+  `Refs <owner>/<repo>#<number>`.
 """
 
 GITATTRIBUTES = """* text=auto eol=lf
@@ -84,37 +74,10 @@ GITATTRIBUTES = """* text=auto eol=lf
 *.docx binary
 """
 
-# Claude Code in the vault: the /uni-tasks command may only run the task helpers and
-# write ticket drafts and reports. Everything else still asks for permission.
-TASKS_CMD = "docker compose -f ../app/compose.yml exec -T web lifeos tasks"
-CLAUDE_SETTINGS = json.dumps(
-    {
-        "permissions": {
-            "allow": [
-                f"Bash({TASKS_CMD} input)",
-                f"Bash({TASKS_CMD} check)",
-                f"Bash({TASKS_CMD} done)",
-                "Edit(ready/tickets/**)",
-                "Write(ready/tickets/**)",
-                "Write(ready/workspaces/**)",
-            ],
-            "deny": ["Bash(gh:*)"],
-        }
-    },
-    indent=2,
-)
-
-
-def _template(name: str) -> str:
-    return files("lifeos.templates").joinpath(name).read_text(encoding="utf-8")
-
-
 FILES = {
     ".gitignore": GITIGNORE,
     ".gitattributes": GITATTRIBUTES,
     "CLAUDE.md": CLAUDE_MD,
-    ".claude/settings.json": CLAUDE_SETTINGS + "\n",
-    ".claude/commands/uni-tasks.md": lambda: _template("commands/uni-tasks.md"),
 }
 
 
@@ -133,8 +96,7 @@ def init_vault(root: Path) -> list[str]:
         f = root / rel
         if not f.exists():
             f.parent.mkdir(parents=True, exist_ok=True)
-            text = content() if callable(content) else content
-            f.write_text(text, encoding="utf-8", newline="\n")
+            f.write_text(content, encoding="utf-8", newline="\n")
             log.append(f"created {rel}")
 
     if not (root / ".git").exists():

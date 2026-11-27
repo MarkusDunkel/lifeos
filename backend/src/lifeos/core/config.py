@@ -37,7 +37,8 @@ class Settings(BaseSettings):
         "postings, fetched by the worker job `commute`.",
     )
     github_token: str | None = Field(
-        default=None, description="GitHub token (scopes: repo, project) for the tickets sync."
+        default=None,
+        description="GitHub token (scopes: repo, project) for the boards and their agents.",
     )
     github_repos: str = Field(
         default="", description="Comma-separated repositories to mirror, e.g. `me/board,me/app`."

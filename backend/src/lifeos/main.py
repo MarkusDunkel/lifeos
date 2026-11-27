@@ -15,7 +15,6 @@ from lifeos import __version__
 from lifeos.agents.admin import AgentAdmin
 from lifeos.agents.router import build_router as agents_router
 from lifeos.connectors.github.client import GitHubClient, GitHubError
-from lifeos.connectors.github.sync import GitHubConnector, SyncError
 from lifeos.connectors.google.auth import GoogleError
 from lifeos.connectors.google.setup import build_calendar
 from lifeos.connectors.moodle.client import MoodleError
@@ -54,8 +53,6 @@ from lifeos.modules.reviews.router import build_router as reviews_router
 from lifeos.modules.reviews.service import ReviewService
 from lifeos.modules.study.router import build_router as study_router
 from lifeos.modules.study.service import StudyService
-from lifeos.modules.tickets.router import build_router as tickets_router
-from lifeos.modules.tickets.service import TicketService
 from lifeos.modules.vault_sync.router import build_router as vault_sync_router
 from lifeos.modules.workspaces.router import build_router as workspaces_router
 from lifeos.modules.workspaces.service import FeedbackError, WorkspaceService
@@ -112,10 +109,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def _feedback(_: Request, exc: FeedbackError) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=exc.status)
 
-    @app.exception_handler(SyncError)
-    async def _sync(_: Request, exc: SyncError) -> JSONResponse:
-        return JSONResponse({"detail": str(exc)}, status_code=exc.status)
-
     @app.exception_handler(GitHubError)
     async def _github(_: Request, exc: GitHubError) -> JSONResponse:
         return JSONResponse({"detail": f"GitHub: {exc}"}, status_code=502)
@@ -154,13 +147,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         public_url=settings.public_url,
     )))  # fmt: skip
 
-    github = GitHubConnector(
-        vault,
-        (lambda: GitHubClient(token)) if token else None,
-        settings.github_repo_list,
-        settings.github_project_list,
-    )
-    app.include_router(tickets_router(TicketService(github)))
     app.include_router(_presentations(settings, vault))
     app.include_router(_moodle_router(settings, vault))
     jobs_file = settings.state_dir / "jobs.json" if settings.state_dir else None

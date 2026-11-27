@@ -1,1 +1,1 @@
-"""AI task runs: deterministic input, checks and run log for /uni-tasks."""
+"""University tasks: what the study planner reads from the vault, and the planner itself."""

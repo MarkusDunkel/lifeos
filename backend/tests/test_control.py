@@ -372,7 +372,7 @@ def test_actionable_trusts_upstream_and_counts_new_material(tmp_path):
     assert uni["trust"]["generators"]["uni-planner"]["summary"] == "2 new"
     assert "moodle-sync" in uni["trust"]["upstream"]
     foundation = {p["id"] for p in status["processes"] if p["foundation"]}
-    assert foundation == {"git-sync", "deployer", "tickets", "claude-usage"}
+    assert foundation == {"git-sync", "deployer", "claude-usage"}
 
 
 def test_application_cycle(tmp_path):
