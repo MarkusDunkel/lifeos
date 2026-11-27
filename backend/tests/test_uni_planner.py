@@ -259,3 +259,39 @@ def test_overdue_ticket_triggers_a_run(setup):
     calls = len(llm.prompts)
     planner.run(lambda agent: llm)  # asked once per day
     assert len(llm.prompts) == calls
+
+
+def test_exam_without_question_bank_is_shown_once_per_bank_set(setup):
+    vault, gh, planner = setup
+    gh.fields["Start"] = ProjectField("F_St", "Start", "DATE", {}, {})
+    gh.add(40, "[SOL] Kurztest", "x", due="2026-12-15")  # within four weeks
+    gh.values["IT40"]["Start"] = "2026-12-01"
+    gh.add(41, "[LE] Test on Contract Clauses", "x", due="2027-01-29")  # too far away
+    gh.values["IT41"]["Start"] = "2027-01-08"
+    llm = FakeLlm({"summary": "s"})
+    planner.run(lambda agent: llm)
+    prompt = llm.prompts[-1]
+    assert prompt["questionBank"] == [40]
+    assert prompt["questionBanks"] == []
+    assert "ready/knowledge/Moodle/PCM/PCM.md" in prompt["moodleFiles"]
+    assert "Fragenbank" in llm.systems[-1]
+    calls = len(llm.prompts)
+    planner.run(lambda agent: llm)  # nothing new: no run for the same banks
+    assert len(llm.prompts) == calls
+
+    # a bank written in a session: checked again, so the planner can link it
+    bank = vault.root / "ready" / "knowledge" / "Studium" / "SOL" / "Leadership - Prüfen.md"
+    bank.parent.mkdir(parents=True)
+    (bank.parent / "_Fach.md").write_text("---\nfach: SOL\nprüfung: 2026-12-15\n---\n")
+    bank.write_text("---\nthema: Leadership\ntyp: prüfen\n---\n\n# Fragen\n")
+    planner.run(lambda agent: llm)
+    prompt = llm.prompts[-1]
+    assert prompt["questionBank"] == [40]
+    assert prompt["questionBanks"] == [
+        {
+            "path": "ready/knowledge/Studium/SOL/Leadership - Prüfen.md",
+            "subject": "SOL",
+            "topic": "Leadership",
+            "exam": "2026-12-15",
+        }
+    ]
